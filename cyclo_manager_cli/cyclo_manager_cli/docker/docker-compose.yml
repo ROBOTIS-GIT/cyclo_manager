@@ -10,7 +10,7 @@ services:
 
   cyclo_manager:
     container_name: cyclo_manager
-    image: robotis/talos:0.1.3
+    image: robotis/cyclo_manager:0.1.0
     restart: always
     network_mode: host
     volumes:
@@ -23,7 +23,7 @@ services:
 
   ui:
     container_name: cyclo_manager_ui
-    image: robotis/talos-ui:0.1.3
+    image: robotis/cyclo_manager-ui:0.1.0
     restart: always
     network_mode: host
     environment:

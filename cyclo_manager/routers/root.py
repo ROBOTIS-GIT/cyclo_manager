@@ -19,7 +19,7 @@ async def root():
     """
     return {
         "message": "cyclo_manager API",
-        "version": "0.1.3",
+        "version": "0.1.0",
         "docs": {
             "swagger_ui": "/docs",
             "redoc": "/redoc",

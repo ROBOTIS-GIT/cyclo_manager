@@ -16,6 +16,8 @@ services:
     restart: unless-stopped
     network_mode: host
     volumes:
+      - /dev:/dev
+      - /dev/shm:/dev/shm
       # Mount agent sockets directory (read-only for cyclo_manager)
       - /var/run/robotis/agent_sockets:/agents
       # Mount config file (for hot-reload on config changes)
@@ -29,7 +31,6 @@ services:
     environment:
       - CONFIG_FILE=/app/config.yml
       - PYTHONUNBUFFERED=1
-      - RMW_IMPLEMENTATION=rmw_zenoh_cpp
       - ROS_DOMAIN_ID=199
     # Note: uvicorn --reload will automatically restart on code changes
 
