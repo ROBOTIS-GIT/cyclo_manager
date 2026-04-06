@@ -214,8 +214,20 @@ export default function HomePage() {
         </div>
       )}
       <div
-        className={`w-full max-w-6xl mx-auto flex-1 flex items-center justify-center ${cycloManagerVersionInfo?.update_available ? "pt-14" : ""}`}
+        className={`w-full max-w-6xl mx-auto flex-1 flex flex-col min-h-0 ${cycloManagerVersionInfo?.update_available ? "pt-14" : ""}`}
       >
+        <header className="w-full flex justify-center shrink-0 pb-5 pt-0">
+          <img
+            src="/cyclo_logo.png"
+            alt="CYCLO"
+            className="h-14 sm:h-16 w-auto max-w-[min(100%,34rem)] object-contain"
+            draggable={false}
+            style={{
+              filter: theme === "dark" ? "invert(1)" : undefined,
+            }}
+          />
+        </header>
+        <div className="flex-1 flex flex-col items-center justify-center gap-4 min-h-0 w-full">
         {dockerError && (
           <div
             className="mb-4 p-2 rounded text-sm"
@@ -355,6 +367,7 @@ export default function HomePage() {
               </Link>
             );
           })}
+        </div>
         </div>
 
         {showUpdateInstructions && (

@@ -21,6 +21,8 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY cyclo_manager/ ./cyclo_manager/
 COPY cyclo_manager_cli/cyclo_manager_cli/config/config.yml ./config.yml
 
+RUN echo "source /opt/ros/jazzy/setup.bash" >> ~/.bashrc
+
 # Expose API port
 EXPOSE 8081
 

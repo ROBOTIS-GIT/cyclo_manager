@@ -1,5 +1,6 @@
 # Packaged compose for pip-installed cyclo_manager_cli.
 # Uses pre-built images; config path is set via CYCLO_MANAGER_CONFIG_FILE by the CLI.
+# `cyclo_manager up` starts cyclo_manager + ui only; rmw_zenoh + novnc-server are created but left stopped.
 services:
   rmw_zenoh:
     container_name: zenoh_daemon
@@ -14,9 +15,11 @@ services:
     restart: always
     network_mode: host
     volumes:
-      - /var/run/robotis/agent_sockets:/agents
-      - ${CYCLO_MANAGER_CONFIG_FILE}:/app/config.yml
-      - /var/run/docker.sock:/var/run/docker.sock
+      - /dev:/dev
+      - /dev/shm:/dev/shm
+      - /var/run/robotis/agent_sockets:/agents # For agent socket access
+      - ${CYCLO_MANAGER_CONFIG_FILE}:/app/config.yml # For hot-reload on config changes
+      - /var/run/docker.sock:/var/run/docker.sock # For Docker API access
     environment:
       - CONFIG_FILE=/app/config.yml
       - ROS_DOMAIN_ID=${ROS_DOMAIN_ID:-30}

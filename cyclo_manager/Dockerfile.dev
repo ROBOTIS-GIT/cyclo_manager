@@ -19,6 +19,8 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Note: Source code will be mounted as volume in docker-compose
 # No need to COPY cyclo_manager/ and config.yml here
 
+RUN echo "source /opt/ros/jazzy/setup.bash" >> ~/.bashrc
+
 # Expose API port
 EXPOSE 8081
 

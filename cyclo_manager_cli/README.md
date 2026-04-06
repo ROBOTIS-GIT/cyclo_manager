@@ -44,7 +44,7 @@ python3 -m cyclo_manager_cli.cli up
 
 | Command | Description |
 |--------|-------------|
-| `cyclo_manager up` | Start the cyclo_manager stack (server, UI, Zenoh daemon, noVNC) |
+| `cyclo_manager up` | Start API + web UI; create Zenoh + noVNC containers **without** starting them (start later from UI or `docker start`) |
 | `cyclo_manager up -c /path/to/config.yml` | Start with a custom config file (creates a copy from the bundled config if the path does not exist) |
 | `cyclo_manager up -r 35` | Set ROS2 domain ID (default: 30) |
 | `cyclo_manager up --pull` | Pull images before starting |
@@ -53,12 +53,10 @@ python3 -m cyclo_manager_cli.cli up
 
 ## What runs
 
-Running `cyclo_manager up` starts these containers (from the packaged `docker-compose.yml`):
+Running `cyclo_manager up` (from the packaged `docker-compose.yml`):
 
-- **cyclo_manager** – cyclo_manager API server (FastAPI)
-- **cyclo_manager_ui** – Web UI (Next.js)
-- **rmw_zenoh** (zenoh_daemon) – Zenoh daemon for ROS2/DDS
-- **novnc-server** – noVNC server for remote display
+- **Started immediately:** **cyclo_manager** (FastAPI API), **cyclo_manager_ui** (Next.js)
+- **Created but not started:** **rmw_zenoh** (`zenoh_daemon`), **novnc-server** — images are pulled (with `--pull`), containers exist so you can start them from the Control UI or `docker start zenoh_daemon` / `docker start novnc-server` when needed.
 
 The CLI passes the config path via `CYCLO_MANAGER_CONFIG_FILE` and optionally `ROS_DOMAIN_ID` (e.g. `cyclo_manager up -r 35`).
 

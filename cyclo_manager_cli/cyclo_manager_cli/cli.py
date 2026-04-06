@@ -9,6 +9,11 @@ from pathlib import Path
 
 PYPI_PACKAGE = "cyclo-manager"
 
+# `cyclo_manager up` starts these immediately.
+COMPOSE_SERVICES_UP = ("cyclo_manager", "ui")
+# These get `docker compose create` only (stopped); start from UI or `docker start` when needed.
+COMPOSE_SERVICES_CREATE_ONLY = ("rmw_zenoh", "novnc-server")
+
 
 def _docker_dir() -> Path:
     return Path(__file__).resolve().parent / "docker"
@@ -24,7 +29,7 @@ def _packaged_config_path() -> Path:
 
 
 def cmd_up(args: argparse.Namespace) -> int:
-    """Run docker compose with packaged compose file (cyclo_manager server + UI containers)."""
+    """Run docker compose: start API + UI; create zenoh + noVNC containers without starting them."""
     if args.config is None:
         config_path = _packaged_config_path()
     else:
@@ -43,19 +48,16 @@ def cmd_up(args: argparse.Namespace) -> int:
     env = os.environ.copy()
     env["CYCLO_MANAGER_CONFIG_FILE"] = str(config_path)
     env["ROS_DOMAIN_ID"] = str(args.ros_domain_id)
-    cmd = [
-        "docker",
-        "compose",
-        "-f",
-        str(compose_path),
-        "up",
-        "-d",
-    ]
-    if args.pull:
-        cmd.insert(-1, "--pull")
-        cmd.insert(-1, "always")
+    base = ["docker", "compose", "-f", str(compose_path)]
     try:
-        subprocess.run(cmd, env=env, check=True)
+        if args.pull:
+            subprocess.run([*base, "pull"], env=env, check=True)
+        subprocess.run([*base, "up", "-d", *COMPOSE_SERVICES_UP], env=env, check=True)
+        subprocess.run(
+            [*base, "create", "--no-recreate", *COMPOSE_SERVICES_CREATE_ONLY],
+            env=env,
+            check=True,
+        )
     except subprocess.CalledProcessError as e:
         return e.returncode
     except FileNotFoundError:
@@ -64,7 +66,7 @@ def cmd_up(args: argparse.Namespace) -> int:
             file=sys.stderr,
         )
         return 1
-    print("cyclo_manager server, cyclo_manager_ui, and zenoh daemon are up.")
+    print("cyclo_manager stack is up (API + UI running; zenoh_daemon + novnc-server created, not started).")
     return 0
 
 
@@ -152,9 +154,7 @@ def main() -> int:
     )
     sub = parser.add_subparsers(dest="command", help="Commands")
 
-    up_parser = sub.add_parser(
-        "up", help="Start cyclo_manager server, cyclo_manager_ui, and zenoh daemon (docker compose)"
-    )
+    up_parser = sub.add_parser("up", help="Start cyclo_manager stack (docker compose)")
     up_parser.add_argument(
         "-c",
         "--config",
@@ -172,13 +172,11 @@ def main() -> int:
     up_parser.add_argument(
         "--pull",
         action="store_true",
-        help="Always pull images before starting",
+        help="Pull all service images before create/up",
     )
     up_parser.set_defaults(func=cmd_up)
 
-    down_parser = sub.add_parser(
-        "down", help="Stop cyclo_manager server, cyclo_manager_ui, and zenoh daemon (docker compose down)"
-    )
+    down_parser = sub.add_parser("down", help="Stop all stack containers (docker compose down)")
     down_parser.set_defaults(func=cmd_down)
 
     update_parser = sub.add_parser(

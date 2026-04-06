@@ -38,8 +38,8 @@ export default function VSCodeLayout({
         style={{
           backgroundColor: "var(--vscode-sidebar-background)",
           borderRight: "1px solid var(--vscode-sidebar-border)",
-          width: "200px",
-          minWidth: "200px"
+          width: "220px",
+          minWidth: "220px"
         }}
       >
         {/* Sidebar Header */}
