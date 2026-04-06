@@ -1,0 +1,79 @@
+services:
+  rmw_zenoh:
+    container_name: zenoh_daemon
+    build:
+      context: .
+      dockerfile: cyclo_manager_cli/cyclo_manager_cli/docker/Dockerfile.zenoh_daemon
+    restart: unless-stopped
+    network_mode: host
+    init: true
+
+  cyclo_manager:
+    container_name: cyclo_manager
+    build:
+      context: .
+      dockerfile: cyclo_manager/Dockerfile.dev
+    restart: unless-stopped
+    network_mode: host
+    volumes:
+      # Mount agent sockets directory (read-only for cyclo_manager)
+      - /var/run/robotis/agent_sockets:/agents
+      # Mount config file (for hot-reload on config changes)
+      - ./config.yml:/app/config.yml
+      # Mount Docker socket for Docker API access
+      - /var/run/docker.sock:/var/run/docker.sock
+      # Mount cyclo_manager source code for hot-reload
+      - ./cyclo_manager:/app/cyclo_manager
+      # Exclude __pycache__ and .pyc files from host
+      - /app/cyclo_manager/__pycache__
+    environment:
+      - CONFIG_FILE=/app/config.yml
+      - PYTHONUNBUFFERED=1
+      - RMW_IMPLEMENTATION=rmw_zenoh_cpp
+      - ROS_DOMAIN_ID=199
+    # Note: uvicorn --reload will automatically restart on code changes
+
+  ui:
+    container_name: cyclo_manager_ui
+    build:
+      context: ./cyclo_manager_ui
+      dockerfile: Dockerfile.dev
+    restart: unless-stopped
+    network_mode: host
+    volumes:
+      # Mount source code for hot-reload in development
+      - ./cyclo_manager_ui:/app
+      # Exclude node_modules from host to use container's node_modules
+      - /app/node_modules
+      - /app/.next
+      # Exclude public/assets from host to use meshes downloaded during build
+      - /app/public/assets
+    environment:
+      - NEXT_PUBLIC_API_URL=http://127.0.0.1:8081
+      - NODE_ENV=development
+      - WATCHPACK_POLLING=true
+    # Note: Next.js dev server will automatically reload on code changes
+
+  novnc-server:
+    container_name: novnc-server
+    build:
+      context: novnc
+      dockerfile: docker/Dockerfile.amd64
+    restart: unless-stopped
+    cap_add:
+      - SYS_NICE
+    ulimits:
+      rtprio: 99
+      rttime: -1
+      memlock: 8428281856
+    network_mode: host
+    environment:
+      - ROS_DOMAIN_ID=30
+      - DISPLAY=:99
+      - DISPLAY_WIDTH=1920
+      - DISPLAY_HEIGHT=1080
+      - WEBSOCKIFY_PORT=8090
+    volumes:
+      - /dev:/dev
+      - /dev/shm:/dev/shm
+    privileged: true

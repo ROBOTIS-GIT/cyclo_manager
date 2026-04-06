@@ -1,0 +1,53 @@
+# Packaged compose for pip-installed cyclo_manager_cli.
+# Uses pre-built images; config path is set via CYCLO_MANAGER_CONFIG_FILE by the CLI.
+services:
+  rmw_zenoh:
+    container_name: zenoh_daemon
+    image: robotis/zenoh-daemon:latest
+    restart: always
+    network_mode: host
+    init: true
+
+  cyclo_manager:
+    container_name: cyclo_manager
+    image: robotis/talos:0.1.3
+    restart: always
+    network_mode: host
+    volumes:
+      - /var/run/robotis/agent_sockets:/agents
+      - ${CYCLO_MANAGER_CONFIG_FILE}:/app/config.yml
+      - /var/run/docker.sock:/var/run/docker.sock
+    environment:
+      - CONFIG_FILE=/app/config.yml
+      - ROS_DOMAIN_ID=${ROS_DOMAIN_ID:-30}
+
+  ui:
+    container_name: cyclo_manager_ui
+    image: robotis/talos-ui:0.1.3
+    restart: always
+    network_mode: host
+    environment:
+      - NEXT_PUBLIC_API_URL=http://127.0.0.1:8081
+      - NODE_ENV=production
+
+  novnc-server:
+    container_name: novnc-server
+    image: robotis/novnc-server:latest
+    restart: always
+    cap_add:
+      - SYS_NICE
+    ulimits:
+      rtprio: 99
+      rttime: -1
+      memlock: 8428281856
+    network_mode: host
+    environment:
+      - ROS_DOMAIN_ID=${ROS_DOMAIN_ID:-30}
+      - DISPLAY=:99
+      - DISPLAY_WIDTH=1920
+      - DISPLAY_HEIGHT=1080
+      - WEBSOCKIFY_PORT=8090
+    volumes:
+      - /dev:/dev
+      - /dev/shm:/dev/shm
+    privileged: true

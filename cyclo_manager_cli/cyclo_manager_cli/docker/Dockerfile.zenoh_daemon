@@ -1,0 +1,8 @@
+FROM ros:jazzy-ros-base
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ros-jazzy-rmw-zenoh-cpp \
+    && rm -rf /var/lib/apt/lists/*
+
+# ros2 run rmw_zenoh_cpp rmw_zenohd (tcp/7447 리스닝)
+CMD ["bash", "-c", "source /opt/ros/jazzy/setup.bash && ros2 run rmw_zenoh_cpp rmw_zenohd"]

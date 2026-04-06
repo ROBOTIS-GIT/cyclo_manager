@@ -1,0 +1,10 @@
+# cyclo_manager Configuration
+# This file defines the containers that cyclo_manager can control.
+#
+# Services are discovered dynamically from each agent.
+
+containers:
+  ai_worker:
+    socket_path: "/agents/ai_worker/s6_agent.sock"
+  physical_ai_server:
+    socket_path: "/agents/physical_ai_server/s6_agent.sock"

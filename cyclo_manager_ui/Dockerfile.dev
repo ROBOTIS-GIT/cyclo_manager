@@ -1,0 +1,41 @@
+# Development Dockerfile for Next.js UI
+
+FROM node:24-alpine
+
+WORKDIR /app
+
+# Install dependencies for development
+RUN apk add --no-cache libc6-compat git
+
+# Copy package files
+COPY package.json package-lock.json* ./
+
+# Install all dependencies (including devDependencies)
+RUN npm ci
+
+# Copy source code
+COPY . .
+
+# Download robot meshes from GitHub before build (same as production)
+RUN mkdir -p public/assets/ffw_description && \
+    cd /tmp && \
+    git clone --filter=blob:none --sparse --depth=1 \
+        --branch main \
+        https://github.com/ROBOTIS-GIT/ai_worker.git && \
+    cd ai_worker && \
+    git sparse-checkout set ffw_description/meshes && \
+    cp -r ffw_description/meshes /app/public/assets/ffw_description/ && \
+    cd / && \
+    rm -rf /tmp/ai_worker && \
+    echo "✅ Meshes downloaded: $(find /app/public/assets/ffw_description -type f | wc -l) files" || echo "⚠️  Mesh download failed, continuing build..."
+
+# Expose port for development server
+EXPOSE 3000
+
+ENV PORT=3000
+ENV HOSTNAME="0.0.0.0"
+ENV NODE_ENV=development
+
+# Start development server with hot-reload
+CMD ["npm", "run", "dev"]
+
