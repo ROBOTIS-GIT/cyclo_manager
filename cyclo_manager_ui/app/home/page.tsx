@@ -13,6 +13,7 @@ import {
 } from "@/lib/api";
 import type { ConfiguredContainerInfo, DockerContainerInfo, RepoVersionResponse, CycloManagerVersionResponse } from "@/types/api";
 import StatusBadge from "@/components/StatusBadge";
+import { useAppsHubBanner } from "@/contexts/AppsHubBannerContext";
 import { useTheme } from "@/contexts/ThemeContext";
 
 const SLOTS: { label: string; containerName: string }[] = [
@@ -22,6 +23,7 @@ const SLOTS: { label: string; containerName: string }[] = [
 
 export default function HomePage() {
   const { theme } = useTheme();
+  const { setUpdateBannerVisible } = useAppsHubBanner();
   const [configuredContainers, setConfiguredContainers] = useState<ConfiguredContainerInfo[]>([]);
   const [dockerContainers, setDockerContainers] = useState<DockerContainerInfo[]>([]);
   const [loading, setLoading] = useState(true);
@@ -93,6 +95,20 @@ export default function HomePage() {
       .then((info) => setCycloManagerVersionInfo(info))
       .catch(() => setCycloManagerVersionInfo(null));
   }, []);
+
+  useEffect(() => {
+    const show =
+      !loading &&
+      !error &&
+      !!cycloManagerVersionInfo?.update_available;
+    setUpdateBannerVisible(show);
+    return () => setUpdateBannerVisible(false);
+  }, [
+    loading,
+    error,
+    cycloManagerVersionInfo?.update_available,
+    setUpdateBannerVisible,
+  ]);
 
   const hasConfiguredContainer = (name: string) =>
     configuredContainers.some((c) => c.name === name);

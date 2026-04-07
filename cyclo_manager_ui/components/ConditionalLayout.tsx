@@ -1,6 +1,8 @@
 "use client";
 
 import { usePathname } from "next/navigation";
+import { AppsHubBannerProvider } from "@/contexts/AppsHubBannerContext";
+import AppsHubLink from "@/components/AppsHubLink";
 import VSCodeLayout from "./VSCodeLayout";
 
 export default function ConditionalLayout({
@@ -10,9 +12,16 @@ export default function ConditionalLayout({
 }) {
   const pathname = usePathname();
 
-  if (pathname === "/home") {
-    return <>{children}</>;
-  }
-
-  return <VSCodeLayout>{children}</VSCodeLayout>;
+  return (
+    <AppsHubBannerProvider>
+      <>
+        <AppsHubLink />
+        {pathname === "/home" || pathname === "/app" ? (
+          children
+        ) : (
+          <VSCodeLayout>{children}</VSCodeLayout>
+        )}
+      </>
+    </AppsHubBannerProvider>
+  );
 }

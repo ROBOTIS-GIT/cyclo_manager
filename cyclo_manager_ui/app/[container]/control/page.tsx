@@ -295,7 +295,7 @@ export default function ControlPage() {
   if (!container) {
     return (
       <div style={{ color: "var(--vscode-foreground)" }}>
-        Missing container. <Link href="/home" className="underline">Back to Home</Link>
+        Missing container. <Link href="/app" className="underline">Back to Apps</Link>
       </div>
     );
   }
