@@ -165,12 +165,20 @@ class CycloManagerTopicSubscriber:
         with self._lock:
             if topic in self._subs:
                 return
-        sub = self._create_sub(topic, msg_type, qos_profile)
+        profile = dict(qos_profile or {})
+        if topic == "/robot_description":
+            profile["durability"] = "transient_local"
+            try:
+                d = max(1, min(int(profile.get("depth", 1)), 10))
+            except (TypeError, ValueError):
+                d = 1
+            profile["depth"] = d
+        sub = self._create_sub(topic, msg_type, profile)
         if sub:
             with self._lock:
                 self._subs[topic] = sub
                 self._topic_msg_types[topic] = msg_type
-                if qos_profile.get("durability") == "transient_local":
+                if profile.get("durability") == "transient_local":
                     self._topics_transient_local.add(topic)
             logger.info(
                 "ROS2 subscribe: container=%s topic=%s msg_type=%s",
@@ -184,6 +192,7 @@ class CycloManagerTopicSubscriber:
             sub = self._subs.pop(topic, None)
             self._topic_msg_types.pop(topic, None)
             self._topics_transient_local.discard(topic)
+            self._msg_cache.pop(topic, None)
         if sub and self._node:
             self._node.destroy_subscription(sub)
             logger.info(
@@ -283,6 +292,11 @@ class CycloManagerTopicSubscriber:
 
     def remove_topic_subscription(self, topic: str) -> None:
         self._enqueue_and_wait((RequestKind.REMOVE_TOPIC, topic))
+
+    def is_topic_transient_local_subscription(self, topic: str) -> bool:
+        """True if this topic is subscribed with TRANSIENT_LOCAL (after add_topic_subscription)."""
+        with self._lock:
+            return topic in self._topics_transient_local
 
     def get_topic_data(self, topic: str) -> Optional[dict[str, Any]]:
         with self._lock:

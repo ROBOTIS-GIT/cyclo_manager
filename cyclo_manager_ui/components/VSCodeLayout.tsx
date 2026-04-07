@@ -3,6 +3,7 @@
 import { useState, useEffect } from "react";
 import { usePathname } from "next/navigation";
 import Link from "next/link";
+import { SIDEBAR_WIDTH_PX } from "@/lib/layout";
 import ThemeToggle from "./ThemeToggle";
 
 const LAST_CONTAINER_KEY = "last_control_container";
@@ -38,8 +39,8 @@ export default function VSCodeLayout({
         style={{
           backgroundColor: "var(--vscode-sidebar-background)",
           borderRight: "1px solid var(--vscode-sidebar-border)",
-          width: "220px",
-          minWidth: "220px"
+          width: `${SIDEBAR_WIDTH_PX}px`,
+          minWidth: `${SIDEBAR_WIDTH_PX}px`,
         }}
       >
         {/* Sidebar Header */}

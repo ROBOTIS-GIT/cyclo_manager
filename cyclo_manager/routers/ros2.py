@@ -67,6 +67,7 @@ def _get_topic_publisher_qos(container: str, topic: str, node) -> dict:
                 result["depth"] = int(d)
     except (subprocess.TimeoutExpired, FileNotFoundError):
         pass
+
     return result
 
 

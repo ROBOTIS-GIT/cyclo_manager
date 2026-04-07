@@ -480,7 +480,7 @@ async def websocket_ros2_topic_data(websocket: WebSocket, container: str, topic:
             qos_profile = ros2_router._get_topic_publisher_qos(container, topic, node)
             node.add_topic_subscription(topic, msg_type, qos_profile=qos_profile)
             # Give TRANSIENT_LOCAL callback time to receive the last message (DDS is async)
-            if qos_profile.get("durability") == "transient_local":
+            if node.is_topic_transient_local_subscription(topic):
                 for _ in range(5):
                     await asyncio.sleep(0.1)
                     if node.get_topic_data(topic):
