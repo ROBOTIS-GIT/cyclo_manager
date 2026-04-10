@@ -47,20 +47,14 @@ export default function VSCodeLayout({
       >
         {/* Sidebar Header */}
         <div
-          className="px-4 py-3 border-b flex flex-col gap-3"
+          className="px-3 py-4 border-b flex flex-col gap-4 items-center shrink-0"
           style={{ borderColor: "var(--vscode-sidebar-border)" }}
         >
-          <div className="flex items-center justify-between gap-2 min-w-0">
-            <h1
-              className="text-sm font-semibold truncate"
-              style={{ color: "var(--vscode-foreground)" }}
-            >
-              CYCLO_MANAGER
-            </h1>
+          <div className="w-full min-w-0">
             <ThemeToggle />
           </div>
           <div
-            className="border-t pt-3 -mx-4 px-4"
+            className="border-t pt-4 w-full -mx-3 px-3"
             style={{ borderColor: "var(--vscode-sidebar-border)" }}
           >
             <div className="flex justify-center w-full items-center gap-3 flex-nowrap">
@@ -70,10 +64,12 @@ export default function VSCodeLayout({
           </div>
         </div>
 
-        {/* Sidebar Navigation */}
-        <nav className="flex-1 py-2">
+        {/* Sidebar Navigation — tall centered items (Gi-style rail) */}
+        <nav
+          className="flex-1 min-h-0 w-full flex flex-col items-center gap-3 py-4 px-2 overflow-y-auto"
+          style={{ scrollbarGutter: "stable" }}
+        >
           {navItems.map((item) => {
-            const staticRoutes = ["/home", "/app", "/novnc", "/docker"];
             const isControlPage = pathname?.match(/^\/[^/]+\/control\/?$/);
             const isTopicsPage = pathname?.match(/^\/[^/]+\/topics\/?$/);
             const isDockerPage = pathname === "/docker";
@@ -86,23 +82,16 @@ export default function VSCodeLayout({
                     ? !!isDockerPage
                     : pathname === item.href || (item.href !== "/" && pathname?.startsWith(item.href));
 
-            const linkStyle = {
+            const linkStyle: React.CSSProperties = {
               backgroundColor: isActive ? "var(--vscode-list-activeSelectionBackground)" : "transparent",
               color: isActive ? "var(--vscode-foreground)" : "var(--vscode-descriptionForeground)",
             };
-            const className = "block px-4 py-2 text-sm transition-colors";
-            const content = (
-              <>
-                <span className="mr-2">{item.icon}</span>
-                {item.label}
-              </>
-            );
 
             return (
               <Link
                 key={item.label === "Control" ? `control-${item.href}` : item.label === "Topics" ? `topics-${item.href}` : item.href}
                 href={item.href}
-                className={className}
+                className="flex flex-col items-center justify-center gap-1.5 rounded-xl w-full aspect-square shrink-0 px-2 py-2 text-center no-underline transition-colors box-border"
                 style={linkStyle}
                 onMouseEnter={(e) => {
                   if (!isActive) {
@@ -115,7 +104,10 @@ export default function VSCodeLayout({
                   }
                 }}
               >
-                {content}
+                <span className="text-[2rem] leading-none select-none" aria-hidden>
+                  {item.icon}
+                </span>
+                <span className="text-[15px] font-semibold leading-snug">{item.label}</span>
               </Link>
             );
           })}

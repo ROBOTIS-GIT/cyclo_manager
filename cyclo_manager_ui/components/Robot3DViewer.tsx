@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useROS2TopicWebSocket } from "@/lib/websocket";
+import { useTheme } from "@/contexts/ThemeContext";
 import * as THREE from "three";
 // @ts-ignore
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
@@ -13,7 +14,13 @@ import URDFLoader from "urdf-loader";
 // -----------------------------------------------------------------------------
 const CANVAS_WIDTH = 500;
 const CANVAS_HEIGHT = 400;
-const SCENE_BACKGROUND = 0x1e1e1e;
+/** Match VS Code–style editor backgrounds for dark / light. */
+const SCENE_BG = { dark: 0x1e1e1e, light: 0xf3f3f3 } as const;
+const GROUND_COLOR = { dark: 0x333333, light: 0xd4d4d4 } as const;
+const GRID_COLOR = {
+  dark: { center: 0x888888, line: 0x444444 },
+  light: { center: 0x9e9e9e, line: 0xcccccc },
+} as const;
 const CAMERA_FOV = 50;
 const CAMERA_NEAR = 0.1;
 const CAMERA_FAR = 1000;
@@ -140,6 +147,13 @@ function fitCameraToRobot(
   renderer.render(scene, camera);
 }
 
+function disposeGridHelper(grid: THREE.GridHelper): void {
+  grid.geometry.dispose();
+  const mat = grid.material;
+  if (Array.isArray(mat)) mat.forEach((m) => m.dispose());
+  else (mat as THREE.Material).dispose();
+}
+
 // -----------------------------------------------------------------------------
 // Component
 // -----------------------------------------------------------------------------
@@ -149,12 +163,15 @@ export default function Robot3DViewer({
   jointStatesTopic = "/joint_states",
   className = "",
 }: Robot3DViewerProps) {
+  const { theme } = useTheme();
   const containerRef = useRef<HTMLDivElement>(null);
   const sceneRef = useRef<THREE.Scene | null>(null);
   const rendererRef = useRef<THREE.WebGLRenderer | null>(null);
   const cameraRef = useRef<THREE.PerspectiveCamera | null>(null);
   const controlsRef = useRef<OrbitControls | null>(null);
   const animationFrameRef = useRef<number | null>(null);
+  const groundMeshRef = useRef<THREE.Mesh | null>(null);
+  const gridHelperRef = useRef<THREE.GridHelper | null>(null);
   const robotRef = useRef<URDFRobotRef>(null);
   const highlightedMaterialsRef = useRef<Map<THREE.Mesh, { emissive: THREE.Color; emissiveIntensity: number }>>(new Map());
   const [robotDescription, setRobotDescription] = useState<string | null>(null);
@@ -237,7 +254,7 @@ export default function Robot3DViewer({
     if (!containerEl || rendererRef.current) return;
 
     const scene = new THREE.Scene();
-    scene.background = new THREE.Color(SCENE_BACKGROUND);
+    scene.background = new THREE.Color(SCENE_BG.dark);
     sceneRef.current = scene;
 
     const camera = new THREE.PerspectiveCamera(
@@ -276,10 +293,17 @@ export default function Robot3DViewer({
     ground.rotation.x = -Math.PI / 2;
     ground.receiveShadow = true;
     scene.add(ground);
+    groundMeshRef.current = ground;
 
-    const gridHelper = new THREE.GridHelper(GROUND_SIZE, GRID_DIVISIONS, 0x888888, 0x444444);
+    const gridHelper = new THREE.GridHelper(
+      GROUND_SIZE,
+      GRID_DIVISIONS,
+      GRID_COLOR.dark.center,
+      GRID_COLOR.dark.line
+    );
     gridHelper.position.y = 0.01;
     scene.add(gridHelper);
+    gridHelperRef.current = gridHelper;
 
     const axesHelper = new THREE.AxesHelper(AXES_SIZE);
     scene.add(axesHelper);
@@ -311,8 +335,41 @@ export default function Robot3DViewer({
       rendererRef.current = null;
       cameraRef.current = null;
       controlsRef.current = null;
+      groundMeshRef.current = null;
+      gridHelperRef.current = null;
     };
   }, []);
+
+  // Keep WebGL scene in sync with app light/dark theme
+  useEffect(() => {
+    const scene = sceneRef.current;
+    const renderer = rendererRef.current;
+    const camera = cameraRef.current;
+    if (!scene || !renderer || !camera) return;
+
+    const isDark = theme === "dark";
+    scene.background = new THREE.Color(isDark ? SCENE_BG.dark : SCENE_BG.light);
+
+    const groundMesh = groundMeshRef.current;
+    if (groundMesh?.material && !Array.isArray(groundMesh.material)) {
+      (groundMesh.material as THREE.MeshStandardMaterial).color.setHex(
+        isDark ? GROUND_COLOR.dark : GROUND_COLOR.light
+      );
+    }
+
+    const oldGrid = gridHelperRef.current;
+    if (oldGrid) {
+      scene.remove(oldGrid);
+      disposeGridHelper(oldGrid);
+    }
+    const gc = isDark ? GRID_COLOR.dark : GRID_COLOR.light;
+    const newGrid = new THREE.GridHelper(GROUND_SIZE, GRID_DIVISIONS, gc.center, gc.line);
+    newGrid.position.y = 0.01;
+    scene.add(newGrid);
+    gridHelperRef.current = newGrid;
+
+    renderer.render(scene, camera);
+  }, [theme]);
 
   // Load URDF and add robot to scene
   useEffect(() => {
@@ -359,15 +416,21 @@ export default function Robot3DViewer({
   }, [robotDescription]);
 
   const jointEntries = Object.entries(jointValues);
+  const hasJointData = jointEntries.length > 0;
   const handleJointClick = (name: string) => {
     setHighlightedJoint((prev) => (prev === name ? null : name));
   };
 
   return (
     <div
-      className={`flex flex-col border rounded overflow-hidden h-full min-h-0 ${className}`}
+      className={`flex flex-col border rounded overflow-hidden ${
+        hasJointData
+          ? "flex-none min-h-0 self-stretch h-full"
+          : "h-auto self-start flex-none"
+      } ${className}`}
       style={{
         width: `${CANVAS_WIDTH}px`,
+        maxWidth: `${CANVAS_WIDTH}px`,
         backgroundColor: "var(--vscode-sidebar-background)",
         borderColor: "var(--vscode-panel-border)",
       }}
@@ -377,14 +440,15 @@ export default function Robot3DViewer({
         style={{ width: CANVAS_WIDTH, height: CANVAS_HEIGHT, flexShrink: 0 }}
       />
       <div
-        className="flex-1 min-h-0 overflow-auto"
+        className={hasJointData ? "flex-1 min-h-0 overflow-auto" : "flex-none overflow-hidden shrink-0"}
         style={{
           borderTop: "1px solid var(--vscode-panel-border)",
           padding: "8px",
+          ...(hasJointData ? {} : { maxHeight: "5.75rem" }),
         }}
       >
         <div
-          className="text-xs font-medium mb-2"
+          className={`text-xs font-medium ${hasJointData ? "mb-2" : "mb-1"}`}
           style={{ color: "var(--vscode-descriptionForeground)" }}
         >
           Joint States

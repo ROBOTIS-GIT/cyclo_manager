@@ -2,10 +2,12 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
+import CycloManagerUpdateAnnouncement from "@/components/CycloManagerUpdateAnnouncement";
 import { useTheme } from "@/contexts/ThemeContext";
 
 export default function AppHubPage() {
   const { theme } = useTheme();
+  const [cmUpdateBanner, setCmUpdateBanner] = useState(false);
   const [physicalUrl, setPhysicalUrl] = useState("http://localhost:80/");
 
   useEffect(() => {
@@ -13,11 +15,15 @@ export default function AppHubPage() {
   }, []);
 
   return (
-    <div
-      className="min-h-screen flex flex-col p-6"
-      style={{ backgroundColor: "var(--vscode-editor-background)" }}
-    >
-      <div className="w-full max-w-6xl mx-auto flex-1 flex flex-col min-h-0">
+    <>
+      <CycloManagerUpdateAnnouncement onBannerVisibilityChange={setCmUpdateBanner} />
+      <div
+        className="min-h-screen flex flex-col p-6"
+        style={{ backgroundColor: "var(--vscode-editor-background)" }}
+      >
+        <div
+          className={`w-full max-w-6xl mx-auto flex-1 flex flex-col min-h-0 ${cmUpdateBanner ? "pt-14" : ""}`}
+        >
         <header className="w-full flex justify-center shrink-0 pb-5 pt-0">
           <img
             src="/cyclo_logo.png"
@@ -80,5 +86,6 @@ export default function AppHubPage() {
         </div>
       </div>
     </div>
+    </>
   );
 }

@@ -370,9 +370,7 @@ export default function ControlPage() {
         }}
       />
       <div className="flex gap-4 items-stretch mt-4 flex-1 min-h-0">
-        <div style={{ flexShrink: 0, minHeight: 0, display: "flex" }}>
-          <Robot3DViewer container={container} />
-        </div>
+        <Robot3DViewer container={container} />
         {showLogs && !showLeaderLogs && (
           <div style={PANEL_STYLES}>
             <FixedLogPanel container={container} service={FOLLOWER_SERVICE_NAME} onClose={() => setShowLogs(false)} />

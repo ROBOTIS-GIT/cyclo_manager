@@ -69,8 +69,7 @@ export default function AppsHubLink() {
     return null;
   }
 
-  const top =
-    pathname === "/home" && updateBannerVisible ? "4.75rem" : INSET_FROM_EDGE;
+  const top = updateBannerVisible ? "4.75rem" : INSET_FROM_EDGE;
 
   return (
     <div

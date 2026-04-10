@@ -9,11 +9,10 @@ import {
   controlDockerContainer,
   getDockerContainerLogs,
   getRepoVersion,
-  getCycloManagerVersion,
 } from "@/lib/api";
-import type { ConfiguredContainerInfo, DockerContainerInfo, RepoVersionResponse, CycloManagerVersionResponse } from "@/types/api";
+import type { ConfiguredContainerInfo, DockerContainerInfo, RepoVersionResponse } from "@/types/api";
 import StatusBadge from "@/components/StatusBadge";
-import { useAppsHubBanner } from "@/contexts/AppsHubBannerContext";
+import CycloManagerUpdateAnnouncement from "@/components/CycloManagerUpdateAnnouncement";
 import { useTheme } from "@/contexts/ThemeContext";
 
 const SLOTS: { label: string; containerName: string }[] = [
@@ -23,7 +22,7 @@ const SLOTS: { label: string; containerName: string }[] = [
 
 export default function HomePage() {
   const { theme } = useTheme();
-  const { setUpdateBannerVisible } = useAppsHubBanner();
+  const [cmUpdateBanner, setCmUpdateBanner] = useState(false);
   const [configuredContainers, setConfiguredContainers] = useState<ConfiguredContainerInfo[]>([]);
   const [dockerContainers, setDockerContainers] = useState<DockerContainerInfo[]>([]);
   const [loading, setLoading] = useState(true);
@@ -37,8 +36,6 @@ export default function HomePage() {
   const [settingsTab, setSettingsTab] = useState<"info" | "log">("info");
   const [versionInfo, setVersionInfo] = useState<RepoVersionResponse | null>(null);
   const [showUpdateInstructions, setShowUpdateInstructions] = useState(false);
-  const [cycloManagerVersionInfo, setCycloManagerVersionInfo] = useState<CycloManagerVersionResponse | null>(null);
-  const [showCycloManagerUpdateInstructions, setShowCycloManagerUpdateInstructions] = useState(false);
 
   const convert = useMemo(() => {
     const isDark = theme === "dark";
@@ -89,26 +86,6 @@ export default function HomePage() {
       .then((info) => setVersionInfo(info))
       .catch(() => setVersionInfo(null));
   }, [configuredContainers, dockerContainers]);
-
-  useEffect(() => {
-    getCycloManagerVersion()
-      .then((info) => setCycloManagerVersionInfo(info))
-      .catch(() => setCycloManagerVersionInfo(null));
-  }, []);
-
-  useEffect(() => {
-    const show =
-      !loading &&
-      !error &&
-      !!cycloManagerVersionInfo?.update_available;
-    setUpdateBannerVisible(show);
-    return () => setUpdateBannerVisible(false);
-  }, [
-    loading,
-    error,
-    cycloManagerVersionInfo?.update_available,
-    setUpdateBannerVisible,
-  ]);
 
   const hasConfiguredContainer = (name: string) =>
     configuredContainers.some((c) => c.name === name);
@@ -167,70 +144,48 @@ export default function HomePage() {
       : "var(--vscode-button-secondaryForeground)",
   });
 
-  if (loading) {
-    return (
-      <div
-        className="min-h-screen flex items-center justify-center"
-        style={{
-          color: "var(--vscode-descriptionForeground)",
-          backgroundColor: "var(--vscode-editor-background)",
-        }}
-      >
-        Loading...
-      </div>
-    );
-  }
-
-  if (error) {
-    return (
-      <div
-        className="min-h-screen flex items-center justify-center p-6"
-        style={{ backgroundColor: "var(--vscode-editor-background)" }}
-      >
+  return (
+    <>
+      <CycloManagerUpdateAnnouncement
+        suppressed={loading || !!error}
+        onBannerVisibilityChange={setCmUpdateBanner}
+      />
+      {loading ? (
         <div
-          className="border rounded p-4"
+          className="min-h-screen flex items-center justify-center"
           style={{
-            backgroundColor: "rgba(244, 135, 113, 0.1)",
-            borderColor: "rgba(244, 135, 113, 0.3)",
-            color: "var(--vscode-errorForeground)",
+            color: "var(--vscode-descriptionForeground)",
+            backgroundColor: "var(--vscode-editor-background)",
           }}
         >
-          <p className="mb-2">{error}</p>
-          <button onClick={loadContainers} style={getDockerActionButtonStyle(true, false)}>
-            Retry
-          </button>
+          Loading...
         </div>
-      </div>
-    );
-  }
-
-  return (
+      ) : error ? (
+        <div
+          className="min-h-screen flex items-center justify-center p-6"
+          style={{ backgroundColor: "var(--vscode-editor-background)" }}
+        >
+          <div
+            className="border rounded p-4"
+            style={{
+              backgroundColor: "rgba(244, 135, 113, 0.1)",
+              borderColor: "rgba(244, 135, 113, 0.3)",
+              color: "var(--vscode-errorForeground)",
+            }}
+          >
+            <p className="mb-2">{error}</p>
+            <button onClick={loadContainers} style={getDockerActionButtonStyle(true, false)}>
+              Retry
+            </button>
+          </div>
+        </div>
+      ) : (
     <div
       className="min-h-screen flex flex-col p-6"
       style={{ backgroundColor: "var(--vscode-editor-background)" }}
     >
-      {cycloManagerVersionInfo?.update_available && (
-        <div
-          className="fixed top-0 left-0 right-0 z-50 p-3 flex flex-wrap items-center justify-center gap-3 shadow-md"
-          style={{
-            backgroundColor: "var(--vscode-badge-background, #4dabf7)",
-            color: "var(--vscode-badge-foreground, #fff)",
-          }}
-        >
-          <span className="text-sm font-medium">
-            cyclo_manager {cycloManagerVersionInfo.current} → {cycloManagerVersionInfo.latest}
-          </span>
-          <button
-            type="button"
-            onClick={() => setShowCycloManagerUpdateInstructions(true)}
-            className="px-3 py-1.5 rounded text-sm font-medium border border-white/50 hover:bg-white/20"
-          >
-            Update available
-          </button>
-        </div>
-      )}
       <div
-        className={`w-full max-w-6xl mx-auto flex-1 flex flex-col min-h-0 ${cycloManagerVersionInfo?.update_available ? "pt-14" : ""}`}
+        className={`w-full max-w-6xl mx-auto flex-1 flex flex-col min-h-0 ${cmUpdateBanner ? "pt-14" : ""}`}
       >
         <header className="w-full flex justify-center shrink-0 pb-5 pt-0">
           <img
@@ -521,79 +476,6 @@ export default function HomePage() {
           </div>
         )}
 
-        {showCycloManagerUpdateInstructions && cycloManagerVersionInfo && (
-          <div
-            className="fixed inset-0 flex items-center justify-center z-50"
-            style={{ backgroundColor: "rgba(0,0,0,0.5)" }}
-            onClick={() => setShowCycloManagerUpdateInstructions(false)}
-          >
-            <div
-              className="rounded-lg border shadow-xl w-[28rem] flex flex-col overflow-hidden"
-              style={{
-                backgroundColor: "var(--vscode-editor-background)",
-                borderColor: "var(--vscode-panel-border)",
-              }}
-              onClick={(e) => e.stopPropagation()}
-            >
-              <div className="px-4 py-3 border-b flex items-center justify-between" style={{ borderColor: "var(--vscode-panel-border)" }}>
-                <h2 className="font-semibold" style={{ color: "var(--vscode-foreground)" }}>
-                  How to update cyclo_manager
-                </h2>
-                <button
-                  onClick={() => setShowCycloManagerUpdateInstructions(false)}
-                  className="p-1 rounded hover:opacity-80"
-                  style={{ color: "var(--vscode-foreground)", background: "none", border: "none", cursor: "pointer" }}
-                  aria-label="Close"
-                >
-                  <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></svg>
-                </button>
-              </div>
-              <div
-                className="px-4 py-2 flex gap-4 text-sm"
-                style={{
-                  borderBottom: "1px solid var(--vscode-panel-border)",
-                  color: "var(--vscode-descriptionForeground)",
-                }}
-              >
-                <span>Current: <span className="font-mono font-medium" style={{ color: "var(--vscode-foreground)" }}>{cycloManagerVersionInfo.current}</span></span>
-                <span>Latest: <span className="font-mono font-medium" style={{ color: "var(--vscode-foreground)" }}>{cycloManagerVersionInfo.latest}</span></span>
-              </div>
-              <div className="p-4 space-y-4 text-sm" style={{ color: "var(--vscode-foreground)" }}>
-                <div>
-                  <p className="mb-1.5">1. Use below command in host</p>
-                  <div
-                    className="rounded overflow-hidden border"
-                    style={{
-                      borderColor: "var(--vscode-panel-border)",
-                      backgroundColor: "var(--vscode-editor-background)",
-                    }}
-                  >
-                    <div
-                      className="px-3 py-1.5 text-xs font-medium"
-                      style={{
-                        backgroundColor: "var(--vscode-sidebar-background)",
-                        borderBottom: "1px solid var(--vscode-panel-border)",
-                        color: "var(--vscode-descriptionForeground)",
-                      }}
-                    >
-                      bash
-                    </div>
-                    <pre
-                      className="p-3 text-xs font-mono overflow-x-auto m-0"
-                      style={{
-                        color: "var(--vscode-editor-foreground, var(--vscode-foreground))",
-                        fontFamily: "var(--vscode-editor-font-family, ui-monospace, monospace)",
-                      }}
-                    >
-                      cyclo_manager update
-                    </pre>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
-        )}
-
         {settingsSlot && (() => {
           const docker = dockerContainers.find(
             (d) => d.name === settingsSlot || d.name === settingsSlot.replace(/_/g, "-")
@@ -685,5 +567,7 @@ export default function HomePage() {
         })()}
       </div>
     </div>
+      )}
+    </>
   );
 }

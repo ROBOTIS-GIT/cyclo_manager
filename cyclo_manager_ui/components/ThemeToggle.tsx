@@ -3,60 +3,49 @@
 import { useTheme } from "@/contexts/ThemeContext";
 
 export default function ThemeToggle() {
-  const { theme, toggleTheme } = useTheme();
+  const { theme, setTheme } = useTheme();
+
+  const segmentBase =
+    "flex-1 min-w-0 py-2 px-1 text-[11px] font-semibold leading-tight transition-colors border-none cursor-pointer";
 
   return (
-    <button
-      onClick={toggleTheme}
-      className="w-8 h-8 flex items-center justify-center rounded cursor-pointer transition-colors"
+    <div
+      className="flex w-full rounded-lg overflow-hidden"
       style={{
-        backgroundColor: "transparent",
-        color: "var(--vscode-foreground)",
+        backgroundColor: "var(--vscode-input-background)",
+        border: "1px solid var(--vscode-panel-border)",
+        boxShadow: "inset 0 0 0 1px rgba(0,0,0,0.06)",
       }}
-      onMouseEnter={(e) => {
-        e.currentTarget.style.backgroundColor = "var(--vscode-list-hoverBackground)";
-      }}
-      onMouseLeave={(e) => {
-        e.currentTarget.style.backgroundColor = "transparent";
-      }}
-      title={theme === "dark" ? "Switch to light mode" : "Switch to dark mode"}
-      aria-label={theme === "dark" ? "Switch to light mode" : "Switch to dark mode"}
+      role="group"
+      aria-label="Color theme"
     >
-      {theme === "dark" ? (
-        <svg
-          width="16"
-          height="16"
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="2"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-        >
-          <circle cx="12" cy="12" r="5" />
-          <line x1="12" y1="1" x2="12" y2="3" />
-          <line x1="12" y1="21" x2="12" y2="23" />
-          <line x1="4.22" y1="4.22" x2="5.64" y2="5.64" />
-          <line x1="18.36" y1="18.36" x2="19.78" y2="19.78" />
-          <line x1="1" y1="12" x2="3" y2="12" />
-          <line x1="21" y1="12" x2="23" y2="12" />
-          <line x1="4.22" y1="19.78" x2="5.64" y2="18.36" />
-          <line x1="18.36" y1="5.64" x2="19.78" y2="4.22" />
-        </svg>
-      ) : (
-        <svg
-          width="16"
-          height="16"
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="2"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-        >
-          <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" />
-        </svg>
-      )}
-    </button>
+      <button
+        type="button"
+        onClick={() => setTheme("light")}
+        className={segmentBase}
+        style={{
+          backgroundColor: theme === "light" ? "var(--vscode-list-activeSelectionBackground)" : "transparent",
+          color: theme === "light" ? "var(--vscode-foreground)" : "var(--vscode-descriptionForeground)",
+          borderRight: "1px solid var(--vscode-panel-border)",
+        }}
+        aria-pressed={theme === "light"}
+        title="Light theme"
+      >
+        Light
+      </button>
+      <button
+        type="button"
+        onClick={() => setTheme("dark")}
+        className={segmentBase}
+        style={{
+          backgroundColor: theme === "dark" ? "var(--vscode-list-activeSelectionBackground)" : "transparent",
+          color: theme === "dark" ? "var(--vscode-foreground)" : "var(--vscode-descriptionForeground)",
+        }}
+        aria-pressed={theme === "dark"}
+        title="Dark theme"
+      >
+        Dark
+      </button>
+    </div>
   );
 }
