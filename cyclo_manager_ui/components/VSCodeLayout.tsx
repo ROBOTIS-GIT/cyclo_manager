@@ -47,26 +47,26 @@ export default function VSCodeLayout({
       >
         {/* Sidebar Header */}
         <div
-          className="px-3 py-4 border-b flex flex-col gap-4 items-center shrink-0"
+          className="px-1.5 py-2 border-b flex flex-col gap-2 items-center shrink-0"
           style={{ borderColor: "var(--vscode-sidebar-border)" }}
         >
           <div className="w-full min-w-0">
-            <ThemeToggle />
+            <ThemeToggle rail />
           </div>
           <div
-            className="border-t pt-4 w-full -mx-3 px-3"
+            className="border-t pt-2 w-full -mx-1.5 px-1.5"
             style={{ borderColor: "var(--vscode-sidebar-border)" }}
           >
-            <div className="flex justify-center w-full items-center gap-3 flex-nowrap">
-              <AppsHubButton variant="onSidebar" />
-              <ManagerPhysicalShortcuts variant="onSidebar" />
+            <div className="flex justify-center w-full items-center gap-1 flex-nowrap">
+              <AppsHubButton variant="onSidebar" compact />
+              <ManagerPhysicalShortcuts variant="onSidebar" compact />
             </div>
           </div>
         </div>
 
-        {/* Sidebar Navigation — tall centered items (Gi-style rail) */}
+        {/* Sidebar Navigation — narrow rail (~120px), Gi-style */}
         <nav
-          className="flex-1 min-h-0 w-full flex flex-col items-center gap-3 py-4 px-2 overflow-y-auto"
+          className="flex-1 min-h-0 w-full flex flex-col items-center gap-1.5 py-2 px-1 overflow-y-auto"
           style={{ scrollbarGutter: "stable" }}
         >
           {navItems.map((item) => {
@@ -91,7 +91,7 @@ export default function VSCodeLayout({
               <Link
                 key={item.label === "Control" ? `control-${item.href}` : item.label === "Topics" ? `topics-${item.href}` : item.href}
                 href={item.href}
-                className="flex flex-col items-center justify-center gap-1.5 rounded-xl w-full aspect-square shrink-0 px-2 py-2 text-center no-underline transition-colors box-border"
+                className="flex flex-col items-center justify-center gap-0.5 rounded-md w-full aspect-square shrink-0 px-1 py-1 text-center no-underline transition-colors box-border"
                 style={linkStyle}
                 onMouseEnter={(e) => {
                   if (!isActive) {
@@ -104,10 +104,10 @@ export default function VSCodeLayout({
                   }
                 }}
               >
-                <span className="text-[2rem] leading-none select-none" aria-hidden>
+                <span className="text-[1.125rem] leading-none select-none" aria-hidden>
                   {item.icon}
                 </span>
-                <span className="text-[15px] font-semibold leading-snug">{item.label}</span>
+                <span className="text-[10px] font-semibold leading-tight">{item.label}</span>
               </Link>
             );
           })}

@@ -50,7 +50,7 @@ export default function TopicsPage() {
   return (
     <div className="flex flex-col gap-4 h-full min-h-0" style={{ minHeight: "calc(100vh - 100px)" }}>
       <h1 className="text-xl font-semibold shrink-0" style={{ color: "var(--vscode-foreground)" }}>
-        {container} — ROS2 Topics
+        Topic Viewer
       </h1>
 
       <div className="flex items-center gap-2 shrink-0">

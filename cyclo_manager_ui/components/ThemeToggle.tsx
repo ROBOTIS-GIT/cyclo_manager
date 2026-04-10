@@ -2,15 +2,25 @@
 
 import { useTheme } from "@/contexts/ThemeContext";
 
-export default function ThemeToggle() {
+export default function ThemeToggle({
+  compact = false,
+  rail = false,
+}: {
+  compact?: boolean;
+  /** Narrow ~120px sidebar: smallest labels and padding */
+  rail?: boolean;
+}) {
   const { theme, setTheme } = useTheme();
 
-  const segmentBase =
-    "flex-1 min-w-0 py-2 px-1 text-[11px] font-semibold leading-tight transition-colors border-none cursor-pointer";
+  const segmentBase = rail
+    ? "flex-1 min-w-0 py-0.5 px-0 text-[9px] font-semibold leading-none transition-colors border-none cursor-pointer"
+    : compact
+      ? "flex-1 min-w-0 py-1 px-0.5 text-[10px] font-semibold leading-tight transition-colors border-none cursor-pointer"
+      : "flex-1 min-w-0 py-2 px-1 text-[11px] font-semibold leading-tight transition-colors border-none cursor-pointer";
 
   return (
     <div
-      className="flex w-full rounded-lg overflow-hidden"
+      className={`flex w-full overflow-hidden ${rail ? "rounded-md" : "rounded-lg"}`}
       style={{
         backgroundColor: "var(--vscode-input-background)",
         border: "1px solid var(--vscode-panel-border)",
