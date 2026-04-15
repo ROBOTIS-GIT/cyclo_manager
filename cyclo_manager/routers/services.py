@@ -6,7 +6,7 @@ import logging
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, status
 
-from cyclo_manager.state import get_config, get_agent_client
+from cyclo_manager.state import get_validated_container, get_agent_client
 from cyclo_manager.models import (
     ServiceListResponse,
     ServiceInfo,
@@ -64,16 +64,9 @@ def _raise_mapped_service_exception(container: str, exc: Exception) -> None:
 
 @router.get("", response_model=ServiceListResponse)
 async def list_services(
-    container: str,
-    config=Depends(get_config),
+    container: str = Depends(get_validated_container),
 ) -> ServiceListResponse:
     """Get list of services for a specific container."""
-    if container not in config.containers:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Container '{container}' not found",
-        )
-
     try:
         client = get_agent_client(container)
         agent_response = await client.get_services()
@@ -93,17 +86,10 @@ async def list_services(
 
 @router.get("/{service}/status", response_model=ServiceStatusResponse)
 async def get_service_status(
-    container: str,
     service: str,
-    config=Depends(get_config),
+    container: str = Depends(get_validated_container),
 ) -> ServiceStatusResponse:
     """Get status of a specific service in a container."""
-    if container not in config.containers:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Container '{container}' not found",
-        )
-
     try:
         client = get_agent_client(container)
         agent_response = await client.get_service_status(service)
@@ -125,16 +111,9 @@ async def get_service_status(
 
 @router.get("/status", response_model=ServiceStatusListResponse)
 async def get_all_services_status(
-    container: str,
-    config=Depends(get_config),
+    container: str = Depends(get_validated_container),
 ) -> ServiceStatusListResponse:
     """Get status of all services in a container."""
-    if container not in config.containers:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Container '{container}' not found",
-        )
-
     try:
         client = get_agent_client(container)
         agent_response = await client.get_all_services_status()
@@ -165,18 +144,11 @@ async def get_all_services_status(
 
 @router.get("/{service}/logs", response_model=ServiceLogsResponse)
 async def get_service_logs(
-    container: str,
     service: str,
     tail: int = 100,
-    config=Depends(get_config),
+    container: str = Depends(get_validated_container),
 ) -> ServiceLogsResponse:
     """Get logs for a service in a container."""
-    if container not in config.containers:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Container '{container}' not found",
-        )
-
     try:
         client = get_agent_client(container)
         agent_response = await client.get_service_logs(service, tail=tail)
@@ -196,17 +168,10 @@ async def get_service_logs(
 
 @router.delete("/{service}/logs", response_model=ServiceLogsClearResponse)
 async def clear_service_logs(
-    container: str,
     service: str,
-    config=Depends(get_config),
+    container: str = Depends(get_validated_container),
 ) -> ServiceLogsClearResponse:
     """Clear logs for a service in a container."""
-    if container not in config.containers:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Container '{container}' not found",
-        )
-
     try:
         client = get_agent_client(container)
         agent_response = await client.clear_service_logs(service)
@@ -225,17 +190,10 @@ async def clear_service_logs(
 
 @router.get("/{service}/run", response_model=ServiceRunScriptResponse)
 async def get_service_run_script(
-    container: str,
     service: str,
-    config=Depends(get_config),
+    container: str = Depends(get_validated_container),
 ) -> ServiceRunScriptResponse:
     """Get the run script for a service."""
-    if container not in config.containers:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Container '{container}' not found",
-        )
-
     try:
         client = get_agent_client(container)
         agent_response = await client.get_service_run_script(service)
@@ -254,18 +212,11 @@ async def get_service_run_script(
 
 @router.put("/{service}/run", response_model=ServiceRunScriptResponse)
 async def update_service_run_script(
-    container: str,
     service: str,
     request: ServiceRunScriptUpdateRequest,
-    config=Depends(get_config),
+    container: str = Depends(get_validated_container),
 ) -> ServiceRunScriptResponse:
     """Update the run script for a service."""
-    if container not in config.containers:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Container '{container}' not found",
-        )
-
     if not request.content or not request.content.strip():
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -290,18 +241,11 @@ async def update_service_run_script(
 
 @router.post("/{service}", response_model=ServiceControlResponse)
 async def control_service(
-    container: str,
     service: str,
     request: ServiceActionRequest,
-    config=Depends(get_config),
+    container: str = Depends(get_validated_container),
 ) -> ServiceControlResponse:
     """Control a service (start, stop, or restart)."""
-    if container not in config.containers:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Container '{container}' not found",
-        )
-
     try:
         client = get_agent_client(container)
         agent_response = await client.control_service(

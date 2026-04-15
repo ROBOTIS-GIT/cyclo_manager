@@ -127,6 +127,117 @@ async def _check_service_status(
     return service_is_up, log_service_is_up
 
 
+async def _setup_log_stream_client(websocket: WebSocket, container: str):
+    """Validate config and return an AgentClient for the given container.
+
+    Returns the AgentClient on success, or None after sending an error and
+    closing the WebSocket.
+    """
+    config = get_config_or_none()
+    if config is None:
+        await _send_websocket_error(websocket, "Configuration not loaded")
+        await _close_websocket_ignoring_error(websocket)
+        return None
+
+    if container not in config.containers:
+        await _send_websocket_error(websocket, f"Container '{container}' not found")
+        await _close_websocket_ignoring_error(websocket)
+        return None
+
+    client_pool = get_client_pool_or_none()
+    if client_pool is None:
+        await _send_websocket_error(websocket, "Agent client pool not initialized")
+        await _close_websocket_ignoring_error(websocket)
+        return None
+
+    client = client_pool.get_client(container)
+    if client is None:
+        await _send_websocket_error(
+            websocket, f"Agent client for container '{container}' not available"
+        )
+        await _close_websocket_ignoring_error(websocket)
+        return None
+
+    return client
+
+
+async def _fetch_initial_logs_and_cursor(
+    websocket: WebSocket, client, container: str, service: str
+) -> Optional[int]:
+    """Fetch initial logs, send them, and return the refreshed cursor position.
+
+    Returns cursor int on success, or 0 after sending an error (caller continues
+    from position 0). Returns None only if the WebSocket connection is broken.
+    """
+    try:
+        agent_response = await client.get_service_logs(service, INITIAL_LOG_TAIL)
+        initial_logs = agent_response.get("logs", "")
+        cursor = agent_response.get("cursor")
+
+        if cursor is None:
+            logger.warning(
+                f"Initial cursor is None for {container}/{service}, "
+                f"response: {list(agent_response.keys())}"
+            )
+            try:
+                fallback_response = await client.get_service_logs(service, FALLBACK_LOG_TAIL)
+                cursor = fallback_response.get("cursor")
+                if cursor is not None:
+                    logger.info(f"Got cursor from fallback for {container}/{service}: {cursor}")
+                else:
+                    logger.error(f"Cursor still None after fallback for {container}/{service}")
+                    cursor = 0
+            except Exception:
+                cursor = 0
+
+        if initial_logs:
+            if not await _send_websocket_logs(websocket, initial_logs):
+                return None  # Connection broken
+
+        # Refresh cursor to current file end to avoid duplicating just-sent logs
+        if cursor is not None:
+            try:
+                refresh_response = await client.get_service_logs(service, 0, cursor)
+                refreshed_cursor = refresh_response.get("cursor")
+                if refreshed_cursor is not None:
+                    cursor = refreshed_cursor
+                    logger.debug(
+                        f"Refreshed cursor for {container}/{service} after initial logs: {cursor}"
+                    )
+            except Exception as refresh_error:
+                logger.debug(
+                    f"Failed to refresh cursor for {container}/{service}: {refresh_error}"
+                )
+
+        return cursor
+
+    except Exception as e:
+        logger.error(
+            f"Failed to fetch initial logs for {container}/{service}: {e}", exc_info=True
+        )
+        if not await _send_websocket_error(websocket, f"Failed to fetch initial logs: {str(e)}"):
+            return None  # Connection broken
+        return 0  # Start from beginning
+
+
+async def _poll_cursor_logs(client, service: str, cursor: int) -> Tuple[str, int]:
+    """Fetch new log lines from cursor position.
+
+    Returns (new_logs, updated_cursor). Raises on agent failure.
+    """
+    agent_response = await client.get_service_logs(service, INITIAL_LOG_TAIL, cursor)
+    return agent_response.get("logs", ""), agent_response.get("cursor", cursor)
+
+
+async def _poll_fallback_logs(client, service: str) -> Tuple[str, Optional[int]]:
+    """Fetch logs via the tail fallback method (used when cursor is unavailable).
+
+    Returns (logs, new_cursor). Raises on agent failure.
+    """
+    agent_response = await client.get_service_logs(service, FALLBACK_LOG_TAIL)
+    return agent_response.get("logs", ""), agent_response.get("cursor")
+
+
 # ============================================================================
 # ROS2 WebSocket Helper Functions
 # ============================================================================
@@ -242,115 +353,26 @@ async def websocket_service_logs(websocket: WebSocket, container: str, service: 
     await websocket.accept()
     logger.info(f"WebSocket connection established for {container}/{service} logs")
 
-    # Track if we've sent initial logs via fallback for this connection
-    # This prevents sending duplicate logs when fallback is used1
     fallback_logs_sent = False
 
     try:
-        # Validate configuration
-        config = get_config_or_none()
-        if config is None:
-            await _send_websocket_error(websocket, "Configuration not loaded")
-            await _close_websocket_ignoring_error(websocket)
-            return
-
-        if container not in config.containers:
-            await _send_websocket_error(websocket, f"Container '{container}' not found")
-            await _close_websocket_ignoring_error(websocket)
-            return
-
-        # Get client pool
-        client_pool = get_client_pool_or_none()
-        if client_pool is None:
-            await _send_websocket_error(websocket, "Agent client pool not initialized")
-            await _close_websocket_ignoring_error(websocket)
-            return
-
-        client = client_pool.get_client(container)
+        client = await _setup_log_stream_client(websocket, container)
         if client is None:
-            await _send_websocket_error(
-                websocket, f"Agent client for container '{container}' not available"
-            )
-            await _close_websocket_ignoring_error(websocket)
             return
 
-        # Initial log fetch - get initial cursor
-        cursor: Optional[int] = None
-        try:
-            agent_response = await client.get_service_logs(service, INITIAL_LOG_TAIL)
-            initial_logs = agent_response.get("logs", "")
-            # Get cursor from response - it should always be present
-            cursor = agent_response.get("cursor")
+        cursor = await _fetch_initial_logs_and_cursor(websocket, client, container, service)
+        if cursor is None:
+            return  # WebSocket connection broken during initial fetch
 
-            # If cursor is None, log warning and try to get cursor from file size
-            if cursor is None:
-                logger.warning(
-                    f"Initial cursor is None for {container}/{service}, "
-                    f"response: {list(agent_response.keys())}"
-                )
-                # Try to use fallback to get cursor
-                try:
-                    fallback_response = await client.get_service_logs(service, FALLBACK_LOG_TAIL)
-                    cursor = fallback_response.get("cursor")
-                    if cursor is not None:
-                        logger.info(
-                            f"Got cursor from fallback for {container}/{service}: {cursor}"
-                        )
-                    else:
-                        logger.error(
-                            f"Cursor still None after fallback for {container}/{service}"
-                        )
-                        cursor = 0
-                except Exception:
-                    cursor = 0
-
-            if initial_logs:
-                if not await _send_websocket_logs(websocket, initial_logs):
-                    return  # Connection broken
-
-            # IMPORTANT: After sending initial logs, refresh cursor to current file size
-            # to prevent duplicate logs. The initial cursor was set when fetching tail logs,
-            # but new logs might have been added between fetching and sending.
-            # By refreshing the cursor after sending, we ensure the polling loop starts
-            # from the correct position without duplicates.
-            if cursor is not None:
-                try:
-                    # Read with current cursor to get updated cursor (will return empty logs if no new logs)
-                    refresh_response = await client.get_service_logs(service, 0, cursor)
-                    refreshed_cursor = refresh_response.get("cursor")
-                    if refreshed_cursor is not None:
-                        cursor = refreshed_cursor
-                        logger.debug(
-                            f"Refreshed cursor for {container}/{service} after initial logs: "
-                            f"{cursor}"
-                        )
-                except Exception as refresh_error:
-                    # If refresh fails, keep the original cursor
-                    logger.debug(
-                        f"Failed to refresh cursor for {container}/{service}: {refresh_error}"
-                    )
-        except Exception as e:
-            logger.error(
-                f"Failed to fetch initial logs for {container}/{service}: {e}",
-                exc_info=True
-            )
-            if not await _send_websocket_error(
-                websocket, f"Failed to fetch initial logs: {str(e)}"
-            ):
-                return  # Connection broken
-            cursor = 0  # Start from beginning
-
-        # Poll for new logs using cursor
         log_service_name = f"{service}-log"
         last_service_status_check = 0.0
-        service_is_up = True  # Assume service is up initially
+        service_is_up = True
         log_service_is_up = True
 
         while True:
             try:
                 await asyncio.sleep(LOG_POLL_INTERVAL)
 
-                # Check service status periodically
                 current_time = time.time()
                 if current_time - last_service_status_check >= SERVICE_STATUS_CHECK_INTERVAL:
                     service_is_up, log_service_is_up = await _check_service_status(
@@ -358,71 +380,49 @@ async def websocket_service_logs(websocket: WebSocket, container: str, service: 
                     )
                     last_service_status_check = current_time
 
-                # # Skip log fetching if both services are down
-                # if not service_is_up and not log_service_is_up:
-                #     await asyncio.sleep(ERROR_RETRY_DELAY)
-                #     continue
-
-                # Fetch new logs using cursor
                 if cursor is not None:
                     try:
-                        agent_response = await client.get_service_logs(service, INITIAL_LOG_TAIL, cursor)
-                        new_logs = agent_response.get("logs", "")
-                        new_cursor = agent_response.get("cursor", cursor)
-
+                        new_logs, new_cursor = await _poll_cursor_logs(client, service, cursor)
                         if new_logs and (service_is_up or log_service_is_up):
                             if not await _send_websocket_logs(websocket, new_logs):
                                 logger.info(f"WebSocket disconnected for {container}/{service}")
                                 break
-                            cursor = new_cursor
-                        else:
-                            # Update cursor even if no new logs (file might have been truncated)
-                            cursor = new_cursor
+                        cursor = new_cursor
                     except Exception as fetch_error:
                         logger.error(
                             f"Failed to fetch logs for {container}/{service}: {fetch_error}",
-                            exc_info=True
+                            exc_info=True,
                         )
                         await asyncio.sleep(ERROR_RETRY_DELAY)
                         continue
                 else:
-                    # Fallback: cursor not available - use tail method and get cursor from response
-                    # IMPORTANT: Only use fallback to get cursor, then switch to cursor-based method
                     logger.warning(
-                        f"Cursor not available for {container}/{service}, using fallback method to get cursor"
+                        f"Cursor not available for {container}/{service}, using fallback method"
                     )
                     try:
-                        agent_response = await client.get_service_logs(service, FALLBACK_LOG_TAIL)
-                        current_logs = agent_response.get("logs", "")
-                        new_cursor = agent_response.get("cursor")
-
-                        # If we got a cursor, use it for next iteration (switch to cursor-based method)
+                        current_logs, new_cursor = await _poll_fallback_logs(client, service)
                         if new_cursor is not None:
                             cursor = new_cursor
                             logger.info(
-                                f"Got cursor from fallback method for {container}/{service}: {cursor}, "
+                                f"Got cursor from fallback for {container}/{service}: {cursor}, "
                                 f"switching to cursor-based method"
                             )
-                            # Only send logs on first fallback use (when cursor was None)
-                            # Track this per connection to avoid duplicates
                             if not fallback_logs_sent:
                                 if current_logs:
                                     if not await _send_websocket_logs(websocket, current_logs):
                                         logger.info(f"WebSocket disconnected for {container}/{service}")
                                         break
                                 fallback_logs_sent = True
-                            # Don't send logs again - we'll use cursor-based method next time
                         else:
                             logger.error(
-                                f"Failed to get cursor from fallback method for {container}/{service}"
+                                f"Failed to get cursor from fallback for {container}/{service}"
                             )
-                            # Wait longer before retrying
                             await asyncio.sleep(ERROR_RETRY_DELAY * 2)
                             continue
                     except Exception as fetch_error:
                         logger.error(
                             f"Failed to fetch logs for {container}/{service}: {fetch_error}",
-                            exc_info=True
+                            exc_info=True,
                         )
                         await asyncio.sleep(ERROR_RETRY_DELAY)
                         continue
@@ -433,7 +433,7 @@ async def websocket_service_logs(websocket: WebSocket, container: str, service: 
             except Exception as e:
                 logger.error(
                     f"Unexpected error in log polling loop for {container}/{service}: {e}",
-                    exc_info=True
+                    exc_info=True,
                 )
                 if not await _send_websocket_error(websocket, f"Error streaming logs: {str(e)}"):
                     break

@@ -7,7 +7,7 @@ import subprocess
 
 from fastapi import APIRouter, Body, Depends, HTTPException, status
 
-from cyclo_manager.state import get_config, get_ros2_node
+from cyclo_manager.state import get_validated_container, get_ros2_node
 from cyclo_manager.models import (
     ROS2SubscribeRequest,
     ROS2TopicDataResponse,
@@ -73,16 +73,9 @@ def _get_topic_publisher_qos(container: str, topic: str, node) -> dict:
 
 @router.get("/topics", response_model=ROS2TopicsListResponse)
 async def list_ros2_topics(
-    container: str,
-    config=Depends(get_config),
+    container: str = Depends(get_validated_container),
 ) -> ROS2TopicsListResponse:
     """Get list of ROS2 topics (discovery run on request). Topic list button calls this."""
-    if container not in config.containers:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Container '{container}' not found",
-        )
-
     node = get_ros2_node(container)
     if node is None:
         raise HTTPException(
@@ -111,17 +104,10 @@ async def list_ros2_topics(
 
 @router.get("/topics/{topic:path}/info")
 async def get_ros2_topic_info(
-    container: str,
     topic: str,
-    config=Depends(get_config),
+    container: str = Depends(get_validated_container),
 ) -> dict:
     """Get ros2 topic info -v output for a topic. Must be before get_ros2_topic_data."""
-    if container not in config.containers:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Container '{container}' not found",
-        )
-
     node = get_ros2_node(container)
     if node is None:
         raise HTTPException(
@@ -159,17 +145,10 @@ async def get_ros2_topic_info(
 
 @router.get("/topics/{topic:path}", response_model=ROS2TopicDataResponse)
 async def get_ros2_topic_data(
-    container: str,
     topic: str,
-    config=Depends(get_config),
+    container: str = Depends(get_validated_container),
 ) -> ROS2TopicDataResponse:
     """Get the latest data from a specific ROS2 topic. On-demand subscription if needed."""
-    if container not in config.containers:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Container '{container}' not found",
-        )
-
     node = get_ros2_node(container)
     if node is None:
         raise HTTPException(
@@ -206,17 +185,11 @@ async def get_ros2_topic_data(
 
 @router.post("/topics/{topic:path}/subscribe")
 async def ros2_topic_subscribe(
-    container: str,
     topic: str,
     body: ROS2SubscribeRequest | None = Body(default=None),
-    config=Depends(get_config),
+    container: str = Depends(get_validated_container),
 ):
     """Subscribe to a ROS2 topic. Optionally pass {"msg_type": "sensor_msgs/msg/JointState"} in body."""
-    if container not in config.containers:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Container '{container}' not found",
-        )
     node = get_ros2_node(container)
     if node is None:
         raise HTTPException(
@@ -242,16 +215,10 @@ async def ros2_topic_subscribe(
 
 @router.post("/topics/{topic:path}/unsubscribe")
 async def ros2_topic_unsubscribe(
-    container: str,
     topic: str,
-    config=Depends(get_config),
+    container: str = Depends(get_validated_container),
 ):
     """Unsubscribe from a ROS2 topic."""
-    if container not in config.containers:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Container '{container}' not found",
-        )
     node = get_ros2_node(container)
     if node is None:
         raise HTTPException(
