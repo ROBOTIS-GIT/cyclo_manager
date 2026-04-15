@@ -333,7 +333,7 @@ export default function HomePage() {
             );
 
             return (
-              <Link key={slot.containerName} href={`/${slot.containerName}/control`}>
+              <Link key={slot.containerName} href={`/${slot.containerName}/system`}>
                 {CardContent}
               </Link>
             );

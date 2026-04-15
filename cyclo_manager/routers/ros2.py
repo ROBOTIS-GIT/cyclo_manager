@@ -4,6 +4,7 @@ import logging
 import os
 import re
 import subprocess
+from typing import Any
 
 from fastapi import APIRouter, Body, Depends, HTTPException, status
 
@@ -18,6 +19,31 @@ from cyclo_manager.models import (
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/{container}/ros2", tags=["ros2"])
+
+# QoS presets for topics the UI subscribes on every System page load.
+# Skips `ros2 topic info -v` (blocking subprocess) — keeps the FastAPI event loop responsive.
+# If a deployment uses different publisher QoS (e.g. BEST_EFFORT joint_states), remove the
+# topic here or adjust the preset so matching still works.
+KNOWN_TOPIC_QOS_PRESETS: dict[str, dict[str, Any]] = {
+    "/joint_states": {
+        "durability": "volatile",
+        "reliability": "reliable",
+        "depth": 10,
+    },
+    "/robot_description": {
+        "durability": "transient_local",
+        "reliability": "reliable",
+        "depth": 1,
+    },
+}
+
+
+def resolve_qos_profile_for_topic(container: str, topic: str, node) -> dict[str, Any]:
+    """Use a known QoS preset when available; otherwise probe publishers via `ros2 topic info`."""
+    preset = KNOWN_TOPIC_QOS_PRESETS.get(topic)
+    if preset is not None:
+        return dict(preset)
+    return _get_topic_publisher_qos(container, topic, node)
 
 
 def _get_topic_publisher_qos(container: str, topic: str, node) -> dict:
@@ -164,7 +190,7 @@ async def get_ros2_topic_data(
 
     msg_type = node.get_topic_msg_type(topic)
     if msg_type and not node.is_topic_available(topic):
-        qos_profile = _get_topic_publisher_qos(container, topic, node)
+        qos_profile = resolve_qos_profile_for_topic(container, topic, node)
         node.add_topic_subscription(topic, msg_type, qos_profile=qos_profile)
 
     cached_data = node.get_topic_data(topic)
@@ -208,7 +234,7 @@ async def ros2_topic_subscribe(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=f"Unknown msg_type for topic '{topic}'. Provide msg_type in request body.",
         )
-    qos_profile = _get_topic_publisher_qos(container, topic, node)
+    qos_profile = resolve_qos_profile_for_topic(container, topic, node)
     ok = node.add_topic_subscription(topic, msg_type, qos_profile=qos_profile)
     return {"ok": ok}
 
