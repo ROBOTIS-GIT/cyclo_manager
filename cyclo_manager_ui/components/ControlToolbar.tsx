@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import type { LaunchArgsConfig } from "@/config/launchArgs";
+import type { FollowerRobotModel, LaunchArgsConfig } from "@/config/launchArgs";
 import LaunchArgsSettingPopup from "./LaunchArgsSettingPopup";
 import StatusBadge from "./StatusBadge";
 import type { ServiceStatusResponse } from "@/types/api";
@@ -126,7 +126,7 @@ const GROUP_STYLES: React.CSSProperties = {
 };
 
 export interface ControlToolbarProps {
-  robotType: "SG2" | "BG2";
+  robotType: FollowerRobotModel;
   onRobotTypeChange: (v: string) => void;
   robotService: {
     status: ServiceStatusResponse | null;
@@ -192,7 +192,7 @@ type ToolbarHelpKey = "robot" | "leader" | "physical" | "zenoh";
 
 const TOOLBAR_HELP_TEXT: Record<ToolbarHelpKey, string> = {
   robot:
-    "Starts and stops the follower robot bringup service. The dot shows status — green is running, red is stopped. Pick SG2 or BG2, then use play to start; you cannot change the model while it is running.",
+    "Starts and stops the follower robot bringup service. The dot shows status — green is running, red is stopped. Pick SG2, BG2, SH5, or BH5, then use play to start; you cannot change the model while it is running.",
   leader:
     "Starts and stops the leader (avatar) bringup service. It runs with the LG2 configuration. The dot shows whether the service is up; use the gear to edit launch arguments.",
   physical:
@@ -363,6 +363,8 @@ export default function ControlToolbar({
             options={[
               { value: "SG2", label: "SG2" },
               { value: "BG2", label: "BG2" },
+              { value: "SH5", label: "SH5" },
+              { value: "BH5", label: "BH5" },
             ]}
           />
           <button

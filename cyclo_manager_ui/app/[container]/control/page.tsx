@@ -7,11 +7,14 @@ import Convert from "ansi-to-html";
 import { controlService, getServiceStatus, getDockerContainers, controlDockerContainer, getDockerContainerLogs, ros2Subscribe, ros2Unsubscribe } from "@/lib/api";
 import type { ServiceStatusResponse } from "@/types/api";
 import {
-  FOLLOWER_BRINGUP_BG2_CONFIG,
-  FOLLOWER_BRINGUP_SG2_CONFIG,
   LG2_LEADER_AI_CONFIG,
+  followerModelToApi,
   getDefaultArgs,
+  getFollowerLaunchConfig,
+  getStoredFollowerRobotModel,
+  isFollowerRobotModel,
   mergeWithDefaults,
+  type FollowerRobotModel,
   type LaunchArgsConfig,
 } from "@/config/launchArgs";
 import ControlToolbar from "@/components/ControlToolbar";
@@ -38,12 +41,6 @@ const PANEL_STYLES = {
   flexDirection: "column",
 } as const;
 
-const getStoredRobotType = (container: string): "SG2" | "BG2" => {
-  if (typeof window === "undefined" || !container) return "SG2";
-  const stored = localStorage.getItem(`robot_type_${container}`);
-  return stored === "SG2" || stored === "BG2" ? stored : "SG2";
-};
-
 function getBringupArgsStorageKey(config: LaunchArgsConfig, container: string): string {
   const key = config.storageKey ?? config.serviceId;
   return `bringup_args_${key}_${container}`;
@@ -65,10 +62,6 @@ const FOLLOWER_SERVICE_NAME = "ai_worker_bringup";
 const PHYSICAL_AI_SERVER_CONTAINER = "physical_ai_server";
 const PHYSICAL_AI_SERVER_SERVICE = "physical_ai_server";
 const ZENOH_DAEMON_CONTAINER_NAME = "zenoh_daemon";
-
-const getRobotLaunchConfig = (type: "SG2" | "BG2"): LaunchArgsConfig => {
-  return type === "SG2" ? FOLLOWER_BRINGUP_SG2_CONFIG : FOLLOWER_BRINGUP_BG2_CONFIG;
-};
 
 function useServiceStatus(
   container: string | undefined,
@@ -97,7 +90,7 @@ function useServiceStatus(
     async (
       action: "up" | "down" | "restart",
       launchArgs?: Record<string, string>,
-      robotType?: "sg2" | "bg2"
+      robotType?: "sg2" | "bg2" | "sh5" | "bh5"
     ) => {
       if (!container) return;
       setLoading(true);
@@ -139,7 +132,7 @@ export default function ControlPage() {
     });
   }, [theme]);
 
-  const [robotType, setRobotType] = useState<"SG2" | "BG2">(() => getStoredRobotType(container));
+  const [robotType, setRobotType] = useState<FollowerRobotModel>(() => getStoredFollowerRobotModel(container));
   const [showLogs, setShowLogs] = useState(false);
   const [showLeaderLogs, setShowLeaderLogs] = useState(false);
   const [showPhysicalAiServerLogs, setShowPhysicalAiServerLogs] = useState(false);
@@ -149,7 +142,7 @@ export default function ControlPage() {
   const [zenohDaemonActionLoading, setZenohDaemonActionLoading] = useState<"start" | "stop" | null>(null);
   const [zenohDaemonLogContent, setZenohDaemonLogContent] = useState("");
   const [zenohDaemonLogLoading, setZenohDaemonLogLoading] = useState(false);
-  const robotConfig = getRobotLaunchConfig(robotType);
+  const robotConfig = getFollowerLaunchConfig(robotType);
   const [robotBringupArgs, setRobotBringupArgs] = useState<Record<string, string>>(
     () => getStoredBringupArgs(robotConfig, container)
   );
@@ -233,7 +226,7 @@ export default function ControlPage() {
     const action: "up" | "down" = robotService.status?.is_up ? "down" : "up";
     const launchArgs = action === "up" ? robotBringupArgs : undefined;
     const robotTypeParam =
-      action === "up" && robotType ? (robotType === "SG2" ? "sg2" : "bg2") : undefined;
+      action === "up" && robotType ? followerModelToApi(robotType) : undefined;
     await robotService.handleControl(action, launchArgs, robotTypeParam);
   }, [robotService, robotBringupArgs, robotType]);
 
@@ -246,14 +239,14 @@ export default function ControlPage() {
   useEffect(() => {
     if (container) {
       localStorage.setItem(LAST_CONTAINER_KEY, container);
-      setRobotType(getStoredRobotType(container));
+      setRobotType(getStoredFollowerRobotModel(container));
       setLeaderBringupArgs(getStoredBringupArgs(LG2_LEADER_AI_CONFIG, container));
     }
   }, [container]);
 
   useEffect(() => {
     if (container) {
-      const cfg = getRobotLaunchConfig(robotType);
+      const cfg = getFollowerLaunchConfig(robotType);
       setRobotBringupArgs(getStoredBringupArgs(cfg, container));
     }
   }, [container, robotType]);
@@ -308,7 +301,7 @@ export default function ControlPage() {
       <ControlToolbar
         robotType={robotType}
         onRobotTypeChange={(v) => {
-          const t = v === "SG2" || v === "BG2" ? v : "SG2";
+          const t = isFollowerRobotModel(v) ? v : "SG2";
           setRobotType(t);
           if (container) localStorage.setItem(`robot_type_${container}`, t);
         }}

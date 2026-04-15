@@ -119,7 +119,7 @@ export async function controlService(
   service: string,
   action: "up" | "down" | "restart",
   launchArgs?: Record<string, string>,
-  robotType?: "sg2" | "bg2"
+  robotType?: "sg2" | "bg2" | "sh5" | "bh5"
 ): Promise<ServiceControlResponse> {
   try {
     const request: ServiceActionRequest = {

@@ -38,7 +38,7 @@ export interface ServiceStatusListResponse {
 export interface ServiceActionRequest {
   action: "up" | "down" | "restart";
   launch_args?: Record<string, string>;
-  robot_type?: "sg2" | "bg2";
+  robot_type?: "sg2" | "bg2" | "sh5" | "bh5";
 }
 
 export interface ServiceControlResponse {
