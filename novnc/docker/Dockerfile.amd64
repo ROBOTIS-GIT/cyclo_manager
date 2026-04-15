@@ -1,0 +1,76 @@
+FROM ros:jazzy-ros-base
+
+ENV HOME=/root \
+    DEBIAN_FRONTEND=noninteractive \
+    LANG=en_US.UTF-8 \
+    LANGUAGE=en_US.UTF-8 \
+    LC_ALL=C.UTF-8 \
+    DISPLAY=:99 \
+    DISPLAY_WIDTH=1920 \
+    DISPLAY_HEIGHT=1080 \
+    RUN_XTERM=yes \
+    RUN_FLUXBOX=yes
+
+RUN apt-get update && apt-get install -y \
+    bash \
+    fluxbox \
+    git \
+    net-tools \
+    novnc \
+    supervisor \
+    x11vnc \
+    xterm \
+    xvfb \
+    ros-jazzy-rviz2 \
+    libgl1 \
+    libgl1-mesa-dri \
+    libfuse2 \
+    pcmanfm \
+    adwaita-icon-theme \
+  && rm -rf /var/lib/apt/lists/*
+
+RUN ln -s /usr/share/novnc/vnc.html /usr/share/novnc/index.html
+
+RUN mkdir -p /root/.fluxbox && \
+    echo "session.screen0.workspaces: 1" > /root/.fluxbox/init
+
+RUN mkdir -p /root/.config/libfm && \
+    echo "[config]" > /root/.config/libfm/libfm.conf && \
+    echo "quick_exec=1" >> /root/.config/libfm/libfm.conf
+
+RUN mkdir -p /root/Desktop && \
+    echo "[Desktop Entry]" > /root/Desktop/rviz2.desktop && \
+    echo "Version=1.0" >> /root/Desktop/rviz2.desktop && \
+    echo "Type=Application" >> /root/Desktop/rviz2.desktop && \
+    echo "Name=Rviz2" >> /root/Desktop/rviz2.desktop && \
+    echo "Comment=Start ROS2 Rviz" >> /root/Desktop/rviz2.desktop && \
+    echo "Exec=bash -c 'source /opt/ros/jazzy/setup.bash && ros2 run rviz2 rviz2'" >> /root/Desktop/rviz2.desktop && \
+    echo "Icon=utilities-terminal" >> /root/Desktop/rviz2.desktop && \
+    echo "Terminal=false" >> /root/Desktop/rviz2.desktop && \
+    echo "StartupNotify=true" >> /root/Desktop/rviz2.desktop && \
+    chmod +x /root/Desktop/rviz2.desktop
+
+RUN mkdir -p /root/Desktop && \
+    echo "[Desktop Entry]" > /root/Desktop/wizard.desktop && \
+    echo "Version=1.0" >> /root/Desktop/wizard.desktop && \
+    echo "Type=Application" >> /root/Desktop/wizard.desktop && \
+    echo "Name=Dynamixel Wizard 2" >> /root/Desktop/wizard.desktop && \
+    echo "Comment=Start Dynamixel Wizard" >> /root/Desktop/wizard.desktop && \
+    echo "Exec=/wizard/DynamixelWizard2-linux-x64-AIW-2.7.3.3.AppImage" >> /root/Desktop/wizard.desktop && \
+    echo "Icon=/wizard/wizard_icon.png" >> /root/Desktop/wizard.desktop && \
+    echo "Terminal=false" >> /root/Desktop/wizard.desktop && \
+    echo "StartupNotify=true" >> /root/Desktop/wizard.desktop && \
+    chmod +x /root/Desktop/wizard.desktop
+
+
+COPY supervisord/supervisord.conf /etc/supervisor/conf.d/supervisord.conf
+
+# AppImage: extract-and-run avoids FUSE in container
+ENV APPIMAGE_EXTRACT_AND_RUN=1
+
+COPY wizard/ /wizard/
+RUN chmod +x /wizard/*.AppImage 2>/dev/null || true
+
+EXPOSE 8090
+
+CMD ["/usr/bin/supervisord", "-c", "/etc/supervisor/conf.d/supervisord.conf"]
