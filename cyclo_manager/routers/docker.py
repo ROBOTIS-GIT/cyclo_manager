@@ -8,6 +8,7 @@ import httpx
 from fastapi import APIRouter, Depends, HTTPException, status
 
 from cyclo_manager.state import get_config, get_docker_client
+from cyclo_manager.utils.versioning import is_newer
 from cyclo_manager.models import (
     DockerContainerActionRequest,
     DockerContainerActionResponse,
@@ -128,21 +129,6 @@ VERSION_RE = re.compile(r"<version>([^<]+)</version>")
 DEFAULT_REPO_VERSION_CONFIG = RepoVersionConfig()
 
 
-def _parse_version(version_str: str) -> tuple[int, ...]:
-    """Parse version string into comparable tuple (e.g. '1.2.3' -> (1, 2, 3))."""
-    parts = []
-    for p in (version_str or "").strip().lstrip("v").split("."):
-        try:
-            parts.append(int(p))
-        except ValueError:
-            parts.append(0)
-    return tuple(parts) if parts else (0,)
-
-
-def _is_newer(latest: str, current: str) -> bool:
-    """Return True if latest > current (semver-style comparison)."""
-    return _parse_version(latest) > _parse_version(current)
-
 
 @router.get("/{name}/version", response_model=RepoVersionResponse)
 async def get_repo_version(
@@ -196,7 +182,7 @@ async def get_repo_version(
         logger.warning("Failed to fetch GitHub latest release: %s", e)
 
     if latest_ver and current_ver != "unknown":
-        update_available = _is_newer(latest_ver, current_ver)
+        update_available = is_newer(latest_ver, current_ver)
 
     return RepoVersionResponse(
         container=name,

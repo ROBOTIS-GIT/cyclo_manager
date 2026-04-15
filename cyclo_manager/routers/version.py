@@ -8,26 +8,11 @@ import httpx
 from fastapi import APIRouter, HTTPException, status
 
 from cyclo_manager.models import CycloManagerVersionResponse
+from cyclo_manager.utils.versioning import is_newer
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/version", tags=["version"])
-
-
-def _parse_version(version_str: str) -> tuple[int, ...]:
-    """Parse version string into comparable tuple (e.g. '1.2.3' -> (1, 2, 3))."""
-    parts = []
-    for p in (version_str or "").strip().lstrip("v").split("."):
-        try:
-            parts.append(int(p))
-        except ValueError:
-            parts.append(0)
-    return tuple(parts) if parts else (0,)
-
-
-def _is_newer(latest: str, current: str) -> bool:
-    """Return True if latest > current (semver-style comparison)."""
-    return _parse_version(latest) > _parse_version(current)
 
 
 async def _fetch_latest_from_pypi(package_name: str) -> str:
@@ -54,7 +39,7 @@ async def get_cyclo_manager_version() -> CycloManagerVersionResponse:
 
     latest_ver = await _fetch_latest_from_pypi(PYPI_PACKAGE)
     update_available = bool(
-        latest_ver and current_ver != "unknown" and _is_newer(latest_ver, current_ver)
+        latest_ver and current_ver != "unknown" and is_newer(latest_ver, current_ver)
     )
     return CycloManagerVersionResponse(
         current=current_ver,
