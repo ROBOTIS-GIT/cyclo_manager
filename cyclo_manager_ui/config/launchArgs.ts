@@ -140,7 +140,8 @@ export type FollowerRobotApiType = "sg2" | "bg2" | "sh5" | "bh5";
 
 const FOLLOWER_ROBOT_MODELS: readonly FollowerRobotModel[] = ["SG2", "BG2", "SH5", "BH5"];
 
-export function isFollowerRobotModel(v: string): v is FollowerRobotModel {
+export function isFollowerRobotModel(v: string | null | undefined): v is FollowerRobotModel {
+  if (v == null) return false;
   return (FOLLOWER_ROBOT_MODELS as readonly string[]).includes(v);
 }
 
