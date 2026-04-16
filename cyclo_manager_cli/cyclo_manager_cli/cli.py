@@ -24,30 +24,22 @@ def _config_dir() -> Path:
 
 
 def _packaged_config_path() -> Path:
-    """Path to the bundled config (config/config.yml). Used by default for cyclo_manager up."""
+    """Path to the bundled config (config/config.yml). Used for cyclo_manager up/down."""
     return _config_dir() / "config.yml"
 
 
 def cmd_up(args: argparse.Namespace) -> int:
     """Run docker compose: start API + UI; create zenoh + noVNC containers without starting them."""
-    if args.config is None:
-        config_path = _packaged_config_path()
-    else:
-        config_path = Path(args.config).expanduser().resolve()
-        if not config_path.exists():
-            config_path.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copy2(_packaged_config_path(), config_path)
-            print(f"Created default config at {config_path}", file=sys.stderr)
-        if not config_path.is_file():
-            print(f"Config file not found: {config_path}", file=sys.stderr)
-            return 1
+    config_path = _packaged_config_path()
+    if not config_path.is_file():
+        print(f"Bundled config not found: {config_path}", file=sys.stderr)
+        return 1
     compose_path = _docker_dir() / "docker-compose.yml"
     if not compose_path.is_file():
         print(f"Compose file not found: {compose_path}", file=sys.stderr)
         return 1
     env = os.environ.copy()
     env["CYCLO_MANAGER_CONFIG_FILE"] = str(config_path)
-    env["ROS_DOMAIN_ID"] = str(args.ros_domain_id)
     base = ["docker", "compose", "-f", str(compose_path)]
     try:
         if args.pull:
@@ -132,12 +124,8 @@ def cmd_update(args: argparse.Namespace) -> int:
 
     print("Starting containers (cyclo_manager up)...")
     up_args = [cyclo_manager_exe, "up"]
-    if getattr(args, "config", None) is not None:
-        up_args.extend(["-c", str(args.config)])
     if getattr(args, "pull", False):
         up_args.append("--pull")
-    if getattr(args, "ros_domain_id", None) is not None:
-        up_args.extend(["-r", str(args.ros_domain_id)])
     try:
         subprocess.run(up_args, check=True)
     except subprocess.CalledProcessError as e:
@@ -156,20 +144,6 @@ def main() -> int:
 
     up_parser = sub.add_parser("up", help="Start cyclo_manager stack (docker compose)")
     up_parser.add_argument(
-        "-c",
-        "--config",
-        metavar="PATH",
-        help="Config file path (default: use bundled config from package)",
-    )
-    up_parser.add_argument(
-        "-r",
-        "--ros-domain-id",
-        type=int,
-        default=30,
-        metavar="ID",
-        help="ROS2 domain ID for cyclo_manager server (default: 30)",
-    )
-    up_parser.add_argument(
         "--pull",
         action="store_true",
         help="Pull all service images before create/up",
@@ -182,20 +156,6 @@ def main() -> int:
     update_parser = sub.add_parser(
         "update",
         help="Down containers, pip install -U cyclo-manager, then up again",
-    )
-    update_parser.add_argument(
-        "-c",
-        "--config",
-        metavar="PATH",
-        help="Config file path for cyclo_manager up (default: use bundled config)",
-    )
-    update_parser.add_argument(
-        "-r",
-        "--ros-domain-id",
-        type=int,
-        default=30,
-        metavar="ID",
-        help="ROS2 domain ID for cyclo_manager up (default: 30)",
     )
     update_parser.add_argument(
         "--pull",

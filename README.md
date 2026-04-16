@@ -67,7 +67,7 @@ cyclo_manager/
 
 ## Configuration
 
-YAML loaded from **`CONFIG_FILE`** (default `config.yml` in the working directory) or from the path injected by Docker/CLI (`CYCLO_MANAGER_CONFIG_FILE` in packaged compose).
+YAML is loaded from **`CONFIG_FILE`** inside the API process (default `config.yml` in the working directory). The **pip-installed** `cyclo_manager up` always mounts the **bundled** package config via **`CYCLO_MANAGER_CONFIG_FILE`** (no `-c` override). For a different file on the host, use **`docker-compose.dev.yml`** from the repo root.
 
 Top-level keys:
 
@@ -85,7 +85,7 @@ pip install cyclo-manager
 cyclo_manager up
 ```
 
-Starts the API and UI via the bundled Compose file; creates Zenoh/noVNC containers without starting them by default. Options, env vars, and service names: **[cyclo_manager_cli/README.md](cyclo_manager_cli/README.md)**.
+Starts the API and UI via the bundled Compose file; creates Zenoh/noVNC containers without starting them by default. **`ROS_DOMAIN_ID`** is not passed by the CLI—set it per container (e.g. **`~/.bashrc`**) and restart. Commands and service names: **[cyclo_manager_cli/README.md](cyclo_manager_cli/README.md)**.
 
 ### From source (development)
 

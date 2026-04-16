@@ -38,12 +38,10 @@ cyclo_manager up
 
 | Command | What it does |
 |--------|----------------|
-| `cyclo_manager up` | `docker compose up -d` for **`cyclo_manager`** and **`ui`**; then `docker compose create --no-recreate` for **`rmw_zenoh`** and **`novnc-server`** so those containers exist but stay **stopped** |
-| `cyclo_manager up -c /path/to/config.yml` | Same as `up`, but mounts this file into the API container as config. If the path does not exist, the CLI **copies** the bundled default config there first |
-| `cyclo_manager up -r 35` | Sets **`ROS_DOMAIN_ID`** for the stack (default: **30**) |
+| `cyclo_manager up` | `docker compose up -d` for **`cyclo_manager`** and **`ui`**; then `docker compose create --no-recreate` for **`rmw_zenoh`** and **`novnc-server`** so those containers exist but stay **stopped**. Always mounts the **bundled** [`config/config.yml`](config/config.yml) (no custom `-c` path). |
 | `cyclo_manager up --pull` | Runs `docker compose pull` before up/create |
 | `cyclo_manager down` | `docker compose down` for the **packaged** compose file (stops/removes containers for that project) |
-| `cyclo_manager update` | Runs `cyclo_manager down`, then `pip install -U cyclo-manager`, then `cyclo_manager up` again (optional `-c`, `-r`, `--pull` are forwarded to `up`) |
+| `cyclo_manager update` | Runs `cyclo_manager down`, then `pip install -U cyclo-manager`, then `cyclo_manager up` again (optional `--pull` is forwarded to `up`) |
 | `cyclo_manager --help` | Top-level help |
 
 Implementation reference: [`cyclo_manager_cli/cli.py`](cyclo_manager_cli/cli.py).
@@ -59,10 +57,9 @@ Implementation reference: [`cyclo_manager_cli/cli.py`](cyclo_manager_cli/cli.py)
 
 ### Environment passed into Compose
 
-- **`CYCLO_MANAGER_CONFIG_FILE`**: absolute path to the YAML config used on the host (default: bundled [`config/config.yml`](cyclo_manager_cli/config/config.yml))
-- **`ROS_DOMAIN_ID`**: from `-r` / `--ros-domain-id` (default **30**)
+- **`CYCLO_MANAGER_CONFIG_FILE`**: absolute path to the **bundled** YAML on the host ([`config/config.yml`](config/config.yml)). `up` and `down` both set this when invoking Compose.
 
-`cyclo_manager down` always sets `CYCLO_MANAGER_CONFIG_FILE` to the **bundled** config path when invoking Compose (see `cmd_down` in `cli.py`).
+**`ROS_DOMAIN_ID`** is **not** set by the CLI. Use each container’s **`~/.bashrc`** (or image defaults) and restart containers so DDS matches your robots. For a custom config mount or host dev workflow, use the repository **`docker-compose.dev.yml`** instead of the pip CLI.
 
 ## Bundled config
 
