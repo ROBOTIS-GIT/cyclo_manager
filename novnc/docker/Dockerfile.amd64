@@ -44,7 +44,7 @@ RUN mkdir -p /root/Desktop && \
     echo "Type=Application" >> /root/Desktop/rviz2.desktop && \
     echo "Name=Rviz2" >> /root/Desktop/rviz2.desktop && \
     echo "Comment=Start ROS2 Rviz" >> /root/Desktop/rviz2.desktop && \
-    echo "Exec=bash -c 'source /opt/ros/jazzy/setup.bash && ros2 run rviz2 rviz2'" >> /root/Desktop/rviz2.desktop && \
+    echo "Exec=bash -ic 'source /opt/ros/jazzy/setup.bash && ros2 run rviz2 rviz2'" >> /root/Desktop/rviz2.desktop && \
     echo "Icon=utilities-terminal" >> /root/Desktop/rviz2.desktop && \
     echo "Terminal=false" >> /root/Desktop/rviz2.desktop && \
     echo "StartupNotify=true" >> /root/Desktop/rviz2.desktop && \
@@ -62,6 +62,8 @@ RUN mkdir -p /root/Desktop && \
     echo "StartupNotify=true" >> /root/Desktop/wizard.desktop && \
     chmod +x /root/Desktop/wizard.desktop
 
+RUN echo "source /opt/ros/jazzy/setup.bash" >> ~/.bashrc && \
+    echo 'export ROS_DOMAIN_ID=30' >> ~/.bashrc
 
 COPY supervisord/supervisord.conf /etc/supervisor/conf.d/supervisord.conf
 

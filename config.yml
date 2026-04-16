@@ -8,9 +8,5 @@
 containers:
   ai_worker:
     socket_path: "/agents/ai_worker/s6_agent.sock"
-    # Optional: Repo metapackage version check. Omit to use defaults.
-    repo_version:
-      github_releases_api: "https://api.github.com/repos/ROBOTIS-GIT/ai_worker/releases/latest"
-      package_xml_path: "/root/ros2_ws/src/ai_worker/ffw/package.xml"
   physical_ai_server:
     socket_path: "/agents/physical_ai_server/s6_agent.sock"

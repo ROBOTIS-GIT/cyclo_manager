@@ -22,9 +22,8 @@ COPY cyclo_manager/ ./cyclo_manager/
 COPY cyclo_manager_cli/cyclo_manager_cli/config/config.yml ./config.yml
 
 RUN echo "source /opt/ros/jazzy/setup.bash" >> ~/.bashrc
+RUN echo 'export ROS_DOMAIN_ID=30' >> ~/.bashrc
 
 # Expose API port
 EXPOSE 8081
-
-# Run the cyclo_manager API (--no-access-log to suppress 200 OK etc.)
-CMD ["uvicorn", "cyclo_manager.api:app", "--host", "0.0.0.0", "--port", "8081", "--no-access-log"]
+CMD ["bash", "-ic", "exec uvicorn cyclo_manager.api:app --host 0.0.0.0 --port 8081 --no-access-log"]

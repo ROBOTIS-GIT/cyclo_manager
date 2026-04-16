@@ -31,7 +31,6 @@ services:
     environment:
       - CONFIG_FILE=/app/config.yml
       - PYTHONUNBUFFERED=1
-      - ROS_DOMAIN_ID=199
     # Note: uvicorn --reload will automatically restart on code changes
 
   ui:
@@ -69,7 +68,6 @@ services:
       memlock: 8428281856
     network_mode: host
     environment:
-      - ROS_DOMAIN_ID=30
       - DISPLAY=:99
       - DISPLAY_WIDTH=1920
       - DISPLAY_HEIGHT=1080
