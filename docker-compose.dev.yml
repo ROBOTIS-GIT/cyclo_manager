@@ -56,9 +56,10 @@ services:
 
   novnc-server:
     container_name: novnc-server
-    build:
-      context: novnc
-      dockerfile: docker/Dockerfile.amd64
+    image: robotis/novnc-server:latest
+    # build:
+    #   context: novnc
+    #   dockerfile: docker/Dockerfile.amd64
     restart: unless-stopped
     cap_add:
       - SYS_NICE
