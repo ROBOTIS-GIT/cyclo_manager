@@ -58,7 +58,7 @@ RUN mkdir -p /root/Desktop && \
     echo "Comment=Start Dynamixel Wizard" >> /root/Desktop/wizard.desktop && \
     echo "Exec=/wizard/DynamixelWizard2-linux-arm64-2.7.4.7.AppImage" >> /root/Desktop/wizard.desktop && \
     echo "Icon=/wizard/wizard_icon.png" >> /root/Desktop/wizard.desktop && \
-    echo "Terminal=false" >> /root/Desktop/wizard.desktop && \
+    echo "Terminal=true" >> /root/Desktop/wizard.desktop && \
     echo "StartupNotify=true" >> /root/Desktop/wizard.desktop && \
     chmod +x /root/Desktop/wizard.desktop
 
