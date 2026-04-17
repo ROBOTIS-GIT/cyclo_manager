@@ -5,13 +5,13 @@ import Convert from "ansi-to-html";
 import { useTheme } from "@/contexts/ThemeContext";
 
 interface LogViewerProps {
-  logs: string;
+  lines: string[];
   autoScroll?: boolean;
   className?: string;
 }
 
 export default function LogViewer({
-  logs,
+  lines,
   autoScroll = true,
   className = "",
 }: LogViewerProps) {
@@ -45,41 +45,32 @@ export default function LogViewer({
     });
   }, [theme]);
 
-  const htmlLogs = useMemo(
-    () => (logs ? convert.toHtml(logs) : "No logs available"),
-    [logs, convert]
+  const htmlLines = useMemo(
+    () => lines.map((line) => convert.toHtml(line)),
+    [lines, convert]
   );
 
   useLayoutEffect(() => {
     const container = scrollRef.current;
     if (!container) return;
-
     if (autoScroll && isAtBottomRef.current) {
       container.scrollTop = container.scrollHeight;
     }
-  }, [htmlLogs, autoScroll]);
+  }, [htmlLines, autoScroll]);
 
   const handleScroll = useCallback(() => {
     const container = scrollRef.current;
     if (!container) return;
-
     const { scrollTop, scrollHeight, clientHeight } = container;
     const distanceFromBottom = scrollHeight - (scrollTop + clientHeight);
-    const isAtBottom = distanceFromBottom < 50;
-
-    isAtBottomRef.current = isAtBottom;
-    setShowScrollButton(!isAtBottom);
+    isAtBottomRef.current = distanceFromBottom < 50;
+    setShowScrollButton(!isAtBottomRef.current);
   }, []);
 
   return (
     <div
       className={`relative flex flex-col ${className}`}
-      style={{
-        height: "100%",
-        minHeight: 0,
-        position: "relative",
-        overflow: "hidden"
-      }}
+      style={{ height: "100%", minHeight: 0, position: "relative", overflow: "hidden" }}
     >
       <div
         ref={scrollRef}
@@ -99,19 +90,20 @@ export default function LogViewer({
           maxHeight: "100%",
           position: "relative",
           overflowAnchor: "none",
-          scrollBehavior: "auto"
+          scrollBehavior: "auto",
         }}
       >
-        <div
-          className="font-mono whitespace-pre-wrap break-all"
-          style={{
-            margin: 0,
-            display: "block",
-            width: "100%",
-            boxSizing: "border-box"
-          }}
-          dangerouslySetInnerHTML={{ __html: htmlLogs }}
-        />
+        {htmlLines.length === 0 ? (
+          <div style={{ color: theme === "dark" ? "#666666" : "#999999" }}>No logs available</div>
+        ) : (
+          htmlLines.map((html, i) => (
+            <div
+              key={i}
+              style={{ whiteSpace: "pre-wrap", wordBreak: "break-all", minHeight: "1em", fontFamily: "monospace" }}
+              dangerouslySetInnerHTML={{ __html: html || "\u00a0" }}
+            />
+          ))
+        )}
       </div>
 
       {showScrollButton && autoScroll && (

@@ -15,14 +15,14 @@ const LOG_UPDATE_DEBOUNCE_MS = 200;
 const RECONNECT_DELAY_MS = 3000;
 const WS_CLOSE_CODE_NORMAL = 1000;
 const WS_CLOSE_CODE_GOING_AWAY = 1001;
-const MAX_LOG_LINES = 1000; // Maximum number of log lines to keep in memory
+const MAX_LOG_LINES = 1000;
 
 export default function FixedLogPanel({
   container,
   service,
   onClose,
 }: FixedLogPanelProps) {
-  const [logs, setLogs] = useState<string>("");
+  const [lines, setLines] = useState<string[]>([]);
   const [isConnected, setIsConnected] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [clearLoading, setClearLoading] = useState(false);
@@ -31,25 +31,36 @@ export default function FixedLogPanel({
   const reconnectTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const isMountedRef = useRef(true);
   const shouldReconnectRef = useRef(true);
-  const pendingLogsRef = useRef<string>("");
+  // Accumulates raw incoming text between flushes
+  const pendingRef = useRef<string>("");
+  // Holds an incomplete line (chunk that didn't end with \n)
+  const partialLineRef = useRef<string>("");
   const logUpdateTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const isEmptyLogsRef = useRef(true);
 
-  // Limit log lines to prevent memory issues
-  const limitLogLines = useCallback((logText: string): string => {
-    if (!logText) return logText;
+  const appendPending = useCallback(() => {
+    const raw = partialLineRef.current + pendingRef.current;
+    pendingRef.current = "";
 
-    const lines = logText.split('\n');
-    if (lines.length <= MAX_LOG_LINES) {
-      return logText;
+    const parts = raw.split("\n");
+    // If raw ends with \n, the last element is "" — discard it and clear partial.
+    // Otherwise the last element is an incomplete line — save it for next flush.
+    if (raw.endsWith("\n")) {
+      partialLineRef.current = "";
+    } else {
+      partialLineRef.current = parts.pop() ?? "";
     }
 
-    // Keep only the most recent MAX_LOG_LINES
-    const recentLines = lines.slice(-MAX_LOG_LINES);
-    return recentLines.join('\n');
+    if (parts.length === 0) return;
+
+    setLines((prev) => {
+      const combined = [...prev, ...parts];
+      return combined.length <= MAX_LOG_LINES
+        ? combined
+        : combined.slice(-MAX_LOG_LINES);
+    });
   }, []);
 
-  // WebSocket connection
   const connectWebSocket = useCallback(() => {
     if (!isMountedRef.current) return;
 
@@ -72,11 +83,11 @@ export default function FixedLogPanel({
         onMessage: (data: string) => {
           if (!isMountedRef.current) return;
 
-          pendingLogsRef.current += data;
+          pendingRef.current += data;
 
           if (isEmptyLogsRef.current) {
-            setLogs(limitLogLines(pendingLogsRef.current));
-            pendingLogsRef.current = "";
+            // Flush immediately on first message so the panel doesn't appear blank
+            appendPending();
             isEmptyLogsRef.current = false;
             setIsConnected(true);
           } else {
@@ -85,13 +96,7 @@ export default function FixedLogPanel({
             }
             logUpdateTimeoutRef.current = setTimeout(() => {
               if (!isMountedRef.current) return;
-              if (pendingLogsRef.current) {
-                setLogs((prevLogs) => {
-                  const newLogs = prevLogs + pendingLogsRef.current;
-                  pendingLogsRef.current = "";
-                  return limitLogLines(newLogs);
-                });
-              }
+              appendPending();
             }, LOG_UPDATE_DEBOUNCE_MS);
           }
         },
@@ -135,7 +140,7 @@ export default function FixedLogPanel({
       if (!isMountedRef.current) return;
       setError(err instanceof Error ? err.message : "Failed to connect to WebSocket");
     }
-  }, [container, service]);
+  }, [container, service, appendPending]);
 
   useEffect(() => {
     isMountedRef.current = true;
@@ -162,9 +167,9 @@ export default function FixedLogPanel({
         logUpdateTimeoutRef.current = null;
       }
 
-      if (pendingLogsRef.current) {
-        setLogs((prevLogs) => limitLogLines(prevLogs + pendingLogsRef.current));
-        pendingLogsRef.current = "";
+      // Flush any remaining pending text on unmount
+      if (pendingRef.current) {
+        appendPending();
       }
     };
   }, [connectWebSocket]);
@@ -212,8 +217,10 @@ export default function FixedLogPanel({
               setError(null);
               try {
                 await clearServiceLogs(container, service);
-                setLogs("");
-                pendingLogsRef.current = "";
+                setLines([]);
+                pendingRef.current = "";
+                partialLineRef.current = "";
+                isEmptyLogsRef.current = true;
               } catch (e) {
                 setError(e instanceof Error ? e.message : "Failed to clear logs");
               } finally {
@@ -286,7 +293,7 @@ export default function FixedLogPanel({
           </div>
         )}
         <div style={{ flex: 1, minHeight: 0, position: "relative" }}>
-          <LogViewer logs={logs} autoScroll={true} className="h-full" />
+          <LogViewer lines={lines} autoScroll={true} className="h-full" />
         </div>
       </div>
     </div>
