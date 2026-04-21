@@ -193,10 +193,6 @@ export default function NoVNCPage() {
             </button>
           </div>
         </div>
-        <p className="text-xs m-0" style={{ color: "var(--vscode-descriptionForeground)" }}>
-          Docker container <code className="text-[11px] px-1 rounded" style={{ backgroundColor: "var(--vscode-textCodeBlock-background)" }}>{NOVNC_SERVER_CONTAINER_NAME}</code>
-          {" "}— port {NOVNC_PORT}
-        </p>
       </header>
 
       {showLogs ? (
