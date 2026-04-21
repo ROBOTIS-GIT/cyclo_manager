@@ -39,7 +39,7 @@ export default function AppHubPage() {
           <div className="flex flex-row flex-wrap justify-center gap-6">
             <Link href="/home">
               <div
-                className="rounded-lg border-2 p-5 cursor-pointer w-[min(40rem,calc(100vw-3rem))] h-[13rem] sm:h-[14rem] max-h-[min(14rem,38vh)] flex flex-col items-stretch justify-center min-h-0 hover:border-[var(--vscode-focusBorder)] transition-colors"
+                className="group rounded-lg border-2 p-5 cursor-pointer w-[min(40rem,calc(100vw-3rem))] h-[13rem] sm:h-[14rem] max-h-[min(14rem,38vh)] flex flex-col items-stretch justify-center min-h-0 hover:border-[var(--vscode-focusBorder)] hover:bg-[var(--vscode-list-hoverBackground)] hover:scale-[1.02] transition-all duration-150"
                 style={{
                   backgroundColor: "var(--vscode-sidebar-background)",
                   borderColor: "var(--vscode-panel-border)",
@@ -50,7 +50,7 @@ export default function AppHubPage() {
                     src="/manager_logo.png"
                     alt="Cyclo Manager"
                     draggable={false}
-                    className="max-w-full w-auto h-auto object-contain object-center"
+                    className="max-w-full w-auto h-auto object-contain object-center group-hover:scale-110 transition-transform duration-150"
                     style={{
                       maxHeight: "min(7rem, 22vh)",
                       filter: theme === "dark" ? "invert(1)" : undefined,
@@ -61,7 +61,7 @@ export default function AppHubPage() {
             </Link>
             <a href={physicalUrl} className="no-underline">
               <div
-                className="rounded-lg border-2 p-5 cursor-pointer w-[min(40rem,calc(100vw-3rem))] h-[13rem] sm:h-[14rem] max-h-[min(14rem,38vh)] flex flex-col items-stretch justify-center min-h-0 hover:border-[var(--vscode-focusBorder)] transition-colors"
+                className="group rounded-lg border-2 p-5 cursor-pointer w-[min(40rem,calc(100vw-3rem))] h-[13rem] sm:h-[14rem] max-h-[min(14rem,38vh)] flex flex-col items-stretch justify-center min-h-0 hover:border-[var(--vscode-focusBorder)] hover:bg-[var(--vscode-list-hoverBackground)] hover:scale-[1.02] transition-all duration-150"
                 style={{
                   backgroundColor: "var(--vscode-sidebar-background)",
                   borderColor: "var(--vscode-panel-border)",
@@ -73,7 +73,7 @@ export default function AppHubPage() {
                     src="/physical_ai_tools_logo.png"
                     alt="Physical AI Tools"
                     draggable={false}
-                    className="max-w-full w-auto h-auto object-contain object-center"
+                    className="max-w-full w-auto h-auto object-contain object-center group-hover:scale-110 transition-transform duration-150"
                     style={{
                       maxHeight: "min(7rem, 22vh)",
                       filter: theme === "dark" ? "invert(1)" : undefined,

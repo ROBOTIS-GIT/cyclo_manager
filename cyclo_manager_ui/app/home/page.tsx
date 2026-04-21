@@ -221,7 +221,7 @@ export default function HomePage() {
             const CardContent = (
               <div
                 key={slot.containerName}
-                className="rounded-lg border-2 p-6 cursor-pointer w-[32rem] h-[32rem] flex flex-col hover:border-[var(--vscode-focusBorder)]"
+                className="group rounded-lg border-2 p-6 cursor-pointer w-[32rem] h-[32rem] flex flex-col hover:border-[var(--vscode-focusBorder)] hover:bg-[var(--vscode-list-hoverBackground)] hover:scale-[1.02] transition-all duration-150"
                 style={{
                   backgroundColor: "var(--vscode-sidebar-background)",
                   borderColor: "var(--vscode-panel-border)",
@@ -267,7 +267,7 @@ export default function HomePage() {
                         <img
                           src="/ai_worker.png"
                           alt="AI Worker"
-                          className="max-w-full max-h-full object-contain"
+                          className="max-w-full max-h-full object-contain group-hover:scale-110 transition-transform duration-150"
                         />
                       )}
                     </div>
