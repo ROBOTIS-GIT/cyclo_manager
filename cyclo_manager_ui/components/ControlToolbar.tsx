@@ -192,13 +192,13 @@ type ToolbarHelpKey = "robot" | "leader" | "physical" | "zenoh";
 
 const TOOLBAR_HELP_TEXT: Record<ToolbarHelpKey, string> = {
   robot:
-    "Starts and stops the follower robot bringup service. The dot shows status — green is running, red is stopped. Pick SG2, BG2, SH5, or BH5, then use play to start; you cannot change the model while it is running.",
+    "Starts and stops the follower robot bringup service. The dot shows status — green is running, red is stopped. Pick SG2, BG2, SH5, or BH5, then use play to start.",
   leader:
-    "Starts and stops the leader (avatar) bringup service. It runs with the LG2 configuration. The dot shows whether the service is up; use the gear to edit launch arguments.",
+    "Starts and stops the leader bringup service. The dot shows status — green is running, red is stopped.",
   physical:
-    "Starts and stops the Physical AI Server service in its container. Click the Physical AI Server label to open the Physical AI Tools web UI on this host (port 80) in a new tab.",
+    "Starts and stops the Physical AI Server service in its container.",
   zenoh:
-    "Starts and stops the Zenoh daemon Docker container (e.g. for network or middleware bridging). The dot shows container state — green running, red stopped.",
+    "Starts and stops the Zenoh daemon Docker container. The dot shows container state — green running, red stopped. If you use zenoh as ros middleware, you need to run the zenoh daemon.",
 };
 
 const TOOLBAR_HELP_ARIA: Record<ToolbarHelpKey, string> = {

@@ -22,7 +22,6 @@ services:
       - /var/run/docker.sock:/var/run/docker.sock # For Docker API access
     environment:
       - CONFIG_FILE=/app/config.yml
-      - ROS_DOMAIN_ID=${ROS_DOMAIN_ID:-30}
 
   ui:
     container_name: cyclo_manager_ui
@@ -45,7 +44,6 @@ services:
       memlock: 8428281856
     network_mode: host
     environment:
-      - ROS_DOMAIN_ID=${ROS_DOMAIN_ID:-30}
       - DISPLAY=:99
       - DISPLAY_WIDTH=1920
       - DISPLAY_HEIGHT=1080

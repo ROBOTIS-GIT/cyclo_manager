@@ -52,7 +52,7 @@ export function AppsHubButton({
   return (
     <Link
       href="/app"
-      className={`flex shrink-0 items-center justify-center rounded-full border transition-opacity hover:opacity-90 ${className ?? ""}`}
+      className={`flex shrink-0 items-center justify-center rounded-full border transition-all duration-150 hover:border-[var(--vscode-focusBorder)] hover:bg-[var(--vscode-list-hoverBackground)] hover:scale-110 ${className ?? ""}`}
       style={{
         width: dim,
         height: dim,

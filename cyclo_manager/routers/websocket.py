@@ -477,7 +477,7 @@ async def websocket_ros2_topic_data(websocket: WebSocket, container: str, topic:
 
         msg_type = node.get_topic_msg_type(topic)
         if msg_type:
-            qos_profile = ros2_router._get_topic_publisher_qos(container, topic, node)
+            qos_profile = ros2_router.resolve_qos_profile_for_topic(container, topic, node)
             node.add_topic_subscription(topic, msg_type, qos_profile=qos_profile)
             # Give TRANSIENT_LOCAL callback time to receive the last message (DDS is async)
             if node.is_topic_transient_local_subscription(topic):

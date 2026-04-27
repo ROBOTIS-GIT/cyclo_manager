@@ -133,7 +133,7 @@ export const LG2_LEADER_AI_CONFIG: LaunchArgsConfig = {
   ],
 };
 
-/** Follower model picked in Control UI (maps to API `robot_type` lowercase). */
+/** Follower model picked on the System page (maps to API `robot_type` lowercase). */
 export type FollowerRobotModel = "SG2" | "BG2" | "SH5" | "BH5";
 
 export type FollowerRobotApiType = "sg2" | "bg2" | "sh5" | "bh5";
@@ -171,7 +171,7 @@ export function getFollowerLaunchConfig(kind: FollowerRobotModel): LaunchArgsCon
   }
 }
 
-/** localStorage key: `robot_type_${container}` (Control page). */
+/** localStorage key: `robot_type_${container}` (System page). */
 export function getStoredFollowerRobotModel(container: string): FollowerRobotModel {
   if (typeof window === "undefined" || !container) return "SG2";
   const stored = localStorage.getItem(`robot_type_${container}`);

@@ -40,7 +40,7 @@ export default function ManagerPhysicalShortcuts({
 }) {
   const physicalUrl = usePhysicalAiToolsUrl();
   const base = shortcutStyle(variant, compact);
-  const className = `flex shrink-0 items-center justify-center rounded-full border font-semibold transition-opacity hover:opacity-90 ${
+  const className = `flex shrink-0 items-center justify-center rounded-full border font-semibold transition-all duration-150 hover:border-[var(--vscode-focusBorder)] hover:bg-[var(--vscode-list-hoverBackground)] hover:scale-110 ${
     compact ? "text-xs" : "text-lg"
   }`;
 

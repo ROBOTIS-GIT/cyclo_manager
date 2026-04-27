@@ -20,9 +20,8 @@ RUN pip install --no-cache-dir -r requirements.txt
 # No need to COPY cyclo_manager/ and config.yml here
 
 RUN echo "source /opt/ros/jazzy/setup.bash" >> ~/.bashrc
+RUN echo 'export ROS_DOMAIN_ID=30' >> ~/.bashrc
 
 # Expose API port
 EXPOSE 8081
-
-# Run the cyclo_manager API with auto-reload for development (--no-access-log to suppress 200 OK etc.)
-CMD ["uvicorn", "cyclo_manager.api:app", "--host", "0.0.0.0", "--port", "8081", "--reload", "--no-access-log"]
+CMD ["bash", "-ic", "exec uvicorn cyclo_manager.api:app --host 0.0.0.0 --port 8081 --reload --no-access-log"]

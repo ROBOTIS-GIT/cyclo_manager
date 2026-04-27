@@ -6,5 +6,5 @@ export default async function ContainerPage({
   params: Promise<{ container: string }>;
 }) {
   const { container } = await params;
-  redirect(`/${container}/control`);
+  redirect(`/${container}/system`);
 }
