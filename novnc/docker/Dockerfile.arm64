@@ -58,9 +58,33 @@ RUN mkdir -p /root/Desktop && \
     echo "Comment=Start Dynamixel Wizard" >> /root/Desktop/wizard.desktop && \
     echo "Exec=/wizard/DynamixelWizard2-linux-arm64-2.7.4.7.AppImage" >> /root/Desktop/wizard.desktop && \
     echo "Icon=/wizard/wizard_icon.png" >> /root/Desktop/wizard.desktop && \
-    echo "Terminal=true" >> /root/Desktop/wizard.desktop && \
+    echo "Terminal=false" >> /root/Desktop/wizard.desktop && \
     echo "StartupNotify=true" >> /root/Desktop/wizard.desktop && \
     chmod +x /root/Desktop/wizard.desktop
+
+RUN mkdir -p /root/Desktop && \
+    echo "[Desktop Entry]" > /root/Desktop/terminal.desktop && \
+    echo "Version=1.0" >> /root/Desktop/terminal.desktop && \
+    echo "Type=Application" >> /root/Desktop/terminal.desktop && \
+    echo "Name=Bash" >> /root/Desktop/terminal.desktop && \
+    echo "Comment=Interactive bash (loads ~/.bashrc)" >> /root/Desktop/terminal.desktop && \
+    echo "Exec=xterm -fa Monospace -fs 11 -e bash -il" >> /root/Desktop/terminal.desktop && \
+    echo "Icon=utilities-terminal" >> /root/Desktop/terminal.desktop && \
+    echo "Terminal=false" >> /root/Desktop/terminal.desktop && \
+    echo "StartupNotify=true" >> /root/Desktop/terminal.desktop && \
+    chmod +x /root/Desktop/terminal.desktop
+
+RUN mkdir -p /root/Desktop && \
+    echo "[Desktop Entry]" > /root/Desktop/filemanager.desktop && \
+    echo "Version=1.0" >> /root/Desktop/filemanager.desktop && \
+    echo "Type=Application" >> /root/Desktop/filemanager.desktop && \
+    echo "Name=File Manager" >> /root/Desktop/filemanager.desktop && \
+    echo "Comment=Browse files (PCManFM)" >> /root/Desktop/filemanager.desktop && \
+    echo "Exec=pcmanfm" >> /root/Desktop/filemanager.desktop && \
+    echo "Icon=system-file-manager" >> /root/Desktop/filemanager.desktop && \
+    echo "Terminal=false" >> /root/Desktop/filemanager.desktop && \
+    echo "StartupNotify=true" >> /root/Desktop/filemanager.desktop && \
+    chmod +x /root/Desktop/filemanager.desktop
 
 RUN echo "source /opt/ros/jazzy/setup.bash" >> ~/.bashrc && \
     echo 'export ROS_DOMAIN_ID=30' >> ~/.bashrc
