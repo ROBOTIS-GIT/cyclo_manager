@@ -29,6 +29,7 @@ from cyclo_manager.config import load_config
 from cyclo_manager.docker_client import DockerClient
 from cyclo_manager.ros2_node import CycloManagerTopicSubscriber
 from cyclo_manager.state import app_state
+from cyclo_manager.terminal_session_manager import TerminalSessionManager
 
 logger = logging.getLogger(__name__)
 
@@ -55,6 +56,9 @@ async def lifespan(app: FastAPI):
                 "Docker client initialization failed (Docker operations will be unavailable): %s", e
             )
             app_state.set_docker_client(None)
+
+        app_state.set_terminal_session_manager(TerminalSessionManager())
+        logger.info("Terminal session manager initialized")
 
         # Initialize ROS2 nodes for all containers (no subscriptions yet).
         domain_id = int(os.getenv("ROS_DOMAIN_ID", "30"))

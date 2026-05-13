@@ -9,6 +9,8 @@ RUN apt-get update && \
     python3-venv \
     ros-jazzy-rmw-zenoh-cpp \
     ros-jazzy-control-msgs \
+    docker.io \
+    tmux \
     && rm -rf /var/lib/apt/lists/*
 
 # Create venv and install pip dependencies

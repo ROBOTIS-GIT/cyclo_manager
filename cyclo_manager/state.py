@@ -25,6 +25,7 @@ from cyclo_manager.agent_client import AgentClient, AgentClientPool
 from cyclo_manager.config import SystemConfig
 from cyclo_manager.docker_client import DockerClient
 from cyclo_manager.ros2_node import CycloManagerTopicSubscriber
+from cyclo_manager.terminal_session_manager import TerminalSessionManager
 
 
 class AppState:
@@ -40,6 +41,13 @@ class AppState:
         self._client_pool: Optional[AgentClientPool] = None
         self._docker_client: Optional[DockerClient] = None
         self._ros2_nodes: dict[str, CycloManagerTopicSubscriber] = {}
+        self._terminal_session_manager: Optional[TerminalSessionManager] = None
+
+    def set_terminal_session_manager(self, manager: TerminalSessionManager) -> None:
+        self._terminal_session_manager = manager
+
+    def get_terminal_session_manager_or_none(self) -> Optional[TerminalSessionManager]:
+        return self._terminal_session_manager
 
     # ------------------------------------------------------------------
     # Setters — called by lifespan.py

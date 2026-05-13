@@ -217,6 +217,22 @@ class DockerContainerLogsResponse(BaseModel):
     tail: int = Field(..., description="Number of log lines returned")
 
 
+class TerminalSessionResponse(BaseModel):
+    """Response for POST /docker/{name}/terminal."""
+
+    container: str = Field(..., description="Container name")
+    session_id: str = Field(..., description="Unique session identifier")
+    port: int = Field(..., description="ttyd port for this session")
+
+
+class DockerTopResponse(BaseModel):
+    """Response for GET /docker/{name}/top."""
+
+    container: str = Field(..., description="Container name")
+    titles: list[str] = Field(..., description="Column names from docker top")
+    processes: list[list[str]] = Field(..., description="Process rows")
+
+
 class RepoVersionResponse(BaseModel):
     """Response for GET /docker/{container}/version (ai_worker metapackage version check)."""
 

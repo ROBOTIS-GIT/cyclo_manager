@@ -284,6 +284,68 @@ class DockerClient:
             logger.error("Failed to read file from container '%s': %s", container_name, e)
             raise
 
+    def get_container_top(self, container_name: str) -> dict:
+        """Get running processes by executing ps inside the container.
+
+        Uses container-namespace PIDs (consistent with kill via docker exec).
+
+        Returns:
+            Dict with 'Titles' and 'Processes' matching the docker top schema.
+
+        Raises:
+            NotFound: If container not found.
+        """
+        try:
+            container = self.get_container(container_name)
+            result = container.exec_run(
+                ["/bin/sh", "-c", "ps -eo pid,user,args --no-headers 2>/dev/null || ps aux --no-headers 2>/dev/null || ps aux"]
+            )
+            output = (result.output or b"").decode("utf-8", errors="replace").strip()
+            processes = []
+            for line in output.splitlines():
+                parts = line.split(None, 2)
+                if parts:
+                    processes.append(parts + [""] * (3 - len(parts)))
+            return {"Titles": ["PID", "USER", "CMD"], "Processes": processes}
+        except NotFound:
+            raise
+        except DockerException as e:
+            logger.error("Failed to get top for container '%s': %s", container_name, e)
+            raise
+
+    def kill_container_process(
+        self, container_name: str, pid: int, signal: str = "SIGTERM"
+    ) -> dict:
+        """Send a signal to a process inside a container.
+
+        Args:
+            container_name: Container name or ID.
+            pid: Process ID to signal.
+            signal: Signal name (default: SIGTERM).
+
+        Returns:
+            Dict with pid and exit_code.
+
+        Raises:
+            NotFound: If container not found.
+        """
+        try:
+            container = self.get_container(container_name)
+            # dash (the default /bin/sh) requires -TERM not -SIGTERM
+            sig = signal.removeprefix("SIG")
+            result = container.exec_run(["/bin/sh", "-c", f"kill -{sig} {pid}"])
+            if result.exit_code != 0:
+                output = result.output.decode("utf-8", errors="replace").strip() if result.output else ""
+                raise DockerException(f"kill exited with code {result.exit_code}: {output}")
+            return {"pid": pid, "exit_code": result.exit_code}
+        except NotFound:
+            raise
+        except DockerException as e:
+            logger.error(
+                "Failed to kill pid %d in container '%s': %s", pid, container_name, e
+            )
+            raise
+
     def get_container_logs(
         self, container_name: str, tail: int = 100, follow: bool = False
     ) -> str:
