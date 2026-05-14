@@ -20,13 +20,35 @@
  * and launch args from the UI.
  */
 
-export type LaunchArgType = "bool" | "string";
+export type LaunchArgType = "bool" | "string" | "select";
+
+export interface LaunchArgSelectOption {
+  label: string;
+  value: string;
+}
 
 export interface LaunchArgDef {
   key: string;
   label: string;
   type: LaunchArgType;
   default: string;
+  selectOptions?: LaunchArgSelectOption[];
+}
+
+const INIT_POSITION_FILE_CUSTOM_VALUE = "__custom__";
+
+function initPositionFileArg(defaultFile: string): LaunchArgDef {
+  return {
+    key: "init_position_file",
+    label: "Init Position File",
+    type: "select",
+    default: defaultFile,
+    selectOptions: [
+      { label: defaultFile, value: defaultFile },
+      { label: "pack_position.yaml", value: "pack_position.yaml" },
+      { label: "Custom input", value: INIT_POSITION_FILE_CUSTOM_VALUE },
+    ],
+  };
 }
 
 export interface LaunchArgsConfig {
@@ -76,7 +98,7 @@ export const FOLLOWER_BRINGUP_SG2_CONFIG: LaunchArgsConfig = {
     { key: "init_position", label: "Init Position", type: "bool", default: "true" },
     { key: "model", label: "Model", type: "string", default: "ffw_sg2_rev1_follower" },
     { key: "use_head_eef_tracker", label: "Use Head EEF Tracker", type: "bool", default: "false" },
-    { key: "init_position_file", label: "Init Position File", type: "string", default: "ffw_sg2_follower_initial_positions.yaml" },
+    initPositionFileArg("ffw_sg2_follower_initial_positions.yaml"),
     { key: "ros2_control_type", label: "ROS2 Control Type", type: "string", default: "ffw_sg2_follower" },
   ],
 };
@@ -96,7 +118,7 @@ export const FOLLOWER_BRINGUP_BG2_CONFIG: LaunchArgsConfig = {
     { key: "init_position", label: "Init Position", type: "bool", default: "true" },
     { key: "model", label: "Model", type: "string", default: "ffw_bg2_rev4_follower" },
     { key: "use_head_eef_tracker", label: "Use Head EEF Tracker", type: "bool", default: "false" },
-    { key: "init_position_file", label: "Init Position File", type: "string", default: "ffw_bg2_follower_initial_positions.yaml" },
+    initPositionFileArg("ffw_bg2_follower_initial_positions.yaml"),
     { key: "ros2_control_type", label: "ROS2 Control Type", type: "string", default: "ffw_bg2_follower" },
   ],
 };
@@ -116,7 +138,7 @@ export const FOLLOWER_BRINGUP_SH5_CONFIG: LaunchArgsConfig = {
     { key: "init_position", label: "Init Position", type: "bool", default: "true" },
     { key: "model", label: "Model", type: "string", default: "ffw_sh5_rev1_follower" },
     { key: "use_head_eef_tracker", label: "Use Head EEF Tracker", type: "bool", default: "false" },
-    { key: "init_position_file", label: "Init Position File", type: "string", default: "ffw_sh5_follower_initial_positions.yaml" },
+    initPositionFileArg("ffw_sh5_follower_initial_positions.yaml"),
   ],
 };
 
@@ -135,7 +157,7 @@ export const FOLLOWER_BRINGUP_BH5_CONFIG: LaunchArgsConfig = {
     { key: "init_position", label: "Init Position", type: "bool", default: "true" },
     { key: "model", label: "Model", type: "string", default: "ffw_bh5_rev1_follower" },
     { key: "use_head_eef_tracker", label: "Use Head EEF Tracker", type: "bool", default: "false" },
-    { key: "init_position_file", label: "Init Position File", type: "string", default: "ffw_bh5_follower_initial_positions.yaml" },
+    initPositionFileArg("ffw_bh5_follower_initial_positions.yaml"),
     { key: "ros2_control_type", label: "ROS2 Control Type", type: "string", default: "ffw_bh5_follower" },
   ],
 };
