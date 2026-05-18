@@ -30,7 +30,9 @@ interface Tab {
 }
 
 function newSessionId() {
-  return crypto.randomUUID().replace(/-/g, "").slice(0, 12);
+  const bytes = new Uint8Array(6);
+  crypto.getRandomValues(bytes);
+  return Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("");
 }
 
 function storageKey(name: string) {

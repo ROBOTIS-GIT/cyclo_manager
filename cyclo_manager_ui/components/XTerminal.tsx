@@ -16,6 +16,7 @@
 
 "use client";
 
+import "@xterm/xterm/css/xterm.css";
 import { useEffect, useRef } from "react";
 
 interface Props {
@@ -36,7 +37,6 @@ export function XTerminal({ wsUrl, isActive }: Props) {
     (async () => {
       const { Terminal } = await import("@xterm/xterm");
       const { FitAddon } = await import("@xterm/addon-fit");
-      await import("@xterm/xterm/css/xterm.css");
       if (disposed || !containerRef.current) return;
 
       const term = new Terminal({
