@@ -23,9 +23,12 @@
 ## Features
 
 - **s6 services (per configured container)**: List services, read status, start/stop/restart. Optional **launch arguments** and **`robot_type`** (e.g. `sg2`, `bg2`, `sh5`, `bh5` for `ai_worker_bringup`) are passed through to the in-container agent. Service logs (when enabled) are read from **`/var/log/<service_name>/current`** inside the container (s6 log layout); see the agent’s [`logs` router](cyclo_manager/agent/routers/logs.py).
-- **Docker** (from the API host): List containers, status, start/stop/restart, and container logs. Requires **Docker socket** access for the API process.
+- **Launch arguments in the UI**: Gear icon on the System page opens a popup to edit bringup args per service. Follower bringup supports robot models **SG2 / BG2 / SH5 / BH5** (separate defaults and `localStorage` per model). **Init Position File** is a dropdown: robot-specific default YAML, **`pack_position.yaml`**, or **Custom input** (free-form filename). Settings are persisted per container in the browser.
+- **Docker** (from the API host): List containers, status, start/stop/restart, engine logs, **`docker top`**, and **signal processes** inside a container. Requires **Docker socket** access for the API process.
+- **In-browser terminals**: WebSocket terminal into running containers (`/docker/{name}/terminal/ws`), backed by persistent **tmux** sessions in the API container so shells survive UI navigation. Multi-tab terminals, process list with kill, and per-container **bashrc** editing from the Docker page.
 - **ROS 2**: For each configured container, an **rclpy** node discovers topics, aligns with publisher QoS (via `ros2 topic info` where used), caches messages, and supports subscribe/unsubscribe for the UI and WebSockets.
 - **Live data**: Service logs and ROS topic payloads over **WebSockets**.
+- **System control UI**: Follower/leader bringup, Physical AI Server, Zenoh daemon, streaming service logs, and a **3D URDF viewer** driven by `/robot_description` and `/joint_states`.
 - **Other**: **`GET` / `PUT` `/{container}/bashrc`** to read/update shell init in a container via Docker; **version** checks against PyPI and an optional **update** path for the CLI package; optional **metapackage vs GitHub** version check for `ai_worker` when configured.
 
 Each **logical container** name in YAML maps to an **agent socket path** as seen by cyclo_manager (often under `/agents/...` in the API container).
@@ -40,7 +43,8 @@ Each **logical container** name in YAML maps to an **agent socket path** as seen
 │  ┌──────────────────────────────────────────────────────────┐│
 │  │  REST + WebSocket                                        ││
 │  │  /containers  /{container}/services  /docker  /ros2      ││
-│  │  /{container}/bashrc  /version  /ws/...                  ││
+│  │  /{container}/bashrc  /version  /docker/.../terminal/ws ││
+│  │  /ws/...                                                 ││
 │  └──────────────────────────────────────────────────────────┘│
 │       │                   │                    │             │
 │       │ httpx (UDS HTTP)  │ Docker SDK         │ rclpy       │
@@ -133,6 +137,10 @@ Interactive docs: **`http://<host>:8081/docs`**, **`/redoc`**, **`/openapi.json`
 | | `GET /docker/{name}/status` | |
 | | `POST /docker/{name}` | Start/stop/restart |
 | | `GET /docker/{name}/logs` | Docker engine logs (not s6 file logs) |
+| | `GET /docker/{name}/top` | Process list (`docker top` style) |
+| | `DELETE /docker/{name}/processes/{pid}` | Send signal (query `signal`, default `SIGTERM`) |
+| | `WebSocket /docker/{name}/terminal/ws` | Interactive terminal (`session_id` query optional) |
+| | `DELETE /docker/{name}/terminal/{session_id}` | Close tmux-backed session |
 | | `GET /docker/{name}/version` | Repo vs GitHub (if `repo_version` configured; `ai_worker` only) |
 | ROS 2 | `GET /{container}/ros2/topics` | Discovery |
 | | `GET /{container}/ros2/topics/{topic}/info` | |
