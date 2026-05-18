@@ -159,19 +159,19 @@ export default function ContainerTerminalPage() {
 
   return (
     <div style={{ height: "100%", display: "flex", flexDirection: "column", overflow: "hidden" }}>
-      {/* Breadcrumb */}
-      <div
-        className="flex items-center gap-3 px-4 py-2 shrink-0 border-b text-sm"
-        style={{ borderColor: "var(--vscode-panel-border)", color: "var(--vscode-foreground)", backgroundColor: "var(--vscode-editor-background)" }}
-      >
-        <Link href="/docker" className="flex items-center gap-1 no-underline" style={{ color: "var(--vscode-descriptionForeground)" }}>
-          <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-            <polyline points="15 18 9 12 15 6" />
-          </svg>
-          Docker
+      <div className="flex items-center gap-2 shrink-0 px-4 py-2">
+        <Link
+          href="/docker"
+          className="text-xs px-3 py-1.5 rounded no-underline"
+          style={{
+            backgroundColor: "var(--vscode-button-secondaryBackground)",
+            color: "var(--vscode-button-secondaryForeground)",
+            border: "none",
+            cursor: "pointer",
+          }}
+        >
+          Back
         </Link>
-        <span style={{ color: "var(--vscode-descriptionForeground)" }}>/</span>
-        <span className="font-mono font-medium">{name}</span>
       </div>
 
       {/* Body */}

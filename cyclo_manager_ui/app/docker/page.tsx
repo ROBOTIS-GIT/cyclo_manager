@@ -156,10 +156,7 @@ export default function DockerPage() {
 
   return (
     <div className="p-6">
-      <div className="flex items-center justify-between mb-6">
-        <h1 className="text-2xl font-semibold" style={{ color: "var(--vscode-foreground)" }}>
-          Docker Containers
-        </h1>
+      <div className="flex items-center justify-end mb-6">
         <button
           onClick={loadContainers}
           disabled={loading}
