@@ -37,7 +37,6 @@ import type {
   CycloManagerVersionResponse,
   ROS2TopicsListResponse,
   ROS2TopicDataResponse,
-  TerminalSessionResponse,
 } from "@/types/api";
 
 // Get API base URL from environment variable, default to frontend host:8081
@@ -49,9 +48,10 @@ const getApiBaseUrl = (): string => {
     return envUrl;
   }
 
-  // Use the hostname where the frontend is hosted
+  // Mirror the page's protocol so an HTTPS page calls an HTTPS API and a
+  // WSS page opens a WSS socket; this avoids mixed-content blocking.
   if (typeof window !== "undefined") {
-    return `http://${window.location.hostname}:8081`;
+    return `${window.location.protocol}//${window.location.hostname}:8081`;
   }
 
   // Fallback for server-side rendering
@@ -311,19 +311,6 @@ export async function killDockerProcess(
 ): Promise<void> {
   try {
     await apiClient.delete(`/docker/${name}/processes/${pid}`, { params: { signal } });
-  } catch (error) {
-    handleError(error);
-  }
-}
-
-export async function startDockerTerminal(
-  name: string
-): Promise<TerminalSessionResponse> {
-  try {
-    const response = await apiClient.post<TerminalSessionResponse>(
-      `/docker/${name}/terminal`
-    );
-    return response.data;
   } catch (error) {
     handleError(error);
   }

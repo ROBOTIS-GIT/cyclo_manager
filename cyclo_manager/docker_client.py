@@ -28,6 +28,13 @@ from docker.errors import DockerException, NotFound
 
 logger = logging.getLogger(__name__)
 
+# Signals accepted by kill_container_process(). The value is interpolated into
+# a shell command, so it must be restricted to a known-safe allowlist.
+_ALLOWED_SIGNALS = frozenset({
+    "SIGTERM", "SIGKILL", "SIGINT", "SIGHUP", "SIGQUIT",
+    "SIGSTOP", "SIGCONT", "SIGUSR1", "SIGUSR2",
+})
+
 
 class DockerClient:
     """Client for interacting with Docker daemon via Docker socket."""
@@ -331,8 +338,11 @@ class DockerClient:
         """
         try:
             container = self.get_container(container_name)
+            sig_name = signal if signal.startswith("SIG") else "SIG" + signal
+            if sig_name not in _ALLOWED_SIGNALS:
+                raise DockerException(f"Unsupported signal: {signal}")
             # dash (the default /bin/sh) requires -TERM not -SIGTERM
-            sig = signal.removeprefix("SIG")
+            sig = sig_name.removeprefix("SIG")
             result = container.exec_run(["/bin/sh", "-c", f"kill -{sig} {pid}"])
             if result.exit_code != 0:
                 output = result.output.decode("utf-8", errors="replace").strip() if result.output else ""

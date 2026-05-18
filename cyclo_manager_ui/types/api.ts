@@ -136,12 +136,6 @@ export interface DockerContainerLogsResponse {
   tail: number;
 }
 
-export interface TerminalSessionResponse {
-  container: string;
-  session_id: string;
-  port: number;
-}
-
 export interface DockerTopResponse {
   container: string;
   titles: string[];

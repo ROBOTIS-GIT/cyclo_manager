@@ -101,4 +101,11 @@ async def lifespan(app: FastAPI):
             logger.error("Error stopping ROS2 node for container '%s': %s", container_name, e)
     app_state.clear_ros2_nodes()
 
+    terminal_session_manager = app_state.get_terminal_session_manager_or_none()
+    if terminal_session_manager:
+        try:
+            terminal_session_manager.close_all()
+        except Exception as e:
+            logger.error("Error closing terminal sessions: %s", e)
+
     logger.info("cyclo_manager shut down")
