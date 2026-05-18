@@ -19,17 +19,18 @@
 """Global state management and FastAPI dependencies for cyclo_manager."""
 
 from typing import Optional
-from fastapi import Depends, HTTPException, status
 
 from cyclo_manager.agent_client import AgentClient, AgentClientPool
 from cyclo_manager.config import SystemConfig
 from cyclo_manager.docker_client import DockerClient
 from cyclo_manager.ros2_node import CycloManagerTopicSubscriber
 from cyclo_manager.terminal_session_manager import TerminalSessionManager
+from fastapi import Depends, HTTPException, status
 
 
 class AppState:
-    """Encapsulates all global application state.
+    """
+    Encapsulate all global application state.
 
     Lifecycle management (startup / shutdown) is done via ``app_state``
     directly from ``lifespan.py``.  Routers access state through the
@@ -105,7 +106,7 @@ def get_config() -> SystemConfig:
     if config is None:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="Configuration not loaded",
+            detail='Configuration not loaded',
         )
     return config
 
@@ -116,7 +117,7 @@ def get_client_pool() -> AgentClientPool:
     if pool is None:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="Agent client pool not initialized",
+            detail='Agent client pool not initialized',
         )
     return pool
 
@@ -127,7 +128,7 @@ def get_docker_client() -> DockerClient:
     if client is None:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="Docker client not available. Ensure Docker socket is mounted.",
+            detail='Docker client not available. Ensure Docker socket is mounted.',
         )
     return client
 

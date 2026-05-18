@@ -20,34 +20,33 @@
 
 import logging
 
+from cyclo_manager.lifespan import lifespan
+from cyclo_manager.models import ErrorResponse
+from cyclo_manager.routers import (
+    container,
+    containers,
+    docker,
+    root,
+    ros2,
+    services,
+    version,
+    websocket,
+)
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
-from cyclo_manager.lifespan import lifespan
-from cyclo_manager.models import ErrorResponse
-from cyclo_manager.routers import (
-    root,
-    containers,
-    container,
-    services,
-    version,
-    docker,
-    ros2,
-    websocket,
-)
-
 # Configure logging
 logging.basicConfig(
     level=logging.INFO,
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
 )
 # Suppress noisy httpx per-request logs (HTTP Request: GET ... 200 OK)
-logging.getLogger("httpx").setLevel(logging.WARNING)
+logging.getLogger('httpx').setLevel(logging.WARNING)
 logger = logging.getLogger(__name__)
 
 app = FastAPI(
-    title="cyclo_manager API",
+    title='cyclo_manager API',
     description="""
     Unified REST API for managing ROS2-based robot containers using s6-overlay.
 
@@ -70,39 +69,50 @@ app = FastAPI(
     * **ReDoc**: Available at `/redoc` (alternative documentation)
     * **OpenAPI Schema**: Available at `/openapi.json`
     """,
-    version="0.1.1",
+    version='0.1.1',
     lifespan=lifespan,
-    docs_url="/docs",
-    redoc_url="/redoc",
-    openapi_url="/openapi.json",
+    docs_url='/docs',
+    redoc_url='/redoc',
+    openapi_url='/openapi.json',
     tags_metadata=[
         {
-            "name": "root",
-            "description": "Root endpoint and API information",
+            'name': 'root',
+            'description': 'Root endpoint and API information',
         },
         {
-            "name": "containers",
-            "description": "Operations related to container management. List and inspect containers.",
+            'name': 'containers',
+            'description': (
+                'Operations related to container management. '
+                'List and inspect containers.'
+            ),
         },
         {
-            "name": "services",
-            "description": "Operations related to service management. List services, check status, and control services (start/stop/restart).",
+            'name': 'services',
+            'description': (
+                'Operations related to service management. '
+                'List services, check status, and control services (start/stop/restart).'
+            ),
         },
         {
-            "name": "docker",
-            "description": "Docker container management operations. List containers, get status, control containers, and view logs.",
+            'name': 'docker',
+            'description': (
+                'Docker container management operations. '
+                'List containers, get status, control containers, and view logs.'
+            ),
         },
         {
-            "name": "ros2",
-            "description": "ROS2 topic operations. Subscribe to ROS2 topics using zenoh_ros2_sdk.",
+            'name': 'ros2',
+            'description': 'ROS2 topic operations. Subscribe to ROS2 topics using zenoh_ros2_sdk.',
         },
         {
-            "name": "container",
-            "description": "Container-level operations (bashrc, etc.).",
+            'name': 'container',
+            'description': 'Container-level operations (bashrc, etc.).',
         },
         {
-            "name": "version",
-            "description": "cyclo_manager version check (PyPI) and update (pip + cyclo_manager up).",
+            'name': 'version',
+            'description': (
+                'cyclo_manager version check (PyPI) and update (pip + cyclo_manager up).'
+            ),
         },
     ],
 )
@@ -110,10 +120,11 @@ app = FastAPI(
 # Add CORS middleware to allow requests from the UI
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # In production, replace with specific origins like ["http://localhost:3000"]
+    # In production, replace with specific origins like ['http://localhost:3000']
+    allow_origins=['*'],
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=['*'],
+    allow_headers=['*'],
 )
 
 # Include routers
@@ -129,8 +140,8 @@ app.include_router(websocket.router)
 
 @app.exception_handler(HTTPException)
 async def http_exception_handler(request, exc: HTTPException):
-    """Custom exception handler for HTTP exceptions."""
+    """Handle HTTP exceptions with a custom JSON error response."""
     return JSONResponse(
         status_code=exc.status_code,
-        content=ErrorResponse(error=exc.detail or "Unknown error").model_dump(),
+        content=ErrorResponse(error=exc.detail or 'Unknown error').model_dump(),
     )

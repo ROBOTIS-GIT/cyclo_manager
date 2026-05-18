@@ -24,34 +24,33 @@ import re
 import subprocess
 from typing import Any
 
-from fastapi import APIRouter, Body, Depends, HTTPException, status
-
-from cyclo_manager.state import get_validated_container, get_ros2_node
 from cyclo_manager.models import (
     ROS2SubscribeRequest,
     ROS2TopicDataResponse,
     ROS2TopicsListResponse,
     ROS2TopicStatus,
 )
+from cyclo_manager.state import get_ros2_node, get_validated_container
+from fastapi import APIRouter, Body, Depends, HTTPException, status
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(prefix="/{container}/ros2", tags=["ros2"])
+router = APIRouter(prefix='/{container}/ros2', tags=['ros2'])
 
 # QoS presets for topics the UI subscribes on every System page load.
 # Skips `ros2 topic info -v` (blocking subprocess) — keeps the FastAPI event loop responsive.
 # If a deployment uses different publisher QoS (e.g. BEST_EFFORT joint_states), remove the
 # topic here or adjust the preset so matching still works.
 KNOWN_TOPIC_QOS_PRESETS: dict[str, dict[str, Any]] = {
-    "/joint_states": {
-        "durability": "volatile",
-        "reliability": "reliable",
-        "depth": 10,
+    '/joint_states': {
+        'durability': 'volatile',
+        'reliability': 'reliable',
+        'depth': 10,
     },
-    "/robot_description": {
-        "durability": "transient_local",
-        "reliability": "reliable",
-        "depth": 1,
+    '/robot_description': {
+        'durability': 'transient_local',
+        'reliability': 'reliable',
+        'depth': 1,
     },
 }
 
@@ -65,57 +64,60 @@ def resolve_qos_profile_for_topic(container: str, topic: str, node) -> dict[str,
 
 
 def _get_topic_publisher_qos(container: str, topic: str, node) -> dict:
-    """Parse ros2 topic info -v and return QoS profile to match publisher(s).
+    """
+    Parse ros2 topic info -v and return QoS profile to match publisher(s).
 
     Returns dict with: durability (transient_local|volatile), reliability (best_effort|reliable),
     depth (int). Uses publisher section only; defaults ensure compatibility with most publishers.
     """
     env = os.environ.copy()
-    env["ROS_DOMAIN_ID"] = str(node.domain_id)
+    env['ROS_DOMAIN_ID'] = str(node.domain_id)
     result = {
-        "durability": "volatile",
-        "reliability": "reliable",
-        "depth": 10,
+        'durability': 'volatile',
+        'reliability': 'reliable',
+        'depth': 10,
     }
     try:
         proc = subprocess.run(
-            ["ros2", "topic", "info", "-v", topic],
+            ['ros2', 'topic', 'info', '-v', topic],
             capture_output=True,
             text=True,
             timeout=8,
             env=env,
         )
-        output = (proc.stdout or "") + "\n" + (proc.stderr or "")
-        if "Subscriber count" in output:
-            publisher_section = output.split("Subscriber count")[0]
+        output = (proc.stdout or '') + '\n' + (proc.stderr or '')
+        if 'Subscriber count' in output:
+            publisher_section = output.split('Subscriber count')[0]
         else:
             publisher_section = output
 
         # Durability: use VOLATILE if any publisher has it (to match all);
         # TRANSIENT_LOCAL only when all publishers use it
-        if "Durability: VOLATILE" in publisher_section:
-            result["durability"] = "volatile"
-        elif "Durability: TRANSIENT_LOCAL" in publisher_section:
-            result["durability"] = "transient_local"
-            result["depth"] = 1  # Static topics typically use depth 1
+        if 'Durability: VOLATILE' in publisher_section:
+            result['durability'] = 'volatile'
+        elif 'Durability: TRANSIENT_LOCAL' in publisher_section:
+            result['durability'] = 'transient_local'
+            result['depth'] = 1  # Static topics typically use depth 1
 
         # Reliability: BEST_EFFORT required to receive from BEST_EFFORT publishers
-        if "Reliability: BEST_EFFORT" in publisher_section:
-            result["reliability"] = "best_effort"
+        if 'Reliability: BEST_EFFORT' in publisher_section:
+            result['reliability'] = 'best_effort'
 
         # Parse depth from "History (Depth): KEEP_LAST (N)" or "Depth: N"
-        depth_match = re.search(r"\(Depth\):\s*KEEP_LAST\s*\((\d+)\)|Depth:\s*(\d+)", publisher_section)
+        depth_match = re.search(
+            r'\(Depth\):\s*KEEP_LAST\s*\((\d+)\)|Depth:\s*(\d+)', publisher_section
+        )
         if depth_match:
             d = depth_match.group(1) or depth_match.group(2)
             if d:
-                result["depth"] = int(d)
+                result['depth'] = int(d)
     except (subprocess.TimeoutExpired, FileNotFoundError):
         pass
 
     return result
 
 
-@router.get("/topics", response_model=ROS2TopicsListResponse)
+@router.get('/topics', response_model=ROS2TopicsListResponse)
 async def list_ros2_topics(
     container: str = Depends(get_validated_container),
 ) -> ROS2TopicsListResponse:
@@ -132,9 +134,9 @@ async def list_ros2_topics(
     topics = [
         ROS2TopicStatus(
             topic=topic,
-            msg_type=status_info["msg_type"],
-            available=status_info["available"],
-            subscribed=status_info["subscribed"],
+            msg_type=status_info['msg_type'],
+            available=status_info['available'],
+            subscribed=status_info['subscribed'],
         )
         for topic, status_info in sorted(topics_status.items(), key=lambda x: x[0])
     ]
@@ -146,7 +148,7 @@ async def list_ros2_topics(
     )
 
 
-@router.get("/topics/{topic:path}/info")
+@router.get('/topics/{topic:path}/info')
 async def get_ros2_topic_info(
     topic: str,
     container: str = Depends(get_validated_container),
@@ -160,34 +162,34 @@ async def get_ros2_topic_info(
         )
 
     env = os.environ.copy()
-    env["ROS_DOMAIN_ID"] = str(node.domain_id)
+    env['ROS_DOMAIN_ID'] = str(node.domain_id)
     try:
         result = subprocess.run(
-            ["ros2", "topic", "info", "-v", topic],
+            ['ros2', 'topic', 'info', '-v', topic],
             capture_output=True,
             text=True,
             timeout=10,
             env=env,
         )
-        output = result.stdout or ""
+        output = result.stdout or ''
         if result.stderr:
-            output = output.rstrip() + "\n" + (result.stderr or "")
+            output = output.rstrip() + '\n' + (result.stderr or '')
         if result.returncode != 0 and not output.strip():
-            output = result.stderr or f"Command failed with exit code {result.returncode}"
-        return {"topic": topic, "info": output.strip()}
+            output = result.stderr or f'Command failed with exit code {result.returncode}'
+        return {'topic': topic, 'info': output.strip()}
     except subprocess.TimeoutExpired:
         raise HTTPException(
             status_code=status.HTTP_504_GATEWAY_TIMEOUT,
-            detail="ros2 topic info timed out",
+            detail='ros2 topic info timed out',
         )
     except FileNotFoundError:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="ros2 CLI not found",
+            detail='ros2 CLI not found',
         )
 
 
-@router.get("/topics/{topic:path}", response_model=ROS2TopicDataResponse)
+@router.get('/topics/{topic:path}', response_model=ROS2TopicDataResponse)
 async def get_ros2_topic_data(
     topic: str,
     container: str = Depends(get_validated_container),
@@ -213,9 +215,9 @@ async def get_ros2_topic_data(
 
     cached_data = node.get_topic_data(topic)
     available = node.is_topic_available(topic)
-    data = cached_data.get("data") if cached_data else None
+    data = cached_data.get('data') if cached_data else None
     if msg_type is None:
-        msg_type = node.get_topic_msg_type(topic) or ""
+        msg_type = node.get_topic_msg_type(topic) or ''
 
     return ROS2TopicDataResponse(
         container=container,
@@ -227,13 +229,18 @@ async def get_ros2_topic_data(
     )
 
 
-@router.post("/topics/{topic:path}/subscribe")
+@router.post('/topics/{topic:path}/subscribe')
 async def ros2_topic_subscribe(
     topic: str,
     body: ROS2SubscribeRequest | None = Body(default=None),
     container: str = Depends(get_validated_container),
 ):
-    """Subscribe to a ROS2 topic. Optionally pass {"msg_type": "sensor_msgs/msg/JointState"} in body."""
+    """
+    Subscribe to a ROS2 topic.
+
+    Optionally pass {"msg_type": "sensor_msgs/msg/JointState"} in body.
+
+    """
     node = get_ros2_node(container)
     if node is None:
         raise HTTPException(
@@ -254,10 +261,10 @@ async def ros2_topic_subscribe(
         )
     qos_profile = resolve_qos_profile_for_topic(container, topic, node)
     ok = node.add_topic_subscription(topic, msg_type, qos_profile=qos_profile)
-    return {"ok": ok}
+    return {'ok': ok}
 
 
-@router.post("/topics/{topic:path}/unsubscribe")
+@router.post('/topics/{topic:path}/unsubscribe')
 async def ros2_topic_unsubscribe(
     topic: str,
     container: str = Depends(get_validated_container),
@@ -270,4 +277,4 @@ async def ros2_topic_unsubscribe(
             detail=f"ROS2 node for container '{container}' is not available.",
         )
     node.remove_topic_subscription(topic)
-    return {"ok": True}
+    return {'ok': True}
