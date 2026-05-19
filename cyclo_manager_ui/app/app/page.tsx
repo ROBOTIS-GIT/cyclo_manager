@@ -8,10 +8,10 @@ import { useTheme } from "@/contexts/ThemeContext";
 export default function AppHubPage() {
   const { theme } = useTheme();
   const [cmUpdateBanner, setCmUpdateBanner] = useState(false);
-  const [physicalUrl, setPhysicalUrl] = useState("http://localhost:80/");
+  const [cycloIntelligenceUrl, setCycloIntelligenceUrl] = useState("http://localhost:8088/");
 
   useEffect(() => {
-    setPhysicalUrl(`http://${window.location.hostname}:80/`);
+    setCycloIntelligenceUrl(`http://${window.location.hostname}:8088/`);
   }, []);
 
   return (
@@ -59,7 +59,7 @@ export default function AppHubPage() {
                 </div>
               </div>
             </Link>
-            <a href={physicalUrl} className="no-underline">
+            <a href={cycloIntelligenceUrl} className="no-underline">
               <div
                 className="group rounded-lg border-2 p-5 cursor-pointer w-[min(40rem,calc(100vw-3rem))] h-[13rem] sm:h-[14rem] max-h-[min(14rem,38vh)] flex flex-col items-stretch justify-center min-h-0 hover:border-[var(--vscode-focusBorder)] hover:bg-[var(--vscode-list-hoverBackground)] hover:scale-[1.02] transition-all duration-150"
                 style={{
@@ -68,17 +68,13 @@ export default function AppHubPage() {
                   color: "inherit",
                 }}
               >
-                <div className="shrink-0 flex justify-center w-full px-2">
-                  <img
-                    src="/physical_ai_tools_logo.png"
-                    alt="Physical AI Tools"
-                    draggable={false}
-                    className="max-w-full w-auto h-auto object-contain object-center group-hover:scale-110 transition-transform duration-150"
-                    style={{
-                      maxHeight: "min(7rem, 22vh)",
-                      filter: theme === "dark" ? "invert(1)" : undefined,
-                    }}
-                  />
+                <div className="shrink-0 flex flex-col items-center justify-center w-full px-2">
+                  <div
+                    className="text-3xl sm:text-4xl font-semibold tracking-normal text-center group-hover:scale-105 transition-transform duration-150"
+                    style={{ color: "var(--vscode-foreground)" }}
+                  >
+                    Cyclo Intelligence
+                  </div>
                 </div>
               </div>
             </a>

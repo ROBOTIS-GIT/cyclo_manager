@@ -150,13 +150,13 @@ export interface ControlToolbarProps {
   leaderLaunchConfig: LaunchArgsConfig;
   leaderBringupArgs: Record<string, string>;
   onLeaderBringupArgsChange: (args: Record<string, string>) => void;
-  physicalAiServerService: {
+  cycloIntelligenceService: {
     status: ServiceStatusResponse | null;
     loading: boolean;
   };
-  onPhysicalAiServerBringup: () => void;
-  showPhysicalAiServerLogs: boolean;
-  onTogglePhysicalAiServerLogs: () => void;
+  onCycloIntelligenceBringup: () => void;
+  showCycloIntelligenceLogs: boolean;
+  onToggleCycloIntelligenceLogs: () => void;
   zenohDaemonService: {
     status: string;
     loading: boolean;
@@ -188,15 +188,15 @@ function computeToolbarHelpPosition(anchor: DOMRect): { top: number; left: numbe
   return { top: anchor.bottom + 6, left, width: panelWidth };
 }
 
-type ToolbarHelpKey = "robot" | "leader" | "physical" | "zenoh";
+type ToolbarHelpKey = "robot" | "leader" | "cyclo" | "zenoh";
 
 const TOOLBAR_HELP_TEXT: Record<ToolbarHelpKey, string> = {
   robot:
     "Starts and stops the follower robot bringup service. The dot shows status — green is running, red is stopped. Pick SG2, BG2, SH5, or BH5, then use play to start.",
   leader:
     "Starts and stops the leader bringup service. The dot shows status — green is running, red is stopped.",
-  physical:
-    "Starts and stops the Physical AI Server service in its container.",
+  cyclo:
+    "Starts and stops the Cyclo Intelligence service inside the cyclo_intelligence container. The web UI opens on port 8088.",
   zenoh:
     "Starts and stops the Zenoh daemon Docker container. The dot shows container state — green running, red stopped. If you use zenoh as ros middleware, you need to run the zenoh daemon.",
 };
@@ -204,7 +204,7 @@ const TOOLBAR_HELP_TEXT: Record<ToolbarHelpKey, string> = {
 const TOOLBAR_HELP_ARIA: Record<ToolbarHelpKey, string> = {
   robot: "Robot help",
   leader: "Leader help",
-  physical: "Physical AI Server help",
+  cyclo: "Cyclo Intelligence help",
   zenoh: "Zenoh Daemon help",
 };
 
@@ -238,10 +238,10 @@ export default function ControlToolbar({
   leaderLaunchConfig,
   leaderBringupArgs,
   onLeaderBringupArgsChange,
-  physicalAiServerService,
-  onPhysicalAiServerBringup,
-  showPhysicalAiServerLogs,
-  onTogglePhysicalAiServerLogs,
+  cycloIntelligenceService,
+  onCycloIntelligenceBringup,
+  showCycloIntelligenceLogs,
+  onToggleCycloIntelligenceLogs,
   zenohDaemonService,
   onZenohDaemonBringup,
   showZenohDaemonLogs,
@@ -258,25 +258,25 @@ export default function ControlToolbar({
 
   const robotHelpBtnRef = useRef<HTMLButtonElement>(null);
   const leaderHelpBtnRef = useRef<HTMLButtonElement>(null);
-  const physicalHelpBtnRef = useRef<HTMLButtonElement>(null);
+  const cycloHelpBtnRef = useRef<HTMLButtonElement>(null);
   const zenohHelpBtnRef = useRef<HTMLButtonElement>(null);
 
   const helpBtnRefs: Record<ToolbarHelpKey, React.RefObject<HTMLButtonElement | null>> = {
     robot: robotHelpBtnRef,
     leader: leaderHelpBtnRef,
-    physical: physicalHelpBtnRef,
+    cyclo: cycloHelpBtnRef,
     zenoh: zenohHelpBtnRef,
   };
 
   const robotHelpPanelId = useId();
   const leaderHelpPanelId = useId();
-  const physicalHelpPanelId = useId();
+  const cycloHelpPanelId = useId();
   const zenohHelpPanelId = useId();
 
   const helpPanelIds: Record<ToolbarHelpKey, string> = {
     robot: robotHelpPanelId,
     leader: leaderHelpPanelId,
-    physical: physicalHelpPanelId,
+    cyclo: cycloHelpPanelId,
     zenoh: zenohHelpPanelId,
   };
 
@@ -465,26 +465,26 @@ export default function ControlToolbar({
             type="button"
             onClick={() => {
               if (typeof window !== "undefined") {
-                window.open(`http://${window.location.hostname}:80`, "_blank");
+                window.open(`http://${window.location.hostname}:8088`, "_blank");
               }
             }}
             className="text-sm font-medium uppercase tracking-wider cursor-pointer border-none bg-transparent p-0 text-left"
             style={{ color: "var(--vscode-descriptionForeground)" }}
-            title="Open Physical AI Tools (port 80)"
+            title="Open cyclo_intelligence (port 8088)"
           >
-            Physical AI Server
+            cyclo_intelligence
           </button>
-          {physicalAiServerService.status && (
-            <StatusBadge status={physicalAiServerService.status.is_up} dotOnly />
+          {cycloIntelligenceService.status && (
+            <StatusBadge status={cycloIntelligenceService.status.is_up} dotOnly />
           )}
           <button
-            ref={physicalHelpBtnRef}
+            ref={cycloHelpBtnRef}
             type="button"
-            onClick={() => toggleToolbarHelp("physical")}
+            onClick={() => toggleToolbarHelp("cyclo")}
             className={HELP_BTN_CLASS}
             style={HELP_BTN_STYLE}
-            aria-expanded={activeToolbarHelp === "physical"}
-            aria-controls={physicalHelpPanelId}
+            aria-expanded={activeToolbarHelp === "cyclo"}
+            aria-controls={cycloHelpPanelId}
             title="Help"
           >
             ?
@@ -492,32 +492,32 @@ export default function ControlToolbar({
         </div>
         <div className="flex items-center gap-3">
           <button
-            onClick={onPhysicalAiServerBringup}
-            disabled={physicalAiServerService.loading}
-            title={physicalAiServerService.status?.is_up ? "Stop" : "Bringup"}
-            aria-label={physicalAiServerService.status?.is_up ? "Stop" : "Bringup"}
+            onClick={onCycloIntelligenceBringup}
+            disabled={cycloIntelligenceService.loading}
+            title={cycloIntelligenceService.status?.is_up ? "cyclo_intelligence stop" : "cyclo_intelligence start"}
+            aria-label={cycloIntelligenceService.status?.is_up ? "cyclo_intelligence stop" : "cyclo_intelligence start"}
             className="w-11 h-11 rounded border-none cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed inline-flex items-center justify-center"
             style={{
-              backgroundColor: physicalAiServerService.status?.is_up
+              backgroundColor: cycloIntelligenceService.status?.is_up
                 ? "var(--vscode-button-secondaryBackground)"
                 : "var(--vscode-button-background)",
-              color: physicalAiServerService.status?.is_up
+              color: cycloIntelligenceService.status?.is_up
                 ? "var(--vscode-button-secondaryForeground)"
                 : "var(--vscode-button-foreground)",
             }}
           >
-            {physicalAiServerService.status?.is_up ? <SquareIcon /> : <PlayIcon />}
+            {cycloIntelligenceService.status?.is_up ? <SquareIcon /> : <PlayIcon />}
           </button>
           <button
-            onClick={onTogglePhysicalAiServerLogs}
-            title="Log"
-            aria-label="Log"
+            onClick={onToggleCycloIntelligenceLogs}
+            title="cyclo_intelligence logs"
+            aria-label="cyclo_intelligence logs"
             className="w-11 h-11 rounded border-none cursor-pointer inline-flex items-center justify-center"
             style={{
-              backgroundColor: showPhysicalAiServerLogs
+              backgroundColor: showCycloIntelligenceLogs
                 ? "var(--vscode-button-secondaryBackground)"
                 : "var(--vscode-button-background)",
-              color: showPhysicalAiServerLogs
+              color: showCycloIntelligenceLogs
                 ? "var(--vscode-button-secondaryForeground)"
                 : "var(--vscode-button-foreground)",
             }}

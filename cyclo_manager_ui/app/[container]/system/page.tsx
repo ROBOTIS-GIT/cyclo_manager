@@ -59,8 +59,8 @@ function getStoredBringupArgs(config: LaunchArgsConfig, container: string): Reco
 }
 
 const FOLLOWER_SERVICE_NAME = "ai_worker_bringup";
-const PHYSICAL_AI_SERVER_CONTAINER = "physical_ai_server";
-const PHYSICAL_AI_SERVER_SERVICE = "physical_ai_server";
+const CYCLO_INTELLIGENCE_CONTAINER = "cyclo_intelligence";
+const CYCLO_INTELLIGENCE_SERVICE = "cyclo_intelligence";
 const ZENOH_DAEMON_CONTAINER_NAME = "zenoh_daemon";
 
 function useServiceStatus(
@@ -135,7 +135,7 @@ export default function SystemPage() {
   const [robotType, setRobotType] = useState<FollowerRobotModel>(() => getStoredFollowerRobotModel(container));
   const [showLogs, setShowLogs] = useState(false);
   const [showLeaderLogs, setShowLeaderLogs] = useState(false);
-  const [showPhysicalAiServerLogs, setShowPhysicalAiServerLogs] = useState(false);
+  const [showCycloIntelligenceLogs, setShowCycloIntelligenceLogs] = useState(false);
   const [showZenohDaemonLogs, setShowZenohDaemonLogs] = useState(false);
 
   const [zenohDaemonContainer, setZenohDaemonContainer] = useState<{ name: string; status: string } | null>(null);
@@ -152,18 +152,19 @@ export default function SystemPage() {
 
   const robotService = useServiceStatus(container, FOLLOWER_SERVICE_NAME);
   const leaderService = useServiceStatus(container, LEADER_SERVICE_NAME);
-  const physicalAiServerService = useServiceStatus(PHYSICAL_AI_SERVER_CONTAINER, PHYSICAL_AI_SERVER_SERVICE);
+  const cycloIntelligenceService = useServiceStatus(CYCLO_INTELLIGENCE_CONTAINER, CYCLO_INTELLIGENCE_SERVICE);
+  const { loadStatus: loadCycloIntelligenceStatus } = cycloIntelligenceService;
 
   useEffect(() => {
-    physicalAiServerService.loadStatus();
-  }, [PHYSICAL_AI_SERVER_CONTAINER, physicalAiServerService.loadStatus]);
+    loadCycloIntelligenceStatus();
+  }, [loadCycloIntelligenceStatus]);
 
   useEffect(() => {
     const interval = setInterval(() => {
-      physicalAiServerService.loadStatus();
+      loadCycloIntelligenceStatus();
     }, STATUS_POLL_INTERVAL);
     return () => clearInterval(interval);
-  }, [physicalAiServerService.loadStatus]);
+  }, [loadCycloIntelligenceStatus]);
 
   const loadZenohDaemon = useCallback(async () => {
     try {
@@ -217,10 +218,10 @@ export default function SystemPage() {
       .finally(() => setZenohDaemonLogLoading(false));
   }, [showZenohDaemonLogs]);
 
-  const handlePhysicalAiServerBringup = useCallback(async () => {
-    const action: "up" | "down" = physicalAiServerService.status?.is_up ? "down" : "up";
-    await physicalAiServerService.handleControl(action);
-  }, [physicalAiServerService]);
+  const handleCycloIntelligenceBringup = useCallback(async () => {
+    const action: "up" | "down" = cycloIntelligenceService.status?.is_up ? "down" : "up";
+    await cycloIntelligenceService.handleControl(action);
+  }, [cycloIntelligenceService]);
 
   const handleRobotBringup = useCallback(async () => {
     const action: "up" | "down" = robotService.status?.is_up ? "down" : "up";
@@ -322,13 +323,13 @@ export default function SystemPage() {
         onToggleLogs={() => {
           setShowLogs((prev) => !prev);
           setShowLeaderLogs(false);
-          setShowPhysicalAiServerLogs(false);
+          setShowCycloIntelligenceLogs(false);
           setShowZenohDaemonLogs(false);
         }}
         onToggleLeaderLogs={() => {
           setShowLeaderLogs((prev) => !prev);
           setShowLogs(false);
-          setShowPhysicalAiServerLogs(false);
+          setShowCycloIntelligenceLogs(false);
           setShowZenohDaemonLogs(false);
         }}
         robotLaunchConfig={robotConfig}
@@ -337,14 +338,14 @@ export default function SystemPage() {
         leaderLaunchConfig={LG2_LEADER_AI_CONFIG}
         leaderBringupArgs={leaderBringupArgs}
         onLeaderBringupArgsChange={setLeaderBringupArgs}
-        physicalAiServerService={{
-          status: physicalAiServerService.status,
-          loading: physicalAiServerService.loading,
+        cycloIntelligenceService={{
+          status: cycloIntelligenceService.status,
+          loading: cycloIntelligenceService.loading,
         }}
-        onPhysicalAiServerBringup={handlePhysicalAiServerBringup}
-        showPhysicalAiServerLogs={showPhysicalAiServerLogs}
-        onTogglePhysicalAiServerLogs={() => {
-          setShowPhysicalAiServerLogs((prev) => !prev);
+        onCycloIntelligenceBringup={handleCycloIntelligenceBringup}
+        showCycloIntelligenceLogs={showCycloIntelligenceLogs}
+        onToggleCycloIntelligenceLogs={() => {
+          setShowCycloIntelligenceLogs((prev) => !prev);
           setShowLogs(false);
           setShowLeaderLogs(false);
           setShowZenohDaemonLogs(false);
@@ -359,7 +360,7 @@ export default function SystemPage() {
           setShowZenohDaemonLogs((prev) => !prev);
           setShowLogs(false);
           setShowLeaderLogs(false);
-          setShowPhysicalAiServerLogs(false);
+          setShowCycloIntelligenceLogs(false);
         }}
       />
       <div className="flex gap-4 items-stretch mt-4 flex-1 min-h-0">
@@ -374,9 +375,9 @@ export default function SystemPage() {
             <FixedLogPanel container={container} service={LEADER_SERVICE_NAME} onClose={() => setShowLeaderLogs(false)} />
           </div>
         )}
-        {showPhysicalAiServerLogs && (
+        {showCycloIntelligenceLogs && (
           <div style={PANEL_STYLES}>
-            <FixedLogPanel container={PHYSICAL_AI_SERVER_CONTAINER} service={PHYSICAL_AI_SERVER_SERVICE} onClose={() => setShowPhysicalAiServerLogs(false)} />
+            <FixedLogPanel container={CYCLO_INTELLIGENCE_CONTAINER} service={CYCLO_INTELLIGENCE_SERVICE} onClose={() => setShowCycloIntelligenceLogs(false)} />
           </div>
         )}
         {showZenohDaemonLogs && (
