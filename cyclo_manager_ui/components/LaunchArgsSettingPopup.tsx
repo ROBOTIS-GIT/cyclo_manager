@@ -1,7 +1,49 @@
+// Copyright 2026 ROBOTIS CO., LTD.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+//
+// Author: Hyungyu Kim
+
 "use client";
 
-import type { LaunchArgsConfig } from "@/config/launchArgs";
+import type { LaunchArgDef, LaunchArgsConfig } from "@/config/launchArgs";
 import { getDefaultArgs } from "@/config/launchArgs";
+
+const CUSTOM_SELECT_VALUE = "__custom__";
+
+function getSelectMode(def: LaunchArgDef, value: string): string {
+  if (value === def.default) return def.default;
+  const preset = def.selectOptions?.find((option) => option.value === value);
+  if (preset && preset.value !== CUSTOM_SELECT_VALUE) {
+    return preset.value;
+  }
+  return CUSTOM_SELECT_VALUE;
+}
+
+function handleSelectModeChange(
+  def: LaunchArgDef,
+  mode: string,
+  currentValue: string,
+  update: (key: string, value: string) => void
+) {
+  if (mode === CUSTOM_SELECT_VALUE) {
+    if (getSelectMode(def, currentValue) !== CUSTOM_SELECT_VALUE) {
+      update(def.key, "");
+    }
+    return;
+  }
+  update(def.key, mode);
+}
 
 export interface LaunchArgsSettingPopupProps {
   open: boolean;
@@ -66,6 +108,12 @@ export default function LaunchArgsSettingPopup({
     textAlign: "center" as const,
   });
 
+  const selectStyle: React.CSSProperties = {
+    ...inputStyle,
+    appearance: "none",
+    paddingRight: "28px",
+  };
+
   const defaultArgs = getDefaultArgs(config);
 
   return (
@@ -105,6 +153,7 @@ export default function LaunchArgsSettingPopup({
         <div className="p-4 space-y-2">
               {config.args.map((def) => {
                 const val = args[def.key] ?? def.default;
+                const selectMode = def.type === "select" ? getSelectMode(def, val) : null;
                 return (
                   <div key={def.key} style={def.type === "bool" ? boolRowStyle : rowStyle}>
                     {def.type === "bool" ? (
@@ -116,6 +165,30 @@ export default function LaunchArgsSettingPopup({
                         <button type="button" onClick={() => update(def.key, "false")} style={boolOptionStyle(val === "false")}>
                           false
                         </button>
+                      </>
+                    ) : def.type === "select" && def.selectOptions ? (
+                      <>
+                        <label style={labelStyle}>{def.label}</label>
+                        <select
+                          value={selectMode ?? def.default}
+                          onChange={(e) => handleSelectModeChange(def, e.target.value, val, update)}
+                          style={selectStyle}
+                        >
+                          {def.selectOptions.map((option) => (
+                            <option key={option.value} value={option.value}>
+                              {option.label}
+                            </option>
+                          ))}
+                        </select>
+                        {selectMode === CUSTOM_SELECT_VALUE && (
+                          <input
+                            type="text"
+                            value={val}
+                            onChange={(e) => update(def.key, e.target.value)}
+                            placeholder="Enter file name"
+                            style={inputStyle}
+                          />
+                        )}
                       </>
                     ) : (
                       <>

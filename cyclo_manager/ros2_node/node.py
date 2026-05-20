@@ -26,27 +26,26 @@ import threading
 import time
 from typing import Any, Optional, TypeAlias
 
-import rclpy
-from rclpy.executors import SingleThreadedExecutor
-from rclpy.node import Node
-from rclpy.subscription import Subscription
-
 from cyclo_manager.ros2_node.message import (
     convert_value_for_json,
     get_message_class,
     message_to_dict,
     parse_qos_profile,
 )
+import rclpy
+from rclpy.executors import SingleThreadedExecutor
+from rclpy.node import Node
+from rclpy.subscription import Subscription
 
 logger = logging.getLogger(__name__)
 
 # Fallback msg types when discovery hasn't run (e.g. joint_states, robot_description)
 KNOWN_TOPIC_TYPES: dict[str, str] = {
-    "/joint_states": "sensor_msgs/msg/JointState",
-    "/robot_description": "std_msgs/msg/String",
+    '/joint_states': 'sensor_msgs/msg/JointState',
+    '/robot_description': 'std_msgs/msg/String',
 }
 # Topics that never expire (static URDF, etc.)
-STATIC_TOPICS = frozenset(["/robot_description"])
+STATIC_TOPICS = frozenset(['/robot_description'])
 # Seconds after which dynamic topic data is considered stale
 DYNAMIC_TOPIC_STALE_TIME = 3.0
 
@@ -54,9 +53,9 @@ DYNAMIC_TOPIC_STALE_TIME = 3.0
 class RequestKind:
     """Request types for spin thread queue."""
 
-    RUN_DISCOVERY = "run_discovery"
-    ADD_TOPIC = "add_topic"
-    REMOVE_TOPIC = "remove_topic"
+    RUN_DISCOVERY = 'run_discovery'
+    ADD_TOPIC = 'add_topic'
+    REMOVE_TOPIC = 'remove_topic'
 
 
 RequestOp: TypeAlias = tuple[str, Any]
@@ -78,8 +77,11 @@ def _ensure_rclpy_init() -> None:
 class CycloManagerTopicSubscriber:
     """
     cyclo_manager topic subscriber: one rclpy node per container.
-    Node and spin thread start in start(); subscriptions added/removed via add/remove_topic_subscription.
-    Requests go through _request_queue and are processed by the spin thread.
+
+    Node and spin thread start in start(); subscriptions added/removed via
+    add/remove_topic_subscription. Requests go through _request_queue and are
+    processed by the spin thread.
+
     """
 
     def __init__(self, container_name: str, domain_id: int = 30):
@@ -105,7 +107,7 @@ class CycloManagerTopicSubscriber:
             return
         _ensure_rclpy_init()
         self._node = Node(
-            f"cyclo_manager_ros2_{self.container_name}",
+            f'cyclo_manager_ros2_{self.container_name}',
             allow_undeclared_parameters=True,
         )
         self._executor = SingleThreadedExecutor()
@@ -114,7 +116,7 @@ class CycloManagerTopicSubscriber:
         self._spin_thread = threading.Thread(
             target=self._spin_loop,
             daemon=True,
-            name=f"ros2-spin-{self.container_name}",
+            name=f'ros2-spin-{self.container_name}',
         )
         self._spin_thread.start()
         logger.info(
@@ -143,12 +145,12 @@ class CycloManagerTopicSubscriber:
             try:
                 self._process_request()
             except Exception as e:
-                logger.debug("Request process error: %s", e)
+                logger.debug('Request process error: %s', e)
             try:
                 self._executor.spin_once(timeout_sec=0.1)
             except Exception as e:
                 if self._is_running:
-                    logger.debug("Spin once error: %s", e)
+                    logger.debug('Spin once error: %s', e)
 
     def _process_request(self) -> None:
         """Process requests from queue (run from spin thread)."""
@@ -177,29 +179,29 @@ class CycloManagerTopicSubscriber:
             with self._lock:
                 self._discovered_topics = dict(names_and_types)
         except Exception as e:
-            logger.warning("Discovery failed for %s: %s", self.container_name, e)
+            logger.warning('Discovery failed for %s: %s', self.container_name, e)
 
     def _handle_add_topic(self, topic: str, msg_type: str, qos_profile: dict) -> None:
         with self._lock:
             if topic in self._subs:
                 return
         profile = dict(qos_profile or {})
-        if topic == "/robot_description":
-            profile["durability"] = "transient_local"
+        if topic == '/robot_description':
+            profile['durability'] = 'transient_local'
             try:
-                d = max(1, min(int(profile.get("depth", 1)), 10))
+                d = max(1, min(int(profile.get('depth', 1)), 10))
             except (TypeError, ValueError):
                 d = 1
-            profile["depth"] = d
+            profile['depth'] = d
         sub = self._create_sub(topic, msg_type, profile)
         if sub:
             with self._lock:
                 self._subs[topic] = sub
                 self._topic_msg_types[topic] = msg_type
-                if profile.get("durability") == "transient_local":
+                if profile.get('durability') == 'transient_local':
                     self._topics_transient_local.add(topic)
             logger.info(
-                "ROS2 subscribe: container=%s topic=%s msg_type=%s",
+                'ROS2 subscribe: container=%s topic=%s msg_type=%s',
                 self.container_name,
                 topic,
                 msg_type,
@@ -214,7 +216,7 @@ class CycloManagerTopicSubscriber:
         if sub and self._node:
             self._node.destroy_subscription(sub)
             logger.info(
-                "ROS2 unsubscribe: container=%s topic=%s",
+                'ROS2 unsubscribe: container=%s topic=%s',
                 self.container_name,
                 topic,
             )
@@ -229,12 +231,12 @@ class CycloManagerTopicSubscriber:
             return None
         msg_class = get_message_class(msg_type)
         if msg_class is None:
-            logger.error("Unknown message type: %s", msg_type)
+            logger.error('Unknown message type: %s', msg_type)
             return None
 
         def callback(msg: Any) -> None:
             with self._lock:
-                self._msg_cache[topic] = {"raw_message": msg, "received_at": time.time()}
+                self._msg_cache[topic] = {'raw_message': msg, 'received_at': time.time()}
 
         profile = qos_profile or {}
         qos = parse_qos_profile(profile)
@@ -257,7 +259,7 @@ class CycloManagerTopicSubscriber:
             try:
                 self._node.destroy_subscription(sub)
             except Exception as e:
-                logger.warning("Error destroying sub %s: %s", topic, e)
+                logger.warning('Error destroying sub %s: %s', topic, e)
 
     def _enqueue_and_wait(
         self,
@@ -280,7 +282,7 @@ class CycloManagerTopicSubscriber:
         return (
             KNOWN_TOPIC_TYPES.get(topic)
             or self._topic_msg_types.get(topic)
-            or (self._discovered_topics.get(topic) or [""])[0]
+            or (self._discovered_topics.get(topic) or [''])[0]
         )
 
     def _is_cached_valid(self, topic: str, cached: TopicCacheEntry) -> bool:
@@ -288,7 +290,7 @@ class CycloManagerTopicSubscriber:
         is_static = topic in STATIC_TOPICS or topic in self._topics_transient_local
         if is_static:
             return True
-        received_at = cached.get("received_at")
+        received_at = cached.get('received_at')
         if received_at is None:
             return True
         return (time.time() - received_at) <= DYNAMIC_TOPIC_STALE_TIME
@@ -312,7 +314,7 @@ class CycloManagerTopicSubscriber:
         self._enqueue_and_wait((RequestKind.REMOVE_TOPIC, topic))
 
     def is_topic_transient_local_subscription(self, topic: str) -> bool:
-        """True if this topic is subscribed with TRANSIENT_LOCAL (after add_topic_subscription)."""
+        """Return whether this topic is subscribed with TRANSIENT_LOCAL durability."""
         with self._lock:
             return topic in self._topics_transient_local
 
@@ -324,11 +326,11 @@ class CycloManagerTopicSubscriber:
             if not self._is_cached_valid(topic, cached):
                 del self._msg_cache[topic]
                 return None
-            raw = cached.get("raw_message")
+            raw = cached.get('raw_message')
             if raw is None:
                 return None
             data = message_to_dict(raw, convert_value_for_json)
-            return {"data": data, "received_at": cached.get("received_at")}
+            return {'data': data, 'received_at': cached.get('received_at')}
 
     def list_topics(self) -> list[str]:
         """All known topics: KNOWN_TOPIC_TYPES + discovered + subscribed."""
@@ -377,7 +379,7 @@ class CycloManagerTopicSubscriber:
         seconds_since = None
 
         if cached:
-            received_at = cached.get("received_at")
+            received_at = cached.get('received_at')
             if received_at is not None:
                 seconds_since = current_time - received_at
                 if self._is_cached_valid(topic, cached):
@@ -386,11 +388,11 @@ class CycloManagerTopicSubscriber:
                     del self._msg_cache[topic]
 
         return {
-            "available": available,
-            "msg_type": self._resolve_topic_msg_type_locked(topic),
-            "subscribed": topic in self._subs,
-            "received_at": received_at,
-            "seconds_since_last_message": seconds_since,
+            'available': available,
+            'msg_type': self._resolve_topic_msg_type_locked(topic),
+            'subscribed': topic in self._subs,
+            'received_at': received_at,
+            'seconds_since_last_message': seconds_since,
         }
 
     def get_all_topics_status(self) -> dict[str, dict[str, Any]]:

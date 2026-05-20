@@ -22,7 +22,7 @@
 def parse_version(version_str: str) -> tuple[int, ...]:
     """Parse version string into comparable tuple (e.g. '1.2.3' -> (1, 2, 3))."""
     parts = []
-    for p in (version_str or "").strip().lstrip("v").split("."):
+    for p in (version_str or '').strip().lstrip('v').split('.'):
         try:
             parts.append(int(p))
         except ValueError:

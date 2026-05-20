@@ -1,3 +1,19 @@
+// Copyright 2026 ROBOTIS CO., LTD.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+//
+// Author: Hyungyu Kim
+
 import axios, { AxiosError } from "axios";
 import type {
   ConfiguredContainerListResponse,
@@ -13,6 +29,7 @@ import type {
   DockerContainerActionRequest,
   DockerContainerActionResponse,
   DockerContainerLogsResponse,
+  DockerTopResponse,
   ErrorResponse,
   ServiceRunScriptResponse,
   BashrcResponse,
@@ -31,9 +48,10 @@ const getApiBaseUrl = (): string => {
     return envUrl;
   }
 
-  // Use the hostname where the frontend is hosted
+  // Mirror the page's protocol so an HTTPS page calls an HTTPS API and a
+  // WSS page opens a WSS socket; this avoids mixed-content blocking.
   if (typeof window !== "undefined") {
-    return `http://${window.location.hostname}:8081`;
+    return `${window.location.protocol}//${window.location.hostname}:8081`;
   }
 
   // Fallback for server-side rendering
@@ -41,6 +59,11 @@ const getApiBaseUrl = (): string => {
 };
 
 const API_BASE_URL = getApiBaseUrl();
+
+export function getDockerTerminalWsUrl(containerName: string, sessionId: string): string {
+  const wsBase = API_BASE_URL.replace(/^http/, "ws");
+  return `${wsBase}/docker/${containerName}/terminal/ws?session_id=${encodeURIComponent(sessionId)}`;
+}
 
 // Create axios instance with default config
 const apiClient = axios.create({
@@ -267,6 +290,40 @@ export async function controlDockerContainer(
     return response.data;
   } catch (error) {
     handleError(error);
+  }
+}
+
+export async function getDockerContainerTop(
+  name: string
+): Promise<DockerTopResponse> {
+  try {
+    const response = await apiClient.get<DockerTopResponse>(`/docker/${name}/top`);
+    return response.data;
+  } catch (error) {
+    handleError(error);
+  }
+}
+
+export async function killDockerProcess(
+  name: string,
+  pid: number,
+  signal: string = "SIGTERM"
+): Promise<void> {
+  try {
+    await apiClient.delete(`/docker/${name}/processes/${pid}`, { params: { signal } });
+  } catch (error) {
+    handleError(error);
+  }
+}
+
+export async function stopDockerTerminal(
+  name: string,
+  sessionId: string
+): Promise<void> {
+  try {
+    await apiClient.delete(`/docker/${name}/terminal/${sessionId}`);
+  } catch {
+    // best-effort cleanup
   }
 }
 

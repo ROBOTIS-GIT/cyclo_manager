@@ -19,10 +19,10 @@
 """Helper functions to interact with s6-overlay services."""
 
 import logging
+from pathlib import Path
 import re
 import subprocess
 import time
-from pathlib import Path
 from typing import Optional
 
 from cyclo_manager.agent.models import ServiceStatus
@@ -30,21 +30,25 @@ from cyclo_manager.agent.models import ServiceStatus
 logger = logging.getLogger(__name__)
 
 # Default s6 service directory
-S6_SERVICE_DIR = Path("/run/service")
+S6_SERVICE_DIR = Path('/run/service')
 
 
 def list_services() -> list[str]:
-    """List all available s6 services.
+    """
+    List all available s6 services.
 
-    Returns:
-        List of service names found in /run/service.
+    Returns
+    -------
+    List of service names found in /run/service.
 
-    Raises:
-        OSError: If /run/service directory cannot be accessed.
+    Raises
+    ------
+    OSError: If /run/service directory cannot be accessed.
+
     """
     try:
         if not S6_SERVICE_DIR.exists():
-            logger.warning(f"Service directory {S6_SERVICE_DIR} does not exist")
+            logger.warning(f'Service directory {S6_SERVICE_DIR} does not exist')
             return []
 
         services = []
@@ -52,29 +56,34 @@ def list_services() -> list[str]:
             if item.is_dir():
                 # Check if it looks like an s6 service directory
                 # s6 services typically have a 'run' file
-                if (item / "run").exists() or (item / "type").exists():
+                if (item / 'run').exists() or (item / 'type').exists():
                     services.append(item.name)
 
-        logger.debug(f"Found {len(services)} services: {services}")
+        logger.debug(f'Found {len(services)} services: {services}')
         return sorted(services)
 
     except OSError as e:
-        logger.error(f"Failed to list services: {e}")
+        logger.error(f'Failed to list services: {e}')
         raise
 
 
 def get_service_status(name: str) -> ServiceStatus:
-    """Get status of an s6 service.
+    """
+    Get status of an s6 service.
 
-    Args:
-        name: Service name.
+    Args
+    ----
+    name: Service name.
 
-    Returns:
-        ServiceStatus object with parsed status information.
+    Returns
+    -------
+    ServiceStatus object with parsed status information.
 
-    Raises:
-        FileNotFoundError: If service does not exist.
-        subprocess.CalledProcessError: If s6-svstat command fails.
+    Raises
+    ------
+    FileNotFoundError: If service does not exist.
+    subprocess.CalledProcessError: If s6-svstat command fails.
+
     """
     service_path = S6_SERVICE_DIR / name
 
@@ -84,7 +93,7 @@ def get_service_status(name: str) -> ServiceStatus:
     try:
         # Call s6-svstat to get service status
         result = subprocess.check_output(
-            ["s6-svstat", str(service_path)],
+            ['s6-svstat', str(service_path)],
             stderr=subprocess.STDOUT,
             text=True,
             timeout=5,
@@ -98,23 +107,23 @@ def get_service_status(name: str) -> ServiceStatus:
         # "up (pid 1234) 10 seconds"
         # "down 5 seconds"
         # "up (pid 1234) 0 seconds"
-        is_up = raw_output.startswith("up")
+        is_up = raw_output.startswith('up')
         pid: Optional[int] = None
         uptime_seconds: Optional[int] = None
 
         if is_up:
             # Extract PID: "up (pid 1234) 10 seconds"
-            pid_match = re.search(r"\(pid\s+(\d+)\)", raw_output)
+            pid_match = re.search(r'\(pid\s+(\d+)\)', raw_output)
             if pid_match:
                 pid = int(pid_match.group(1))
 
             # Extract uptime: "10 seconds" or "0 seconds"
-            uptime_match = re.search(r"(\d+)\s+seconds", raw_output)
+            uptime_match = re.search(r'(\d+)\s+seconds', raw_output)
             if uptime_match:
                 uptime_seconds = int(uptime_match.group(1))
         else:
             # For down services, might have: "down 5 seconds"
-            uptime_match = re.search(r"(\d+)\s+seconds", raw_output)
+            uptime_match = re.search(r'(\d+)\s+seconds', raw_output)
             if uptime_match:
                 uptime_seconds = int(uptime_match.group(1))
 
@@ -135,16 +144,20 @@ def get_service_status(name: str) -> ServiceStatus:
 
 
 def get_all_services_status() -> list[ServiceStatus]:
-    """Get status of all s6 services.
+    """
+    Get status of all s6 services.
 
     This is more efficient than calling get_service_status() for each service
     individually, as it processes all services in a single pass.
 
-    Returns:
-        List of ServiceStatus objects for all available services.
+    Returns
+    -------
+    List of ServiceStatus objects for all available services.
 
-    Note:
-        Services that fail to get status are skipped (logged but not included).
+    Note
+    ----
+    Services that fail to get status are skipped (logged but not included).
+
     """
     try:
         services = list_services()
@@ -160,42 +173,44 @@ def get_all_services_status() -> list[ServiceStatus]:
 
         return statuses
     except Exception as e:
-        logger.error(f"Failed to get all services status: {e}")
+        logger.error(f'Failed to get all services status: {e}')
         raise
 
 
-LAUNCH_ARGS_DIR = Path("/run/launch_args")
-ROBOT_TYPE_FILE = Path("/run/robot_type")
+LAUNCH_ARGS_DIR = Path('/run/launch_args')
+ROBOT_TYPE_FILE = Path('/run/robot_type')
 
 
-_AI_WORKER_ROBOT_TYPES = frozenset({"sg2", "bg2", "sh5", "bh5"})
+_AI_WORKER_ROBOT_TYPES = frozenset({'sg2', 'bg2', 'sh5', 'bh5'})
 
 
 def _write_robot_type(robot_type: str) -> None:
-    """Write robot type to file for ai_worker_bringup run script.
+    """
+    Write robot type to file for ai_worker_bringup run script.
 
     Allowed values: sg2, bg2, sh5, bh5.
     """
     normalized = robot_type.strip().lower()
     if normalized not in _AI_WORKER_ROBOT_TYPES:
         raise ValueError(
-            f"robot_type must be one of {sorted(_AI_WORKER_ROBOT_TYPES)!r}, got: {robot_type!r}"
+            f'robot_type must be one of {sorted(_AI_WORKER_ROBOT_TYPES)!r}, got: {robot_type!r}'
         )
-    ROBOT_TYPE_FILE.write_text(normalized, encoding="utf-8")
-    logger.info(f"Wrote robot_type to {ROBOT_TYPE_FILE}: {normalized}")
+    ROBOT_TYPE_FILE.write_text(normalized, encoding='utf-8')
+    logger.info(f'Wrote robot_type to {ROBOT_TYPE_FILE}: {normalized}')
 
 
 def _write_launch_args(name: str, launch_args: dict[str, str]) -> None:
-    """Write launch args to file for the run script to read.
+    """
+    Write launch args to file for the run script to read.
 
     Format: key:=value key:=value (ROS2 launch argument format)
     """
     if not launch_args:
         return
     LAUNCH_ARGS_DIR.mkdir(parents=True, exist_ok=True)
-    args_str = " ".join(f"{k}:={v}" for k, v in launch_args.items())
+    args_str = ' '.join(f'{k}:={v}' for k, v in launch_args.items())
     args_file = LAUNCH_ARGS_DIR / name
-    args_file.write_text(args_str, encoding="utf-8")
+    args_file.write_text(args_str, encoding='utf-8')
     logger.info(f"Wrote launch args for service '{name}' to {args_file}")
 
 
@@ -205,81 +220,89 @@ def control_service(
     launch_args: dict[str, str] | None = None,
     robot_type: str | None = None,
 ) -> None:
-    """Control an s6 service (start, stop, or restart).
+    """
+    Control an s6 service (start, stop, or restart).
 
     For s6-rc services (especially those with pipelines), uses s6-rc commands.
     For legacy services, falls back to s6-svc.
 
-    Args:
-        name: Service name.
-        action: Action to perform ('up', 'down', or 'restart').
-        launch_args: Optional launch arguments for ros2 launch (used for up/restart).
-        robot_type: Required for ai_worker_bringup up/restart. One of sg2, bg2, sh5, bh5.
+    Args
+    ----
+    name: Service name.
+    action: Action to perform ('up', 'down', or 'restart').
+    launch_args: Optional launch arguments for ros2 launch (used for up/restart).
+    robot_type: Required for ai_worker_bringup up/restart. One of sg2, bg2, sh5, bh5.
 
-    Raises:
-        FileNotFoundError: If service does not exist.
-        ValueError: If action is invalid or robot_type missing/invalid for ai_worker_bringup.
-        subprocess.CalledProcessError: If command fails.
+    Raises
+    ------
+    FileNotFoundError: If service does not exist.
+    ValueError: If action is invalid or robot_type missing/invalid for ai_worker_bringup.
+    subprocess.CalledProcessError: If command fails.
+
     """
     service_path = S6_SERVICE_DIR / name
 
     if not service_path.exists():
         raise FileNotFoundError(f"Service '{name}' not found at {service_path}")
 
-    if action in ("up", "restart") and name == "ai_worker_bringup":
+    if action in ('up', 'restart') and name == 'ai_worker_bringup':
         if not robot_type:
             raise ValueError(
-                "robot_type is required for ai_worker_bringup (up/restart). Use 'sg2', 'bg2', 'sh5', or 'bh5'."
+                'robot_type is required for ai_worker_bringup (up/restart). '
+                "Use 'sg2', 'bg2', 'sh5', or 'bh5'."
             )
         _write_robot_type(robot_type)
 
     # Write launch args before up/restart so the run script can read them
-    if action in ("up", "restart") and launch_args:
+    if action in ('up', 'restart') and launch_args:
         _write_launch_args(name, launch_args)
 
     # Check if this is an s6-rc service (has producer-for or consumer-for)
     # For s6-rc services with pipelines, we should use s6-rc commands
-    is_s6rc_service = (service_path / "producer-for").exists() or (service_path / "consumer-for").exists()
+    is_s6rc_service = (
+        (service_path / 'producer-for').exists()
+        or (service_path / 'consumer-for').exists()
+    )
 
     # Also check if it's a symlink to s6-rc servicedirs (indicates s6-rc service)
     try:
         if service_path.is_symlink():
             target = service_path.readlink()
-            if "s6-rc" in str(target):
+            if 's6-rc' in str(target):
                 is_s6rc_service = True
     except Exception:
         pass
 
-    if action not in ["up", "down", "restart"]:
+    if action not in ['up', 'down', 'restart']:
         raise ValueError(f"Invalid action: {action}. Must be one of: ['up', 'down', 'restart']")
 
     try:
         if is_s6rc_service:
             # For s6-rc services, use s6-rc commands
             # For pipelines, starting the producer service will start the entire pipeline
-            if action == "up":
-                cmd = ["s6-rc", "-u", "change", name]
-            elif action == "down":
-                cmd = ["s6-rc", "-d", "change", name]
+            if action == 'up':
+                cmd = ['s6-rc', '-u', 'change', name]
+            elif action == 'down':
+                cmd = ['s6-rc', '-d', 'change', name]
             else:  # restart
-                cmd = ["s6-rc", "-d", "change", name]
+                cmd = ['s6-rc', '-d', 'change', name]
                 subprocess.check_output(cmd, stderr=subprocess.STDOUT, timeout=10)
                 # Wait a moment, then bring it back up
                 time.sleep(1)
-                cmd = ["s6-rc", "-u", "change", name]
+                cmd = ['s6-rc', '-u', 'change', name]
 
             subprocess.check_output(cmd, stderr=subprocess.STDOUT, timeout=10)
             logger.info(f"Successfully executed action '{action}' on s6-rc service '{name}'")
         else:
             # For legacy services, use s6-svc
             action_map = {
-                "up": "-u",
-                "down": "-d",
-                "restart": "-r",
+                'up': '-u',
+                'down': '-d',
+                'restart': '-r',
             }
             flag = action_map[action]
             subprocess.check_output(
-                ["s6-svc", flag, str(service_path)],
+                ['s6-svc', flag, str(service_path)],
                 stderr=subprocess.STDOUT,
                 timeout=10,
             )
@@ -291,4 +314,3 @@ def control_service(
     except subprocess.TimeoutExpired:
         logger.error(f"Timeout executing action '{action}' on service '{name}'")
         raise
-

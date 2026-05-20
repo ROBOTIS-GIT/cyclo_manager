@@ -18,17 +18,17 @@
 
 """Lifespan management for FastAPI app."""
 
+from contextlib import asynccontextmanager
 import logging
 import os
-from contextlib import asynccontextmanager
-
-from fastapi import FastAPI
 
 from cyclo_manager.agent_client import AgentClientPool
 from cyclo_manager.config import load_config
 from cyclo_manager.docker_client import DockerClient
 from cyclo_manager.ros2_node import CycloManagerTopicSubscriber
 from cyclo_manager.state import app_state
+from cyclo_manager.terminal_session_manager import TerminalSessionManager
+from fastapi import FastAPI
 
 logger = logging.getLogger(__name__)
 
@@ -37,7 +37,7 @@ logger = logging.getLogger(__name__)
 async def lifespan(app: FastAPI):
     """Lifespan context manager for FastAPI app."""
     # Startup
-    logger.info("Starting cyclo_manager...")
+    logger.info('Starting cyclo_manager...')
     try:
         config = load_config()
         app_state.set_config(config)
@@ -48,16 +48,21 @@ async def lifespan(app: FastAPI):
         # Docker client is optional — may fail if socket is not mounted.
         try:
             docker_client = DockerClient()
-            logger.info("Docker client initialized successfully")
+            logger.info('Docker client initialized successfully')
             app_state.set_docker_client(docker_client)
         except Exception as e:
             logger.warning(
-                "Docker client initialization failed (Docker operations will be unavailable): %s", e
+                'Docker client initialization failed '
+                '(Docker operations will be unavailable): %s',
+                e,
             )
             app_state.set_docker_client(None)
 
+        app_state.set_terminal_session_manager(TerminalSessionManager())
+        logger.info('Terminal session manager initialized')
+
         # Initialize ROS2 nodes for all containers (no subscriptions yet).
-        domain_id = int(os.getenv("ROS_DOMAIN_ID", "30"))
+        domain_id = int(os.getenv('ROS_DOMAIN_ID', '30'))
         for container_name in config.containers:
             try:
                 node = CycloManagerTopicSubscriber(
@@ -71,15 +76,15 @@ async def lifespan(app: FastAPI):
                     "ROS2 node initialization failed for container '%s': %s", container_name, e
                 )
 
-        logger.info("cyclo_manager initialized successfully")
+        logger.info('cyclo_manager initialized successfully')
     except Exception as e:
-        logger.error("Failed to initialize cyclo_manager: %s", e)
+        logger.error('Failed to initialize cyclo_manager: %s', e)
         raise
 
     yield
 
     # Shutdown
-    logger.info("Shutting down cyclo_manager...")
+    logger.info('Shutting down cyclo_manager...')
 
     client_pool = app_state.get_client_pool_or_none()
     if client_pool:
@@ -97,4 +102,11 @@ async def lifespan(app: FastAPI):
             logger.error("Error stopping ROS2 node for container '%s': %s", container_name, e)
     app_state.clear_ros2_nodes()
 
-    logger.info("cyclo_manager shut down")
+    terminal_session_manager = app_state.get_terminal_session_manager_or_none()
+    if terminal_session_manager:
+        try:
+            terminal_session_manager.close_all()
+        except Exception as e:
+            logger.error('Error closing terminal sessions: %s', e)
+
+    logger.info('cyclo_manager shut down')
