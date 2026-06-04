@@ -106,7 +106,7 @@ function useServiceStatus(
     async (
       action: "up" | "down" | "restart",
       launchArgs?: Record<string, string>,
-      robotType?: "sg2" | "bg2" | "sh5" | "bh5"
+      robotType?: "sg2" | "bg2" | "sh5" | "bh5" | "mobile"
     ) => {
       if (!container) return;
       setLoading(true);
@@ -203,11 +203,11 @@ export default function SystemPage() {
   useEffect(() => {
     if (!container) return;
     for (const { topic, msgType } of CONTROL_TOPICS) {
-      ros2Subscribe(container, topic, msgType).catch(() => {});
+      ros2Subscribe(container, topic, msgType).catch(() => { });
     }
     return () => {
       for (const { topic } of CONTROL_TOPICS) {
-        ros2Unsubscribe(container, topic).catch(() => {});
+        ros2Unsubscribe(container, topic).catch(() => { });
       }
     };
   }, [container]);

@@ -29,6 +29,7 @@ from cyclo_manager.models import (
     ROS2TopicDataResponse,
     ROS2TopicsListResponse,
     ROS2TopicStatus,
+    ROS2TwistPublishRequest,
 )
 from cyclo_manager.state import get_ros2_node, get_validated_container
 from fastapi import APIRouter, Body, Depends, HTTPException, status
@@ -227,6 +228,28 @@ async def get_ros2_topic_data(
         available=available,
         domain_id=node.domain_id,
     )
+
+
+@router.post('/cmd_vel')
+async def publish_cmd_vel(
+    body: ROS2TwistPublishRequest,
+    container: str = Depends(get_validated_container),
+):
+    """Publish geometry_msgs/msg/Twist to /cmd_vel for web teleop."""
+    node = get_ros2_node(container)
+    if node is None:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=f"ROS2 node for container '{container}' is not available.",
+        )
+
+    ok = node.publish_twist(body.topic, body.linear_x, body.angular_z)
+    if not ok:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=f"Failed to publish Twist on topic '{body.topic}'.",
+        )
+    return {'ok': True, 'topic': body.topic}
 
 
 @router.post('/topics/{topic:path}/subscribe')

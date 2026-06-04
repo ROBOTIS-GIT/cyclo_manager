@@ -35,12 +35,14 @@ from cyclo_manager.ros2_node.message import (
 import rclpy
 from rclpy.executors import SingleThreadedExecutor
 from rclpy.node import Node
+from rclpy.publisher import Publisher
 from rclpy.subscription import Subscription
 
 logger = logging.getLogger(__name__)
 
 # Fallback msg types when discovery hasn't run (e.g. joint_states, robot_description)
 KNOWN_TOPIC_TYPES: dict[str, str] = {
+    '/cmd_vel': 'geometry_msgs/msg/Twist',
     '/joint_states': 'sensor_msgs/msg/JointState',
     '/robot_description': 'std_msgs/msg/String',
 }
@@ -56,6 +58,7 @@ class RequestKind:
     RUN_DISCOVERY = 'run_discovery'
     ADD_TOPIC = 'add_topic'
     REMOVE_TOPIC = 'remove_topic'
+    PUBLISH_TOPIC = 'publish_topic'
 
 
 RequestOp: TypeAlias = tuple[str, Any]
@@ -95,6 +98,7 @@ class CycloManagerTopicSubscriber:
         self._lock = threading.Lock()
 
         self._subs: dict[str, Subscription] = {}
+        self._pubs: dict[tuple[str, str], Publisher] = {}
         self._msg_cache: dict[str, TopicCacheEntry] = {}
         self._discovered_topics: dict[str, list[str]] = {}
         self._topic_msg_types: dict[str, str] = {}
@@ -132,6 +136,7 @@ class CycloManagerTopicSubscriber:
         if self._spin_thread and self._spin_thread.is_alive():
             self._spin_thread.join(timeout=5.0)
         self._remove_all_subscriptions()
+        self._remove_all_publishers()
         if self._node:
             self._node.destroy_node()
             self._node = None
@@ -168,6 +173,10 @@ class CycloManagerTopicSubscriber:
                 elif kind == RequestKind.REMOVE_TOPIC:
                     topic = payload
                     self._handle_remove_topic(topic)
+                elif kind == RequestKind.PUBLISH_TOPIC:
+                    topic, msg_type, data, response_queue = payload
+                    ok = self._handle_publish_topic(topic, msg_type, data)
+                    response_queue.put(ok)
         except queue.Empty:
             pass
         if processed:
@@ -242,6 +251,48 @@ class CycloManagerTopicSubscriber:
         qos = parse_qos_profile(profile)
         return self._node.create_subscription(msg_class, topic, callback, qos)
 
+    def _handle_publish_topic(
+        self,
+        topic: str,
+        msg_type: str,
+        data: dict[str, Any],
+    ) -> bool:
+        if not self._node:
+            return False
+        msg_class = get_message_class(msg_type)
+        if msg_class is None:
+            logger.error('Unknown message type for publish: %s', msg_type)
+            return False
+
+        pub_key = (topic, msg_type)
+        pub = self._pubs.get(pub_key)
+        if pub is None:
+            pub = self._node.create_publisher(msg_class, topic, 5)
+            self._pubs[pub_key] = pub
+
+        try:
+            msg = msg_class()
+            self._populate_message(msg, data)
+            pub.publish(msg)
+            return True
+        except Exception as e:
+            logger.warning(
+                'ROS2 publish failed: container=%s topic=%s msg_type=%s error=%s',
+                self.container_name,
+                topic,
+                msg_type,
+                e,
+            )
+            return False
+
+    def _populate_message(self, msg: Any, values: dict[str, Any]) -> None:
+        for key, value in values.items():
+            current = getattr(msg, key, None)
+            if isinstance(value, dict) and hasattr(current, 'get_fields_and_field_types'):
+                self._populate_message(current, value)
+            else:
+                setattr(msg, key, value)
+
     def _clear_runtime_state(self) -> None:
         """Clear in-memory topic/runtime caches."""
         self._msg_cache.clear()
@@ -260,6 +311,17 @@ class CycloManagerTopicSubscriber:
                 self._node.destroy_subscription(sub)
             except Exception as e:
                 logger.warning('Error destroying sub %s: %s', topic, e)
+
+    def _remove_all_publishers(self) -> None:
+        if not self._node:
+            return
+        pubs = list(self._pubs.items())
+        self._pubs.clear()
+        for (topic, _msg_type), pub in pubs:
+            try:
+                self._node.destroy_publisher(pub)
+            except Exception as e:
+                logger.warning('Error destroying publisher %s: %s', topic, e)
 
     def _enqueue_and_wait(
         self,
@@ -309,6 +371,30 @@ class CycloManagerTopicSubscriber:
         )
         with self._lock:
             return topic in self._subs
+
+    def publish_twist(
+        self,
+        topic: str,
+        linear_x: float,
+        angular_z: float,
+    ) -> bool:
+        if not self._is_running:
+            return False
+        response_queue: queue.Queue[bool] = queue.Queue(maxsize=1)
+        data = {
+            'linear': {'x': linear_x, 'y': 0.0, 'z': 0.0},
+            'angular': {'x': 0.0, 'y': 0.0, 'z': angular_z},
+        }
+        self._enqueue_and_wait(
+            (
+                RequestKind.PUBLISH_TOPIC,
+                (topic, 'geometry_msgs/msg/Twist', data, response_queue),
+            )
+        )
+        try:
+            return response_queue.get_nowait()
+        except queue.Empty:
+            return False
 
     def remove_topic_subscription(self, topic: str) -> None:
         self._enqueue_and_wait((RequestKind.REMOVE_TOPIC, topic))

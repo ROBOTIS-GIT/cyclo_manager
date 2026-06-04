@@ -181,14 +181,14 @@ LAUNCH_ARGS_DIR = Path('/run/launch_args')
 ROBOT_TYPE_FILE = Path('/run/robot_type')
 
 
-_AI_WORKER_ROBOT_TYPES = frozenset({'sg2', 'bg2', 'sh5', 'bh5'})
+_AI_WORKER_ROBOT_TYPES = frozenset({'sg2', 'bg2', 'sh5', 'bh5', 'mobile'})
 
 
 def _write_robot_type(robot_type: str) -> None:
     """
     Write robot type to file for ai_worker_bringup run script.
 
-    Allowed values: sg2, bg2, sh5, bh5.
+    Allowed values: sg2, bg2, sh5, bh5, mobile.
     """
     normalized = robot_type.strip().lower()
     if normalized not in _AI_WORKER_ROBOT_TYPES:
@@ -231,7 +231,7 @@ def control_service(
     name: Service name.
     action: Action to perform ('up', 'down', or 'restart').
     launch_args: Optional launch arguments for ros2 launch (used for up/restart).
-    robot_type: Required for ai_worker_bringup up/restart. One of sg2, bg2, sh5, bh5.
+    robot_type: Required for ai_worker_bringup up/restart. One of sg2, bg2, sh5, bh5, mobile.
 
     Raises
     ------
@@ -249,7 +249,7 @@ def control_service(
         if not robot_type:
             raise ValueError(
                 'robot_type is required for ai_worker_bringup (up/restart). '
-                "Use 'sg2', 'bg2', 'sh5', or 'bh5'."
+                "Use 'sg2', 'bg2', 'sh5', 'bh5', or 'mobile'."
             )
         _write_robot_type(robot_type)
 

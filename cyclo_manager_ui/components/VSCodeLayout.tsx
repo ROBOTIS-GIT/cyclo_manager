@@ -48,6 +48,7 @@ export default function VSCodeLayout({
     { href: topicsHref, label: "Topics", icon: "📡", isTopics: true },
     { href: "/docker", label: "Docker", icon: "🐳", isDocker: true },
     { href: "/novnc", label: "noVNC", icon: "🖥️" },
+    { href: "/teleop", label: "Teleop", icon: "🎮" },
   ];
 
   return (

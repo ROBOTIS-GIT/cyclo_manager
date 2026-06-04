@@ -92,7 +92,7 @@ class ServiceActionRequest(BaseModel):
     )
     robot_type: str | None = Field(
         None,
-        description='Required for ai_worker_bringup up/restart. One of: sg2, bg2, sh5, bh5.',
+        description='Required for ai_worker_bringup up/restart. One of: sg2, bg2, sh5, bh5, mobile.',
     )
 
 
@@ -342,3 +342,19 @@ class ROS2SubscribeRequest(BaseModel):
     msg_type: Optional[str] = Field(
         None, description='Message type (e.g. sensor_msgs/msg/JointState)'
     )
+
+
+class ROS2TwistPublishRequest(BaseModel):
+    """Request body for POST /containers/{container}/ros2/cmd_vel."""
+
+    linear_x: float = Field(
+        0.0,
+        description='Forward/backward velocity in m/s',
+        examples=[0.4],
+    )
+    angular_z: float = Field(
+        0.0,
+        description='Yaw angular velocity in rad/s',
+        examples=[0.8],
+    )
+    topic: str = Field('/cmd_vel', description='Twist topic to publish')

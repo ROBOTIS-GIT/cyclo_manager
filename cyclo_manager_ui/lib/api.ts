@@ -37,6 +37,7 @@ import type {
   CycloManagerVersionResponse,
   ROS2TopicsListResponse,
   ROS2TopicDataResponse,
+  ROS2TwistPublishRequest,
 } from "@/types/api";
 
 // Get API base URL from environment variable, default to frontend host:8081
@@ -142,7 +143,7 @@ export async function controlService(
   service: string,
   action: "up" | "down" | "restart",
   launchArgs?: Record<string, string>,
-  robotType?: "sg2" | "bg2" | "sh5" | "bh5"
+  robotType?: "sg2" | "bg2" | "sh5" | "bh5" | "mobile"
 ): Promise<ServiceControlResponse> {
   try {
     const request: ServiceActionRequest = {
@@ -443,4 +444,15 @@ export async function ros2Unsubscribe(
   await apiClient.post(
     `/${container}/ros2/topics/${encodeURIComponent(topic)}/unsubscribe`
   );
+}
+
+export async function publishCmdVel(
+  container: string,
+  twist: ROS2TwistPublishRequest
+): Promise<void> {
+  await apiClient.post(`/${container}/ros2/cmd_vel`, {
+    topic: twist.topic ?? "/cmd_vel",
+    linear_x: twist.linear_x,
+    angular_z: twist.angular_z,
+  });
 }
