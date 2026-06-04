@@ -86,6 +86,7 @@ export default function TeleopPage() {
     const [statusText, setStatusText] = useState("Ready");
     const [error, setError] = useState<string | null>(null);
     const repeatRef = useRef<ReturnType<typeof setInterval> | null>(null);
+    const warmedUpRef = useRef(false);
 
     useEffect(() => {
         let disposed = false;
@@ -159,6 +160,12 @@ export default function TeleopPage() {
             setStatusText("Ready");
         }
     }, [activeCommand, robotRunning, stopJog]);
+
+    useEffect(() => {
+        if (!robotRunning || warmedUpRef.current) return;
+        warmedUpRef.current = true;
+        void publish(0, 0);
+    }, [publish, robotRunning]);
 
     useEffect(() => {
         const handleKeyDown = (event: KeyboardEvent) => {

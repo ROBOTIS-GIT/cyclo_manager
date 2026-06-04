@@ -208,7 +208,7 @@ type ToolbarHelpKey = "robot" | "leader" | "physical" | "zenoh";
 
 const TOOLBAR_HELP_TEXT: Record<ToolbarHelpKey, string> = {
   robot:
-    "Starts and stops the robot bringup service. The dot shows status — green is running, red is stopped. Pick SG2, BG2, SH5, BH5, or Mobile, then use play to start.",
+    "Starts and stops the follower robot bringup service. The dot shows status — green is running, red is stopped. Pick SG2, BG2, SH5, BH5, or Mobile, then use play to start.",
   leader:
     "Starts and stops the leader bringup service. The dot shows status — green is running, red is stopped.",
   physical:
@@ -338,328 +338,328 @@ export default function ControlToolbar({
 
   return (
     <>
-    <div
-      className="flex flex-wrap items-stretch gap-0 border-b py-2"
-      style={{
-        backgroundColor: "var(--vscode-editor-background)",
-        borderColor: "var(--vscode-panel-border)",
-        boxShadow: "0 1px 0 0 rgba(0,0,0,0.15)",
-      }}
-    >
       <div
-        className="flex flex-col gap-2.5 rounded-none px-5 py-4 min-h-[108px] justify-center"
-        style={GROUP_STYLES}
+        className="flex flex-wrap items-stretch gap-0 border-b py-2"
+        style={{
+          backgroundColor: "var(--vscode-editor-background)",
+          borderColor: "var(--vscode-panel-border)",
+          boxShadow: "0 1px 0 0 rgba(0,0,0,0.15)",
+        }}
       >
-        <div className="flex items-center gap-2 flex-wrap min-w-0">
-          <span
-            className="text-sm font-medium uppercase tracking-wider"
-            style={{ color: "var(--vscode-descriptionForeground)" }}
-          >
-            Robot
-          </span>
-          {robotService.status && <StatusBadge status={robotService.status.is_up} dotOnly />}
-          <button
-            ref={robotHelpBtnRef}
-            type="button"
-            onClick={() => toggleToolbarHelp("robot")}
-            className={HELP_BTN_CLASS}
-            style={HELP_BTN_STYLE}
-            aria-expanded={activeToolbarHelp === "robot"}
-            aria-controls={robotHelpPanelId}
-            title="Help"
-          >
-            ?
-          </button>
-        </div>
-        <div className="flex items-center gap-3">
-          <Select
-            value={robotType}
-            onChange={(v) => onRobotTypeChange(v)}
-            disabled={robotSelectDisabled}
-            options={[
-              { value: "SG2", label: "SG2" },
-              { value: "BG2", label: "BG2" },
-              { value: "SH5", label: "SH5" },
-              { value: "BH5", label: "BH5" },
-              { value: "Mobile", label: "Mobile" },
-            ]}
-          />
-          <button
-            onClick={onRobotBringup}
-            disabled={robotService.loading}
-            title={robotService.status?.is_up ? "Stop" : "Bringup"}
-            aria-label={robotService.status?.is_up ? "Stop" : "Bringup"}
-            className="w-11 h-11 rounded border-none cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed inline-flex items-center justify-center"
-            style={{
-              backgroundColor: robotService.status?.is_up ? "var(--vscode-button-secondaryBackground)" : "var(--vscode-button-background)",
-              color: robotService.status?.is_up ? "var(--vscode-button-secondaryForeground)" : "var(--vscode-button-foreground)",
-            }}
-          >
-            {robotService.status?.is_up ? <SquareIcon /> : <PlayIcon />}
-          </button>
-          <SettingsButton onClick={() => setShowRobotArgsPopup(true)} />
-          <button
-            onClick={onToggleLogs}
-            title="Log"
-            aria-label="Log"
-            className="w-11 h-11 rounded border-none cursor-pointer inline-flex items-center justify-center"
-            style={{
-              backgroundColor: showLogs ? "var(--vscode-button-secondaryBackground)" : "var(--vscode-button-background)",
-              color: showLogs ? "var(--vscode-button-secondaryForeground)" : "var(--vscode-button-foreground)",
-            }}
-          >
-            <LogIcon />
-          </button>
-        </div>
-      </div>
-
-      <div
-        className="flex flex-col gap-2.5 rounded-none px-5 py-4 min-h-[108px] justify-center"
-        style={GROUP_STYLES}
-      >
-        <div className="flex items-center gap-2 flex-wrap min-w-0">
-          <span
-            className="text-sm font-medium uppercase tracking-wider"
-            style={{ color: "var(--vscode-descriptionForeground)" }}
-          >
-            Leader
-          </span>
-          {leaderService.status && <StatusBadge status={leaderService.status.is_up} dotOnly />}
-          <button
-            ref={leaderHelpBtnRef}
-            type="button"
-            onClick={() => toggleToolbarHelp("leader")}
-            className={HELP_BTN_CLASS}
-            style={HELP_BTN_STYLE}
-            aria-expanded={activeToolbarHelp === "leader"}
-            aria-controls={leaderHelpPanelId}
-            title="Help"
-          >
-            ?
-          </button>
-        </div>
-        <div className="flex items-center gap-3">
-          <Select
-            value="LG2"
-            options={[{ value: "LG2", label: "LG2" }]}
-            disabled={true}
-          />
-          <button
-            onClick={onLeaderBringup}
-            disabled={leaderService.loading}
-            title={leaderService.status?.is_up ? "Stop" : "Bringup"}
-            aria-label={leaderService.status?.is_up ? "Stop" : "Bringup"}
-            className="w-11 h-11 rounded border-none cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed inline-flex items-center justify-center"
-            style={{
-              backgroundColor: leaderService.status?.is_up ? "var(--vscode-button-secondaryBackground)" : "var(--vscode-button-background)",
-              color: leaderService.status?.is_up ? "var(--vscode-button-secondaryForeground)" : "var(--vscode-button-foreground)",
-            }}
-          >
-            {leaderService.status?.is_up ? <SquareIcon /> : <PlayIcon />}
-          </button>
-          <SettingsButton onClick={() => setShowLeaderArgsPopup(true)} />
-          <button
-            onClick={onToggleLeaderLogs}
-            title="Log"
-            aria-label="Log"
-            className="w-11 h-11 rounded border-none cursor-pointer inline-flex items-center justify-center"
-            style={{
-              backgroundColor: showLeaderLogs ? "var(--vscode-button-secondaryBackground)" : "var(--vscode-button-background)",
-              color: showLeaderLogs ? "var(--vscode-button-secondaryForeground)" : "var(--vscode-button-foreground)",
-            }}
-          >
-            <LogIcon />
-          </button>
-        </div>
-      </div>
-
-      <div
-        className="flex flex-col gap-2.5 rounded-none px-5 py-4 min-h-[108px] justify-center"
-        style={GROUP_STYLES}
-      >
-        <div className="flex items-center gap-2 flex-wrap min-w-0">
-          <button
-            type="button"
-            onClick={() => {
-              if (typeof window !== "undefined") {
-                window.open(`http://${window.location.hostname}:80`, "_blank");
-              }
-            }}
-            className="text-sm font-medium uppercase tracking-wider cursor-pointer border-none bg-transparent p-0 text-left"
-            style={{ color: "var(--vscode-descriptionForeground)" }}
-            title="Open Physical AI Tools (port 80)"
-          >
-            Physical AI Server
-          </button>
-          {physicalAiServerService.status && (
-            <StatusBadge status={physicalAiServerService.status.is_up} dotOnly />
-          )}
-          <button
-            ref={physicalHelpBtnRef}
-            type="button"
-            onClick={() => toggleToolbarHelp("physical")}
-            className={HELP_BTN_CLASS}
-            style={HELP_BTN_STYLE}
-            aria-expanded={activeToolbarHelp === "physical"}
-            aria-controls={physicalHelpPanelId}
-            title="Help"
-          >
-            ?
-          </button>
-        </div>
-        <div className="flex items-center gap-3">
-          <button
-            onClick={onPhysicalAiServerBringup}
-            disabled={physicalAiServerService.loading}
-            title={physicalAiServerService.status?.is_up ? "Stop" : "Bringup"}
-            aria-label={physicalAiServerService.status?.is_up ? "Stop" : "Bringup"}
-            className="w-11 h-11 rounded border-none cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed inline-flex items-center justify-center"
-            style={{
-              backgroundColor: physicalAiServerService.status?.is_up
-                ? "var(--vscode-button-secondaryBackground)"
-                : "var(--vscode-button-background)",
-              color: physicalAiServerService.status?.is_up
-                ? "var(--vscode-button-secondaryForeground)"
-                : "var(--vscode-button-foreground)",
-            }}
-          >
-            {physicalAiServerService.status?.is_up ? <SquareIcon /> : <PlayIcon />}
-          </button>
-          <button
-            onClick={onTogglePhysicalAiServerLogs}
-            title="Log"
-            aria-label="Log"
-            className="w-11 h-11 rounded border-none cursor-pointer inline-flex items-center justify-center"
-            style={{
-              backgroundColor: showPhysicalAiServerLogs
-                ? "var(--vscode-button-secondaryBackground)"
-                : "var(--vscode-button-background)",
-              color: showPhysicalAiServerLogs
-                ? "var(--vscode-button-secondaryForeground)"
-                : "var(--vscode-button-foreground)",
-            }}
-          >
-            <LogIcon />
-          </button>
-        </div>
-      </div>
-
-      <div
-        className="flex flex-col gap-2.5 rounded-none px-5 py-4 min-h-[108px] justify-center"
-        style={GROUP_STYLES}
-      >
-        <div className="flex items-center gap-2 flex-wrap min-w-0">
-          <span
-            className="text-sm font-medium uppercase tracking-wider"
-            style={{ color: "var(--vscode-descriptionForeground)" }}
-          >
-            Zenoh Daemon
-          </span>
-          {zenohDaemonService.status && (
-            <StatusBadge status={zenohDaemonService.status} dotOnly />
-          )}
-          <button
-            ref={zenohHelpBtnRef}
-            type="button"
-            onClick={() => toggleToolbarHelp("zenoh")}
-            className={HELP_BTN_CLASS}
-            style={HELP_BTN_STYLE}
-            aria-expanded={activeToolbarHelp === "zenoh"}
-            aria-controls={zenohHelpPanelId}
-            title="Help"
-          >
-            ?
-          </button>
-        </div>
-        <div className="flex items-center gap-3">
-          <button
-            onClick={onZenohDaemonBringup}
-            disabled={zenohDaemonService.loading}
-            title={zenohDaemonService.status?.toLowerCase() === "running" ? "Stop" : "Start"}
-            aria-label={zenohDaemonService.status?.toLowerCase() === "running" ? "Stop" : "Start"}
-            className="w-11 h-11 rounded border-none cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed inline-flex items-center justify-center"
-            style={{
-              backgroundColor: zenohDaemonService.status?.toLowerCase() === "running"
-                ? "var(--vscode-button-secondaryBackground)"
-                : "var(--vscode-button-background)",
-              color: zenohDaemonService.status?.toLowerCase() === "running"
-                ? "var(--vscode-button-secondaryForeground)"
-                : "var(--vscode-button-foreground)",
-            }}
-          >
-            {zenohDaemonService.status?.toLowerCase() === "running" ? <SquareIcon /> : <PlayIcon />}
-          </button>
-          <button
-            onClick={onToggleZenohDaemonLogs}
-            title="Log"
-            aria-label="Log"
-            className="w-11 h-11 rounded border-none cursor-pointer inline-flex items-center justify-center"
-            style={{
-              backgroundColor: showZenohDaemonLogs
-                ? "var(--vscode-button-secondaryBackground)"
-                : "var(--vscode-button-background)",
-              color: showZenohDaemonLogs
-                ? "var(--vscode-button-secondaryForeground)"
-                : "var(--vscode-button-foreground)",
-            }}
-          >
-            <LogIcon />
-          </button>
-        </div>
-      </div>
-
-      <div className="flex-1 min-w-[8px]" style={{ flexBasis: 0 }} aria-hidden />
-
-      {(robotService.error || leaderService.error) && (
-        <div className="flex gap-3 w-full mt-2">
-          {robotService.error && (
-            <div className="text-sm px-3 py-2 rounded-md flex-1" style={ERROR_STYLES}>
-              Robot: {robotService.error}
-            </div>
-          )}
-          {leaderService.error && (
-            <div className="text-sm px-3 py-2 rounded-md flex-1" style={ERROR_STYLES}>
-              Leader: {leaderService.error}
-            </div>
-          )}
-        </div>
-      )}
-
-      <LaunchArgsSettingPopup
-        open={showRobotArgsPopup}
-        onClose={() => setShowRobotArgsPopup(false)}
-        config={robotLaunchConfig}
-        args={robotBringupArgs}
-        onChange={onRobotBringupArgsChange}
-      />
-      <LaunchArgsSettingPopup
-        open={showLeaderArgsPopup}
-        onClose={() => setShowLeaderArgsPopup(false)}
-        config={leaderLaunchConfig}
-        args={leaderBringupArgs}
-        onChange={onLeaderBringupArgsChange}
-      />
-    </div>
-    {typeof document !== "undefined" &&
-      activeToolbarHelp &&
-      toolbarHelpCoords &&
-      createPortal(
         <div
-          id={helpPanelIds[activeToolbarHelp]}
-          role="region"
-          aria-label={TOOLBAR_HELP_ARIA[activeToolbarHelp]}
-          className="fixed z-[9999] text-xs leading-snug rounded border px-2.5 py-2"
-          style={{
-            ...INLINE_HELP_STYLES,
-            top: toolbarHelpCoords.top,
-            left: toolbarHelpCoords.left,
-            width: toolbarHelpCoords.width,
-          }}
+          className="flex flex-col gap-2.5 rounded-none px-5 py-4 min-h-[108px] justify-center"
+          style={GROUP_STYLES}
         >
-          {TOOLBAR_HELP_TEXT[activeToolbarHelp]}
-        </div>,
-        document.body
-      )}
+          <div className="flex items-center gap-2 flex-wrap min-w-0">
+            <span
+              className="text-sm font-medium uppercase tracking-wider"
+              style={{ color: "var(--vscode-descriptionForeground)" }}
+            >
+              Robot
+            </span>
+            {robotService.status && <StatusBadge status={robotService.status.is_up} dotOnly />}
+            <button
+              ref={robotHelpBtnRef}
+              type="button"
+              onClick={() => toggleToolbarHelp("robot")}
+              className={HELP_BTN_CLASS}
+              style={HELP_BTN_STYLE}
+              aria-expanded={activeToolbarHelp === "robot"}
+              aria-controls={robotHelpPanelId}
+              title="Help"
+            >
+              ?
+            </button>
+          </div>
+          <div className="flex items-center gap-3">
+            <Select
+              value={robotType}
+              onChange={(v) => onRobotTypeChange(v)}
+              disabled={robotSelectDisabled}
+              options={[
+                { value: "SG2", label: "SG2" },
+                { value: "BG2", label: "BG2" },
+                { value: "SH5", label: "SH5" },
+                { value: "BH5", label: "BH5" },
+                { value: "Mobile", label: "Mobile" },
+              ]}
+            />
+            <button
+              onClick={onRobotBringup}
+              disabled={robotService.loading}
+              title={robotService.status?.is_up ? "Stop" : "Bringup"}
+              aria-label={robotService.status?.is_up ? "Stop" : "Bringup"}
+              className="w-11 h-11 rounded border-none cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed inline-flex items-center justify-center"
+              style={{
+                backgroundColor: robotService.status?.is_up ? "var(--vscode-button-secondaryBackground)" : "var(--vscode-button-background)",
+                color: robotService.status?.is_up ? "var(--vscode-button-secondaryForeground)" : "var(--vscode-button-foreground)",
+              }}
+            >
+              {robotService.status?.is_up ? <SquareIcon /> : <PlayIcon />}
+            </button>
+            <SettingsButton onClick={() => setShowRobotArgsPopup(true)} />
+            <button
+              onClick={onToggleLogs}
+              title="Log"
+              aria-label="Log"
+              className="w-11 h-11 rounded border-none cursor-pointer inline-flex items-center justify-center"
+              style={{
+                backgroundColor: showLogs ? "var(--vscode-button-secondaryBackground)" : "var(--vscode-button-background)",
+                color: showLogs ? "var(--vscode-button-secondaryForeground)" : "var(--vscode-button-foreground)",
+              }}
+            >
+              <LogIcon />
+            </button>
+          </div>
+        </div>
+
+        <div
+          className="flex flex-col gap-2.5 rounded-none px-5 py-4 min-h-[108px] justify-center"
+          style={GROUP_STYLES}
+        >
+          <div className="flex items-center gap-2 flex-wrap min-w-0">
+            <span
+              className="text-sm font-medium uppercase tracking-wider"
+              style={{ color: "var(--vscode-descriptionForeground)" }}
+            >
+              Leader
+            </span>
+            {leaderService.status && <StatusBadge status={leaderService.status.is_up} dotOnly />}
+            <button
+              ref={leaderHelpBtnRef}
+              type="button"
+              onClick={() => toggleToolbarHelp("leader")}
+              className={HELP_BTN_CLASS}
+              style={HELP_BTN_STYLE}
+              aria-expanded={activeToolbarHelp === "leader"}
+              aria-controls={leaderHelpPanelId}
+              title="Help"
+            >
+              ?
+            </button>
+          </div>
+          <div className="flex items-center gap-3">
+            <Select
+              value="LG2"
+              options={[{ value: "LG2", label: "LG2" }]}
+              disabled={true}
+            />
+            <button
+              onClick={onLeaderBringup}
+              disabled={leaderService.loading}
+              title={leaderService.status?.is_up ? "Stop" : "Bringup"}
+              aria-label={leaderService.status?.is_up ? "Stop" : "Bringup"}
+              className="w-11 h-11 rounded border-none cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed inline-flex items-center justify-center"
+              style={{
+                backgroundColor: leaderService.status?.is_up ? "var(--vscode-button-secondaryBackground)" : "var(--vscode-button-background)",
+                color: leaderService.status?.is_up ? "var(--vscode-button-secondaryForeground)" : "var(--vscode-button-foreground)",
+              }}
+            >
+              {leaderService.status?.is_up ? <SquareIcon /> : <PlayIcon />}
+            </button>
+            <SettingsButton onClick={() => setShowLeaderArgsPopup(true)} />
+            <button
+              onClick={onToggleLeaderLogs}
+              title="Log"
+              aria-label="Log"
+              className="w-11 h-11 rounded border-none cursor-pointer inline-flex items-center justify-center"
+              style={{
+                backgroundColor: showLeaderLogs ? "var(--vscode-button-secondaryBackground)" : "var(--vscode-button-background)",
+                color: showLeaderLogs ? "var(--vscode-button-secondaryForeground)" : "var(--vscode-button-foreground)",
+              }}
+            >
+              <LogIcon />
+            </button>
+          </div>
+        </div>
+
+        <div
+          className="flex flex-col gap-2.5 rounded-none px-5 py-4 min-h-[108px] justify-center"
+          style={GROUP_STYLES}
+        >
+          <div className="flex items-center gap-2 flex-wrap min-w-0">
+            <button
+              type="button"
+              onClick={() => {
+                if (typeof window !== "undefined") {
+                  window.open(`http://${window.location.hostname}:80`, "_blank");
+                }
+              }}
+              className="text-sm font-medium uppercase tracking-wider cursor-pointer border-none bg-transparent p-0 text-left"
+              style={{ color: "var(--vscode-descriptionForeground)" }}
+              title="Open Physical AI Tools (port 80)"
+            >
+              Physical AI Server
+            </button>
+            {physicalAiServerService.status && (
+              <StatusBadge status={physicalAiServerService.status.is_up} dotOnly />
+            )}
+            <button
+              ref={physicalHelpBtnRef}
+              type="button"
+              onClick={() => toggleToolbarHelp("physical")}
+              className={HELP_BTN_CLASS}
+              style={HELP_BTN_STYLE}
+              aria-expanded={activeToolbarHelp === "physical"}
+              aria-controls={physicalHelpPanelId}
+              title="Help"
+            >
+              ?
+            </button>
+          </div>
+          <div className="flex items-center gap-3">
+            <button
+              onClick={onPhysicalAiServerBringup}
+              disabled={physicalAiServerService.loading}
+              title={physicalAiServerService.status?.is_up ? "Stop" : "Bringup"}
+              aria-label={physicalAiServerService.status?.is_up ? "Stop" : "Bringup"}
+              className="w-11 h-11 rounded border-none cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed inline-flex items-center justify-center"
+              style={{
+                backgroundColor: physicalAiServerService.status?.is_up
+                  ? "var(--vscode-button-secondaryBackground)"
+                  : "var(--vscode-button-background)",
+                color: physicalAiServerService.status?.is_up
+                  ? "var(--vscode-button-secondaryForeground)"
+                  : "var(--vscode-button-foreground)",
+              }}
+            >
+              {physicalAiServerService.status?.is_up ? <SquareIcon /> : <PlayIcon />}
+            </button>
+            <button
+              onClick={onTogglePhysicalAiServerLogs}
+              title="Log"
+              aria-label="Log"
+              className="w-11 h-11 rounded border-none cursor-pointer inline-flex items-center justify-center"
+              style={{
+                backgroundColor: showPhysicalAiServerLogs
+                  ? "var(--vscode-button-secondaryBackground)"
+                  : "var(--vscode-button-background)",
+                color: showPhysicalAiServerLogs
+                  ? "var(--vscode-button-secondaryForeground)"
+                  : "var(--vscode-button-foreground)",
+              }}
+            >
+              <LogIcon />
+            </button>
+          </div>
+        </div>
+
+        <div
+          className="flex flex-col gap-2.5 rounded-none px-5 py-4 min-h-[108px] justify-center"
+          style={GROUP_STYLES}
+        >
+          <div className="flex items-center gap-2 flex-wrap min-w-0">
+            <span
+              className="text-sm font-medium uppercase tracking-wider"
+              style={{ color: "var(--vscode-descriptionForeground)" }}
+            >
+              Zenoh Daemon
+            </span>
+            {zenohDaemonService.status && (
+              <StatusBadge status={zenohDaemonService.status} dotOnly />
+            )}
+            <button
+              ref={zenohHelpBtnRef}
+              type="button"
+              onClick={() => toggleToolbarHelp("zenoh")}
+              className={HELP_BTN_CLASS}
+              style={HELP_BTN_STYLE}
+              aria-expanded={activeToolbarHelp === "zenoh"}
+              aria-controls={zenohHelpPanelId}
+              title="Help"
+            >
+              ?
+            </button>
+          </div>
+          <div className="flex items-center gap-3">
+            <button
+              onClick={onZenohDaemonBringup}
+              disabled={zenohDaemonService.loading}
+              title={zenohDaemonService.status?.toLowerCase() === "running" ? "Stop" : "Start"}
+              aria-label={zenohDaemonService.status?.toLowerCase() === "running" ? "Stop" : "Start"}
+              className="w-11 h-11 rounded border-none cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed inline-flex items-center justify-center"
+              style={{
+                backgroundColor: zenohDaemonService.status?.toLowerCase() === "running"
+                  ? "var(--vscode-button-secondaryBackground)"
+                  : "var(--vscode-button-background)",
+                color: zenohDaemonService.status?.toLowerCase() === "running"
+                  ? "var(--vscode-button-secondaryForeground)"
+                  : "var(--vscode-button-foreground)",
+              }}
+            >
+              {zenohDaemonService.status?.toLowerCase() === "running" ? <SquareIcon /> : <PlayIcon />}
+            </button>
+            <button
+              onClick={onToggleZenohDaemonLogs}
+              title="Log"
+              aria-label="Log"
+              className="w-11 h-11 rounded border-none cursor-pointer inline-flex items-center justify-center"
+              style={{
+                backgroundColor: showZenohDaemonLogs
+                  ? "var(--vscode-button-secondaryBackground)"
+                  : "var(--vscode-button-background)",
+                color: showZenohDaemonLogs
+                  ? "var(--vscode-button-secondaryForeground)"
+                  : "var(--vscode-button-foreground)",
+              }}
+            >
+              <LogIcon />
+            </button>
+          </div>
+        </div>
+
+        <div className="flex-1 min-w-[8px]" style={{ flexBasis: 0 }} aria-hidden />
+
+        {(robotService.error || leaderService.error) && (
+          <div className="flex gap-3 w-full mt-2">
+            {robotService.error && (
+              <div className="text-sm px-3 py-2 rounded-md flex-1" style={ERROR_STYLES}>
+                Robot: {robotService.error}
+              </div>
+            )}
+            {leaderService.error && (
+              <div className="text-sm px-3 py-2 rounded-md flex-1" style={ERROR_STYLES}>
+                Leader: {leaderService.error}
+              </div>
+            )}
+          </div>
+        )}
+
+        <LaunchArgsSettingPopup
+          open={showRobotArgsPopup}
+          onClose={() => setShowRobotArgsPopup(false)}
+          config={robotLaunchConfig}
+          args={robotBringupArgs}
+          onChange={onRobotBringupArgsChange}
+        />
+        <LaunchArgsSettingPopup
+          open={showLeaderArgsPopup}
+          onClose={() => setShowLeaderArgsPopup(false)}
+          config={leaderLaunchConfig}
+          args={leaderBringupArgs}
+          onChange={onLeaderBringupArgsChange}
+        />
+      </div>
+      {typeof document !== "undefined" &&
+        activeToolbarHelp &&
+        toolbarHelpCoords &&
+        createPortal(
+          <div
+            id={helpPanelIds[activeToolbarHelp]}
+            role="region"
+            aria-label={TOOLBAR_HELP_ARIA[activeToolbarHelp]}
+            className="fixed z-[9999] text-xs leading-snug rounded border px-2.5 py-2"
+            style={{
+              ...INLINE_HELP_STYLES,
+              top: toolbarHelpCoords.top,
+              left: toolbarHelpCoords.left,
+              width: toolbarHelpCoords.width,
+            }}
+          >
+            {TOOLBAR_HELP_TEXT[activeToolbarHelp]}
+          </div>,
+          document.body
+        )}
     </>
   );
 }

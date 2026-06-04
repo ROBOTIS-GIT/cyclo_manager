@@ -16,7 +16,7 @@
 
 /**
  * Launch arguments configuration for ROS2 bringup services.
- * ai_worker_bringup dispatches to the launch file (sg2/bg2/sh5/bh5/mobile) via /run/robot_type
+ * ai_worker_bringup dispatches to the follower launch (sg2/bg2/sh5/bh5/mobile) via /run/robot_type
  * and launch args from the UI.
  */
 
