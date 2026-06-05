@@ -17,17 +17,25 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
 import { getServiceLogs, getServiceStatus, publishCmdVel } from "@/lib/api";
 import StatusBadge from "@/components/StatusBadge";
 
 const JOG_CONTAINER = "ai_worker";
 const ROBOT_SERVICE_NAME = "ai_worker_bringup";
 const CMD_VEL_TOPIC = "/cmd_vel";
+const LAST_SYSTEM_CONTAINER_KEY = "last_system_container";
+const MOBILE_ROBOT_MODEL = "Mobile";
 const BRINGUP_START_LOG = "[ai_worker_bringup] Starting service...";
 const CONTROLLER_CONFIGURED_LOG =
     "[spawner_swerve_drive_controller]: Configured and activated swerve_drive_controller";
-const LINEAR_SPEED = 0.4;
-const ANGULAR_SPEED = 0.8;
+const DEFAULT_LINEAR_SPEED = 0.4;
+const DEFAULT_ANGULAR_SPEED = 0.8;
+const LINEAR_SPEED_MIN = 0.1;
+const LINEAR_SPEED_MAX = 1.0;
+const ANGULAR_SPEED_MIN = 0.1;
+const ANGULAR_SPEED_MAX = 1.5;
+const SPEED_STEP = 0.1;
 const REPEAT_INTERVAL_MS = 120;
 const STATUS_POLL_INTERVAL_MS = 2000;
 const READY_LOG_TAIL_LINES = 1000;
@@ -36,8 +44,8 @@ type JogCommand = {
     id: "forward" | "left" | "stop" | "right" | "backward";
     label: string;
     hint: string;
-    linearX: number;
-    angularZ: number;
+    linearDirection: -1 | 0 | 1;
+    angularDirection: -1 | 0 | 1;
     gridClass: string;
 };
 
@@ -54,40 +62,40 @@ const JOG_COMMANDS: JogCommand[] = [
         id: "forward",
         label: "↑",
         hint: "Forward",
-        linearX: LINEAR_SPEED,
-        angularZ: 0,
+        linearDirection: 1,
+        angularDirection: 0,
         gridClass: "col-start-2 row-start-1",
     },
     {
         id: "left",
         label: "←",
         hint: "Turn left",
-        linearX: 0,
-        angularZ: ANGULAR_SPEED,
+        linearDirection: 0,
+        angularDirection: 1,
         gridClass: "col-start-1 row-start-2",
     },
     {
         id: "stop",
         label: "■",
         hint: "Stop",
-        linearX: 0,
-        angularZ: 0,
+        linearDirection: 0,
+        angularDirection: 0,
         gridClass: "col-start-2 row-start-2",
     },
     {
         id: "right",
         label: "→",
         hint: "Turn right",
-        linearX: 0,
-        angularZ: -ANGULAR_SPEED,
+        linearDirection: 0,
+        angularDirection: -1,
         gridClass: "col-start-3 row-start-2",
     },
     {
         id: "backward",
         label: "↓",
         hint: "Backward",
-        linearX: -LINEAR_SPEED,
-        angularZ: 0,
+        linearDirection: -1,
+        angularDirection: 0,
         gridClass: "col-start-2 row-start-3",
     },
 ];
@@ -225,13 +233,101 @@ function JogMobileControls({
     );
 }
 
+function SpeedSlider({
+    label,
+    value,
+    min,
+    max,
+    onChange,
+}: {
+    label: string;
+    value: number;
+    min: number;
+    max: number;
+    onChange: (value: number) => void;
+}) {
+    return (
+        <label className="grid gap-1.5">
+            <div
+                className="flex items-center justify-between gap-3 text-xs font-medium"
+                style={{ color: "var(--vscode-foreground)" }}
+            >
+                <span>{label}</span>
+                <span
+                    className="tabular-nums"
+                    style={{ color: "var(--vscode-descriptionForeground)" }}
+                >
+                    {value.toFixed(1)}
+                </span>
+            </div>
+            <input
+                type="range"
+                min={min}
+                max={max}
+                step={SPEED_STEP}
+                value={value}
+                onChange={(event) => onChange(Number(event.currentTarget.value))}
+                className="w-full"
+                style={{ accentColor: "var(--vscode-focusBorder)" }}
+            />
+        </label>
+    );
+}
+
+function JogSpeedPanel({
+    linearSpeed,
+    angularSpeed,
+    setLinearSpeed,
+    setAngularSpeed,
+}: {
+    linearSpeed: number;
+    angularSpeed: number;
+    setLinearSpeed: (value: number) => void;
+    setAngularSpeed: (value: number) => void;
+}) {
+    return (
+        <div
+            className="w-full max-w-md border p-3"
+            style={{
+                color: "var(--vscode-foreground)",
+                backgroundColor: "var(--vscode-sidebar-background)",
+                borderColor: "var(--vscode-panel-border)",
+            }}
+        >
+            <div className="grid gap-3">
+                <SpeedSlider
+                    label="Linear"
+                    value={linearSpeed}
+                    min={LINEAR_SPEED_MIN}
+                    max={LINEAR_SPEED_MAX}
+                    onChange={setLinearSpeed}
+                />
+                <SpeedSlider
+                    label="Angular"
+                    value={angularSpeed}
+                    min={ANGULAR_SPEED_MIN}
+                    max={ANGULAR_SPEED_MAX}
+                    onChange={setAngularSpeed}
+                />
+            </div>
+        </div>
+    );
+}
+
 export default function JogPage() {
+    const router = useRouter();
     const [activeCommand, setActiveCommand] = useState<JogCommand["id"] | null>(null);
     const [robotRunning, setRobotRunning] = useState(false);
     const [controllerReady, setControllerReady] = useState(false);
     const [statusText, setStatusText] = useState("Ready");
     const [error, setError] = useState<string | null>(null);
+    const [linearSpeed, setLinearSpeed] = useState(DEFAULT_LINEAR_SPEED);
+    const [angularSpeed, setAngularSpeed] = useState(DEFAULT_ANGULAR_SPEED);
     const repeatRef = useRef<ReturnType<typeof setInterval> | null>(null);
+    const speedRef = useRef({
+        linearSpeed: DEFAULT_LINEAR_SPEED,
+        angularSpeed: DEFAULT_ANGULAR_SPEED,
+    });
     const warmedUpRef = useRef(false);
     const statusPollInFlightRef = useRef(false);
 
@@ -241,6 +337,10 @@ export default function JogPage() {
         warmedUpRef.current = false;
         setControllerReady(false);
     }, []);
+
+    useEffect(() => {
+        speedRef.current = { linearSpeed, angularSpeed };
+    }, [angularSpeed, linearSpeed]);
 
     useEffect(() => {
         let disposed = false;
@@ -322,12 +422,20 @@ export default function JogPage() {
             clearInterval(repeatRef.current);
             repeatRef.current = null;
         }
+        const publishCommand = () => {
+            const {
+                linearSpeed: currentLinearSpeed,
+                angularSpeed: currentAngularSpeed,
+            } = speedRef.current;
+            void publish(
+                command.linearDirection * currentLinearSpeed,
+                command.angularDirection * currentAngularSpeed
+            );
+        };
         setActiveCommand(command.id);
-        void publish(command.linearX, command.angularZ);
+        publishCommand();
         if (command.id !== "stop") {
-            repeatRef.current = setInterval(() => {
-                void publish(command.linearX, command.angularZ);
-            }, REPEAT_INTERVAL_MS);
+            repeatRef.current = setInterval(publishCommand, REPEAT_INTERVAL_MS);
         }
     }, [publish, robotReady]);
 
@@ -394,6 +502,12 @@ export default function JogPage() {
         stopJog,
     };
 
+    const openMobileSystem = useCallback(() => {
+        localStorage.setItem(LAST_SYSTEM_CONTAINER_KEY, JOG_CONTAINER);
+        localStorage.setItem(`robot_type_${JOG_CONTAINER}`, MOBILE_ROBOT_MODEL);
+        router.push(`/${JOG_CONTAINER}/system`);
+    }, [router]);
+
     return (
         <div className="h-full min-h-[320px] flex flex-col overflow-hidden">
             <header
@@ -407,6 +521,19 @@ export default function JogPage() {
                     Jog
                 </h1>
                 <div className="flex items-center gap-2 min-w-0">
+                    <button
+                        type="button"
+                        onClick={openMobileSystem}
+                        className="h-8 px-3 border text-sm font-semibold transition-colors"
+                        style={{
+                            color: "var(--vscode-button-foreground)",
+                            backgroundColor: "var(--vscode-button-background)",
+                            borderColor: "var(--vscode-focusBorder)",
+                        }}
+                        title="Open System with Mobile robot selected"
+                    >
+                        ON/OFF
+                    </button>
                     <div
                         className="h-8 px-2.5 border flex items-center gap-2 text-sm"
                         style={{
@@ -417,9 +544,6 @@ export default function JogPage() {
                     >
                         <StatusBadge status={robotReady} dotOnly />
                         <span className="font-medium">{JOG_CONTAINER}</span>
-                        <span style={{ color: "var(--vscode-descriptionForeground)" }}>
-                            {robotReady ? "Robot on" : "Robot off"}
-                        </span>
                     </div>
                 </div>
             </header>
@@ -427,15 +551,34 @@ export default function JogPage() {
                 <JogDesktopControls {...controlsProps} />
                 <JogMobileControls {...controlsProps} />
                 <div
-                    className="w-full max-w-md border px-3 py-2 text-sm"
+                    className="w-full max-w-md h-[3.25rem] sm:h-9 border px-3 text-sm flex items-center overflow-hidden"
                     style={{
                         color: robotReady && error ? "var(--vscode-errorForeground)" : "var(--vscode-descriptionForeground)",
                         backgroundColor: "var(--vscode-sidebar-background)",
                         borderColor: "var(--vscode-panel-border)",
                     }}
                 >
-                    {robotReady ? error ?? statusText : "Robot off"}
+                    <span
+                        className="block min-w-0 sm:hidden"
+                        style={{
+                            display: "-webkit-box",
+                            WebkitLineClamp: 2,
+                            WebkitBoxOrient: "vertical",
+                            overflow: "hidden",
+                        }}
+                    >
+                        {robotReady ? error ?? statusText : "Robot off"}
+                    </span>
+                    <span className="hidden min-w-0 truncate sm:block">
+                        {robotReady ? error ?? statusText : "Robot off"}
+                    </span>
                 </div>
+                <JogSpeedPanel
+                    linearSpeed={linearSpeed}
+                    angularSpeed={angularSpeed}
+                    setLinearSpeed={setLinearSpeed}
+                    setAngularSpeed={setAngularSpeed}
+                />
             </div>
         </div>
     );
