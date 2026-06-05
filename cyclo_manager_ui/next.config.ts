@@ -17,7 +17,20 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
-  /* config options here */
+  async redirects() {
+    return [
+      {
+        source: "/teleop",
+        destination: "/jog",
+        permanent: true,
+      },
+      {
+        source: "/teleop/:path*",
+        destination: "/jog",
+        permanent: true,
+      },
+    ];
+  },
 };
 
 export default nextConfig;

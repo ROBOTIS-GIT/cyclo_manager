@@ -137,6 +137,11 @@ function JogButton({
                     ? "var(--vscode-focusBorder)"
                     : "var(--vscode-panel-border)",
                 opacity: disabled ? 0.45 : 1,
+                boxShadow: active
+                    ? "inset 0 0 0 2px var(--vscode-focusBorder), inset 0 3px 8px rgba(0, 0, 0, 0.35)"
+                    : "0 1px 0 rgba(255, 255, 255, 0.06)",
+                transform: active ? "translateY(1px) scale(0.97)" : "translateY(0) scale(1)",
+                transition: "background-color 120ms ease, border-color 120ms ease, box-shadow 120ms ease, transform 80ms ease",
             }}
         >
             {command.label}
