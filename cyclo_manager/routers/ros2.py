@@ -235,7 +235,7 @@ async def publish_cmd_vel(
     body: ROS2TwistPublishRequest,
     container: str = Depends(get_validated_container),
 ):
-    """Publish geometry_msgs/msg/Twist to /cmd_vel for web teleop."""
+    """Publish geometry_msgs/msg/Twist to /cmd_vel for web jog control."""
     node = get_ros2_node(container)
     if node is None:
         raise HTTPException(
