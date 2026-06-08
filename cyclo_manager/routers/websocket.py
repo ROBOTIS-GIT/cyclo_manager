@@ -41,7 +41,7 @@ router = APIRouter()
 LOG_POLL_INTERVAL = 0.5  # seconds
 SERVICE_STATUS_CHECK_INTERVAL = 1.0  # seconds
 ERROR_RETRY_DELAY = 2.0  # seconds
-INITIAL_LOG_TAIL = 100
+INITIAL_LOG_TAIL = 3000
 FALLBACK_LOG_TAIL = 10000
 # ROS2 topic WebSocket throttling: maximum send rate per topic (Hz)
 # Prevents overwhelming WebSocket with high-frequency topics (e.g., 100Hz)

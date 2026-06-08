@@ -38,7 +38,7 @@ const ANGULAR_SPEED_MAX = 1.5;
 const SPEED_STEP = 0.1;
 const REPEAT_INTERVAL_MS = 120;
 const STATUS_POLL_INTERVAL_MS = 2000;
-const READY_LOG_TAIL_LINES = 1000;
+const READY_LOG_TAIL_LINES = 3000;
 
 type JogCommand = {
     id: "forward" | "left" | "stop" | "right" | "backward";

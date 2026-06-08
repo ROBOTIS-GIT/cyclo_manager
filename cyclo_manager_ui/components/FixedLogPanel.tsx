@@ -31,7 +31,7 @@ const LOG_UPDATE_DEBOUNCE_MS = 200;
 const RECONNECT_DELAY_MS = 3000;
 const WS_CLOSE_CODE_NORMAL = 1000;
 const WS_CLOSE_CODE_GOING_AWAY = 1001;
-const MAX_LOG_LINES = 1000;
+const MAX_LOG_LINES = 3000;
 
 export default function FixedLogPanel({
   container,
