@@ -163,7 +163,13 @@ async def control_service_endpoint(
 
     """
     try:
-        control_service(name, request.action, request.launch_args, request.robot_type)
+        control_service(
+            name,
+            request.action,
+            request.launch_args,
+            request.robot_type,
+            request.navigation_type,
+        )
         return ServiceControlResponse(name=name, action=request.action, result='ok')
     except FileNotFoundError:
         raise HTTPException(

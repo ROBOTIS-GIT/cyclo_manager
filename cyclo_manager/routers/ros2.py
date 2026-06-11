@@ -18,15 +18,18 @@
 
 """ROS2 endpoints router."""
 
+import asyncio
 import logging
 import os
 import re
 import subprocess
 from typing import Any
 
+import yaml
 from cyclo_manager.models import (
     ROS2SubscribeRequest,
     ROS2TopicDataResponse,
+    ROS2TopicPublishRequest,
     ROS2TopicsListResponse,
     ROS2TopicStatus,
     ROS2TwistPublishRequest,
@@ -37,6 +40,7 @@ from fastapi import APIRouter, Body, Depends, HTTPException, status
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix='/{container}/ros2', tags=['ros2'])
+ISOLATED_PUBLISH_TOPICS = frozenset({'/goal_pose', '/initialpose'})
 
 # QoS presets for topics the UI subscribes on every System page load.
 # Skips `ros2 topic info -v` (blocking subprocess) — keeps the FastAPI event loop responsive.
@@ -53,6 +57,61 @@ KNOWN_TOPIC_QOS_PRESETS: dict[str, dict[str, Any]] = {
         'reliability': 'reliable',
         'depth': 1,
     },
+    '/map': {
+        'durability': 'transient_local',
+        'reliability': 'reliable',
+        'depth': 1,
+    },
+    '/global_costmap/costmap': {
+        'durability': 'transient_local',
+        'reliability': 'reliable',
+        'depth': 1,
+    },
+    '/local_costmap/costmap': {
+        'durability': 'transient_local',
+        'reliability': 'reliable',
+        'depth': 1,
+    },
+    '/tf_static': {
+        'durability': 'transient_local',
+        'reliability': 'reliable',
+        'depth': 1,
+    },
+    '/tf': {
+        'durability': 'volatile',
+        'reliability': 'reliable',
+        'depth': 100,
+    },
+    '/scan': {
+        'durability': 'volatile',
+        'reliability': 'best_effort',
+        'depth': 10,
+    },
+    '/amcl_pose': {
+        'durability': 'volatile',
+        'reliability': 'reliable',
+        'depth': 10,
+    },
+    '/plan': {
+        'durability': 'volatile',
+        'reliability': 'reliable',
+        'depth': 10,
+    },
+    '/goal_pose': {
+        'durability': 'volatile',
+        'reliability': 'reliable',
+        'depth': 10,
+    },
+    '/local_plan': {
+        'durability': 'volatile',
+        'reliability': 'reliable',
+        'depth': 10,
+    },
+    '/odom': {
+        'durability': 'transient_local',
+        'reliability': 'reliable',
+        'depth': 10,
+    },
 }
 
 
@@ -62,6 +121,33 @@ def resolve_qos_profile_for_topic(container: str, topic: str, node) -> dict[str,
     if preset is not None:
         return dict(preset)
     return _get_topic_publisher_qos(container, topic, node)
+
+
+def _publish_topic_once_with_ros2_cli(
+    topic: str,
+    msg_type: str,
+    data: dict[str, Any],
+    domain_id: int,
+) -> tuple[bool, str]:
+    """Publish a one-shot ROS message in a subprocess to isolate rclpy publisher failures."""
+    env = os.environ.copy()
+    env['ROS_DOMAIN_ID'] = str(domain_id)
+    payload = yaml.safe_dump(data, default_flow_style=True, sort_keys=False)
+    try:
+        proc = subprocess.run(
+            ['ros2', 'topic', 'pub', '--once', '--keep-alive', '1', topic, msg_type, payload],
+            capture_output=True,
+            text=True,
+            timeout=8,
+            env=env,
+        )
+    except subprocess.TimeoutExpired:
+        return False, 'ros2 topic pub timed out'
+    except FileNotFoundError:
+        return False, 'ros2 CLI not found'
+
+    output = ((proc.stdout or '') + '\n' + (proc.stderr or '')).strip()
+    return proc.returncode == 0, output
 
 
 def _get_topic_publisher_qos(container: str, topic: str, node) -> dict:
@@ -87,7 +173,9 @@ def _get_topic_publisher_qos(container: str, topic: str, node) -> dict:
             env=env,
         )
         output = (proc.stdout or '') + '\n' + (proc.stderr or '')
-        if 'Subscriber count' in output:
+        if 'Subscription count' in output:
+            publisher_section = output.split('Subscription count')[0]
+        elif 'Subscriber count' in output:
             publisher_section = output.split('Subscriber count')[0]
         else:
             publisher_section = output
@@ -250,6 +338,47 @@ async def publish_cmd_vel(
             detail=f"Failed to publish Twist on topic '{body.topic}'.",
         )
     return {'ok': True, 'topic': body.topic}
+
+
+@router.post('/topics/{topic:path}/publish')
+async def ros2_topic_publish(
+    topic: str,
+    body: ROS2TopicPublishRequest,
+    container: str = Depends(get_validated_container),
+):
+    """Publish a generic ROS2 message."""
+    node = get_ros2_node(container)
+    if node is None:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=f"ROS2 node for container '{container}' is not available.",
+        )
+
+    if topic in ISOLATED_PUBLISH_TOPICS:
+        ok, output = await asyncio.to_thread(
+            _publish_topic_once_with_ros2_cli,
+            topic,
+            body.msg_type,
+            body.data,
+            node.domain_id,
+        )
+        if not ok:
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail=(
+                    f"Failed to publish {body.msg_type!r} on topic '{topic}' "
+                    f"with ros2 CLI: {output}"
+                ),
+            )
+        return {'ok': True, 'topic': topic, 'msg_type': body.msg_type}
+
+    ok = node.publish_topic(topic, body.msg_type, body.data)
+    if not ok:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=f"Failed to publish {body.msg_type!r} on topic '{topic}'.",
+        )
+    return {'ok': True, 'topic': topic, 'msg_type': body.msg_type}
 
 
 @router.post('/topics/{topic:path}/subscribe')

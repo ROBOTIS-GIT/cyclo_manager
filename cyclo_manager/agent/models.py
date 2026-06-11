@@ -39,6 +39,10 @@ class ServiceActionRequest(BaseModel):
         None,
         description='Required for ai_worker_bringup up/restart. One of: sg2, bg2, sh5, bh5, mobile.',
     )
+    navigation_type: str | None = Field(
+        None,
+        description='Required for ai_worker_navigation up/restart. One of: map, nav.',
+    )
 
 
 class ServiceStatus(BaseModel):

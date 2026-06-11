@@ -55,6 +55,7 @@ export interface ServiceActionRequest {
   action: "up" | "down" | "restart";
   launch_args?: Record<string, string>;
   robot_type?: "sg2" | "bg2" | "sh5" | "bh5" | "mobile";
+  navigation_type?: "map" | "nav";
 }
 
 export interface ServiceControlResponse {
@@ -188,4 +189,9 @@ export interface ROS2TwistPublishRequest {
   linear_x: number;
   angular_z: number;
   topic?: string;
+}
+
+export interface ROS2TopicPublishRequest {
+  msg_type: string;
+  data: Record<string, any>;
 }

@@ -45,11 +45,21 @@ KNOWN_TOPIC_TYPES: dict[str, str] = {
     '/cmd_vel': 'geometry_msgs/msg/Twist',
     '/joint_states': 'sensor_msgs/msg/JointState',
     '/robot_description': 'std_msgs/msg/String',
+    '/map': 'nav_msgs/msg/OccupancyGrid',
+    '/global_costmap/costmap': 'nav_msgs/msg/OccupancyGrid',
+    '/local_costmap/costmap': 'nav_msgs/msg/OccupancyGrid',
+    '/scan': 'sensor_msgs/msg/LaserScan',
+    '/amcl_pose': 'geometry_msgs/msg/PoseWithCovarianceStamped',
+    '/odom': 'nav_msgs/msg/Odometry',
+    '/plan': 'nav_msgs/msg/Path',
+    '/goal_pose': 'geometry_msgs/msg/PoseStamped',
+    '/tf': 'tf2_msgs/msg/TFMessage',
+    '/tf_static': 'tf2_msgs/msg/TFMessage',
 }
 # Topics that never expire (static URDF, etc.)
-STATIC_TOPICS = frozenset(['/robot_description'])
+STATIC_TOPICS = frozenset(['/robot_description', '/tf_static'])
 # Seconds after which dynamic topic data is considered stale
-DYNAMIC_TOPIC_STALE_TIME = 3.0
+DYNAMIC_TOPIC_STALE_TIME = 10.0
 
 
 class RequestKind:
@@ -175,7 +185,17 @@ class CycloManagerTopicSubscriber:
                     self._handle_remove_topic(topic)
                 elif kind == RequestKind.PUBLISH_TOPIC:
                     topic, msg_type, data, response_queue = payload
-                    ok = self._handle_publish_topic(topic, msg_type, data)
+                    try:
+                        ok = self._handle_publish_topic(topic, msg_type, data)
+                    except Exception as e:
+                        logger.warning(
+                            'Unhandled ROS2 publish error: container=%s topic=%s msg_type=%s error=%s',
+                            self.container_name,
+                            topic,
+                            msg_type,
+                            e,
+                        )
+                        ok = False
                     response_queue.put(ok)
         except queue.Empty:
             pass
@@ -264,13 +284,13 @@ class CycloManagerTopicSubscriber:
             logger.error('Unknown message type for publish: %s', msg_type)
             return False
 
-        pub_key = (topic, msg_type)
-        pub = self._pubs.get(pub_key)
-        if pub is None:
-            pub = self._node.create_publisher(msg_class, topic, 5)
-            self._pubs[pub_key] = pub
-
         try:
+            pub_key = (topic, msg_type)
+            pub = self._pubs.get(pub_key)
+            if pub is None:
+                pub = self._node.create_publisher(msg_class, topic, 5)
+                self._pubs[pub_key] = pub
+
             msg = msg_class()
             self._populate_message(msg, data)
             pub.publish(msg)
@@ -389,6 +409,26 @@ class CycloManagerTopicSubscriber:
             (
                 RequestKind.PUBLISH_TOPIC,
                 (topic, 'geometry_msgs/msg/Twist', data, response_queue),
+            )
+        )
+        try:
+            return response_queue.get_nowait()
+        except queue.Empty:
+            return False
+
+    def publish_topic(
+        self,
+        topic: str,
+        msg_type: str,
+        data: dict[str, Any],
+    ) -> bool:
+        if not self._is_running:
+            return False
+        response_queue: queue.Queue[bool] = queue.Queue(maxsize=1)
+        self._enqueue_and_wait(
+            (
+                RequestKind.PUBLISH_TOPIC,
+                (topic, msg_type, data, response_queue),
             )
         )
         try:

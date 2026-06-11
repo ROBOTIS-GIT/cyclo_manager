@@ -175,6 +175,7 @@ class AgentClient:
         action: str,
         launch_args: dict[str, str] | None = None,
         robot_type: str | None = None,
+        navigation_type: str | None = None,
     ) -> dict:
         """
         Control a service (up/down/restart) via agent.
@@ -185,6 +186,7 @@ class AgentClient:
         action: Action to perform ('up', 'down', or 'restart').
         launch_args: Optional launch arguments for ros2 launch (used for up/restart).
         robot_type: Required for ai_worker_bringup up/restart. One of sg2, bg2, sh5, bh5, mobile.
+        navigation_type: Required for ai_worker_navigation up/restart. One of map, nav.
 
         Returns
         -------
@@ -206,10 +208,13 @@ class AgentClient:
             payload['launch_args'] = launch_args
         if robot_type is not None:
             payload['robot_type'] = robot_type
+        if navigation_type is not None:
+            payload['navigation_type'] = navigation_type
         try:
             response = await client.post(
                 f'/services/{service_name}',
                 json=payload,
+                timeout=90.0,
             )
             response.raise_for_status()
             return response.json()

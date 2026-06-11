@@ -94,6 +94,10 @@ class ServiceActionRequest(BaseModel):
         None,
         description='Required for ai_worker_bringup up/restart. One of: sg2, bg2, sh5, bh5, mobile.',
     )
+    navigation_type: str | None = Field(
+        None,
+        description='Required for ai_worker_navigation up/restart. One of: map, nav.',
+    )
 
 
 class ConfiguredContainerInfo(BaseModel):
@@ -358,3 +362,10 @@ class ROS2TwistPublishRequest(BaseModel):
         examples=[0.8],
     )
     topic: str = Field('/cmd_vel', description='Twist topic to publish')
+
+
+class ROS2TopicPublishRequest(BaseModel):
+    """Request body for publishing an arbitrary ROS2 message."""
+
+    msg_type: str = Field(..., description='Message type, e.g. geometry_msgs/msg/PoseStamped')
+    data: dict[str, Any] = Field(..., description='Message fields to publish')

@@ -275,7 +275,11 @@ async def control_service(
     try:
         client = get_agent_client(container)
         agent_response = await client.control_service(
-            service, request.action, request.launch_args, request.robot_type
+            service,
+            request.action,
+            request.launch_args,
+            request.robot_type,
+            request.navigation_type,
         )
         logger.info(
             f'Successfully executed action {request.action!r} on service {service!r} '

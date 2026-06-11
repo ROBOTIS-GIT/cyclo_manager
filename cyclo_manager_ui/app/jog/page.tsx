@@ -29,16 +29,20 @@ const MOBILE_ROBOT_MODEL = "Mobile";
 const BRINGUP_START_LOG = "[ai_worker_bringup] Starting service...";
 const CONTROLLER_CONFIGURED_LOG =
     "[spawner_swerve_drive_controller]: Configured and activated swerve_drive_controller";
-const DEFAULT_LINEAR_SPEED = 0.4;
-const DEFAULT_ANGULAR_SPEED = 0.8;
+const DEFAULT_LINEAR_SPEED = 0.3;
+const DEFAULT_ANGULAR_SPEED = 0.6;
 const LINEAR_SPEED_MIN = 0.1;
-const LINEAR_SPEED_MAX = 1.0;
+const LINEAR_SPEED_MAX = 0.5;
 const ANGULAR_SPEED_MIN = 0.1;
-const ANGULAR_SPEED_MAX = 1.5;
+const ANGULAR_SPEED_MAX = 1.0;
 const SPEED_STEP = 0.1;
 const REPEAT_INTERVAL_MS = 120;
 const STATUS_POLL_INTERVAL_MS = 2000;
 const READY_LOG_TAIL_LINES = 3000;
+const ZERO_VELOCITY = {
+    linearX: 0,
+    angularZ: 0,
+};
 
 type JogCommand = {
     id: "forward" | "left" | "stop" | "right" | "backward";
@@ -123,10 +127,20 @@ function JogButton({
             disabled={disabled}
             onPointerDown={(event) => {
                 event.preventDefault();
+                try {
+                    event.currentTarget.setPointerCapture(event.pointerId);
+                } catch {
+                    // Some mobile webviews can reject capture during gesture transitions.
+                }
                 startJog(command);
             }}
             onPointerUp={(event) => {
                 event.preventDefault();
+                try {
+                    event.currentTarget.releasePointerCapture(event.pointerId);
+                } catch {
+                    // Pointer capture may already be gone after cancel/leave.
+                }
                 stopJog();
             }}
             onPointerCancel={() => stopJog()}
@@ -324,6 +338,9 @@ export default function JogPage() {
     const [linearSpeed, setLinearSpeed] = useState(DEFAULT_LINEAR_SPEED);
     const [angularSpeed, setAngularSpeed] = useState(DEFAULT_ANGULAR_SPEED);
     const repeatRef = useRef<ReturnType<typeof setInterval> | null>(null);
+    const activeCommandRef = useRef<JogCommand["id"] | null>(null);
+    const jogGenerationRef = useRef(0);
+    const stopGenerationRef = useRef(0);
     const speedRef = useRef({
         linearSpeed: DEFAULT_LINEAR_SPEED,
         angularSpeed: DEFAULT_ANGULAR_SPEED,
@@ -389,30 +406,62 @@ export default function JogPage() {
         };
     }, [resetControllerReady]);
 
-    const publish = useCallback(async (linearX: number, angularZ: number) => {
-        try {
-            await publishCmdVel(JOG_CONTAINER, {
-                topic: CMD_VEL_TOPIC,
-                linear_x: linearX,
-                angular_z: angularZ,
-            });
-            setError(null);
-            setStatusText(
-                `linear.x ${linearX.toFixed(2)} m/s · angular.z ${angularZ.toFixed(2)} rad/s`
-            );
-        } catch (err) {
-            setError(err instanceof Error ? err.message : "Failed to publish /cmd_vel");
-        }
+    const sendCmdVel = useCallback(async (linearX: number, angularZ: number) => {
+        await publishCmdVel(JOG_CONTAINER, {
+            topic: CMD_VEL_TOPIC,
+            linear_x: linearX,
+            angular_z: angularZ,
+        });
     }, []);
+
+    const publish = useCallback(async (
+        linearX: number,
+        angularZ: number,
+        generation = jogGenerationRef.current
+    ) => {
+        const isStopCommand = linearX === ZERO_VELOCITY.linearX && angularZ === ZERO_VELOCITY.angularZ;
+        try {
+            await sendCmdVel(linearX, angularZ);
+            const isCurrentCommand = generation === jogGenerationRef.current;
+            const isCurrentStop = isStopCommand && activeCommandRef.current === null;
+
+            if (isCurrentCommand || isCurrentStop) {
+                setError(null);
+                setStatusText(
+                    `linear.x ${linearX.toFixed(2)} m/s · angular.z ${angularZ.toFixed(2)} rad/s`
+                );
+            }
+
+            // If an old move request finishes after stop, send stop again so stale velocity cannot remain active.
+            if (
+                !isStopCommand &&
+                activeCommandRef.current === null &&
+                stopGenerationRef.current > generation
+            ) {
+                await sendCmdVel(ZERO_VELOCITY.linearX, ZERO_VELOCITY.angularZ);
+                setError(null);
+                setStatusText("Ready");
+            }
+        } catch (err) {
+            if (generation === jogGenerationRef.current || activeCommandRef.current === null) {
+                setError(err instanceof Error ? err.message : "Failed to publish /cmd_vel");
+            }
+        }
+    }, [sendCmdVel]);
 
     const stopJog = useCallback((publishStop = true) => {
         if (repeatRef.current) {
             clearInterval(repeatRef.current);
             repeatRef.current = null;
         }
+        // Increase the generation on stop so any older in-flight move command becomes stale.
+        const stopGeneration = jogGenerationRef.current + 1;
+        jogGenerationRef.current = stopGeneration;
+        stopGenerationRef.current = stopGeneration;
+        activeCommandRef.current = null;
         setActiveCommand(null);
         if (publishStop && robotReady) {
-            void publish(0, 0);
+            void publish(ZERO_VELOCITY.linearX, ZERO_VELOCITY.angularZ, stopGeneration);
         }
     }, [publish, robotReady]);
 
@@ -422,6 +471,10 @@ export default function JogPage() {
             clearInterval(repeatRef.current);
             repeatRef.current = null;
         }
+        // Increase the generation for each new jog press; repeat publishes keep this same generation.
+        const commandGeneration = jogGenerationRef.current + 1;
+        jogGenerationRef.current = commandGeneration;
+        activeCommandRef.current = command.id;
         const publishCommand = () => {
             const {
                 linearSpeed: currentLinearSpeed,
@@ -429,7 +482,8 @@ export default function JogPage() {
             } = speedRef.current;
             void publish(
                 command.linearDirection * currentLinearSpeed,
-                command.angularDirection * currentAngularSpeed
+                command.angularDirection * currentAngularSpeed,
+                commandGeneration
             );
         };
         setActiveCommand(command.id);
@@ -483,6 +537,36 @@ export default function JogPage() {
     }, [startJog, stopJog]);
 
     useEffect(() => {
+        const stopActiveJog = () => {
+            if (activeCommandRef.current !== null) {
+                stopJog();
+            }
+        };
+        const stopOnVisibilityChange = () => {
+            if (document.visibilityState === "hidden") {
+                stopActiveJog();
+            }
+        };
+
+        window.addEventListener("pointerup", stopActiveJog);
+        window.addEventListener("pointercancel", stopActiveJog);
+        window.addEventListener("touchend", stopActiveJog);
+        window.addEventListener("touchcancel", stopActiveJog);
+        window.addEventListener("blur", stopActiveJog);
+        window.addEventListener("pagehide", stopActiveJog);
+        document.addEventListener("visibilitychange", stopOnVisibilityChange);
+        return () => {
+            window.removeEventListener("pointerup", stopActiveJog);
+            window.removeEventListener("pointercancel", stopActiveJog);
+            window.removeEventListener("touchend", stopActiveJog);
+            window.removeEventListener("touchcancel", stopActiveJog);
+            window.removeEventListener("blur", stopActiveJog);
+            window.removeEventListener("pagehide", stopActiveJog);
+            document.removeEventListener("visibilitychange", stopOnVisibilityChange);
+        };
+    }, [stopJog]);
+
+    useEffect(() => {
         return () => {
             if (repeatRef.current) clearInterval(repeatRef.current);
             publishCmdVel(JOG_CONTAINER, {
@@ -494,6 +578,7 @@ export default function JogPage() {
     }, []);
 
     const disabled = !robotReady;
+    const statusMessage = robotReady ? error ?? statusText : "Robot off";
     const controlsProps = {
         commands: JOG_COMMANDS,
         activeCommand,
@@ -558,19 +643,20 @@ export default function JogPage() {
                         borderColor: "var(--vscode-panel-border)",
                     }}
                 >
-                    <span
-                        className="block min-w-0 sm:hidden"
-                        style={{
-                            display: "-webkit-box",
-                            WebkitLineClamp: 2,
-                            WebkitBoxOrient: "vertical",
-                            overflow: "hidden",
-                        }}
-                    >
-                        {robotReady ? error ?? statusText : "Robot off"}
+                    <span className="block min-w-0 sm:hidden">
+                        <span
+                            style={{
+                                display: "-webkit-box",
+                                WebkitLineClamp: 2,
+                                WebkitBoxOrient: "vertical",
+                                overflow: "hidden",
+                            }}
+                        >
+                            {statusMessage}
+                        </span>
                     </span>
                     <span className="hidden min-w-0 truncate sm:block">
-                        {robotReady ? error ?? statusText : "Robot off"}
+                        {statusMessage}
                     </span>
                 </div>
                 <JogSpeedPanel

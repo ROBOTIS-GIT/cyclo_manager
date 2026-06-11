@@ -37,6 +37,7 @@ import type {
   CycloManagerVersionResponse,
   ROS2TopicsListResponse,
   ROS2TopicDataResponse,
+  ROS2TopicPublishRequest,
   ROS2TwistPublishRequest,
 } from "@/types/api";
 
@@ -143,13 +144,15 @@ export async function controlService(
   service: string,
   action: "up" | "down" | "restart",
   launchArgs?: Record<string, string>,
-  robotType?: "sg2" | "bg2" | "sh5" | "bh5" | "mobile"
+  robotType?: "sg2" | "bg2" | "sh5" | "bh5" | "mobile",
+  navigationType?: "map" | "nav"
 ): Promise<ServiceControlResponse> {
   try {
     const request: ServiceActionRequest = {
       action,
       ...(launchArgs && Object.keys(launchArgs).length > 0 && { launch_args: launchArgs }),
       ...(robotType != null && { robot_type: robotType }),
+      ...(navigationType != null && { navigation_type: navigationType }),
     };
     const response = await apiClient.post<ServiceControlResponse>(
       `/${container}/services/${service}`,
@@ -455,4 +458,20 @@ export async function publishCmdVel(
     linear_x: twist.linear_x,
     angular_z: twist.angular_z,
   });
+}
+
+export async function publishROS2Topic(
+  container: string,
+  topic: string,
+  message: ROS2TopicPublishRequest
+): Promise<void> {
+  try {
+    await apiClient.post(
+      `/${container}/ros2/topics/${encodeURIComponent(topic)}/publish`,
+      message,
+      { timeout: 10000 }
+    );
+  } catch (error) {
+    handleError(error);
+  }
 }

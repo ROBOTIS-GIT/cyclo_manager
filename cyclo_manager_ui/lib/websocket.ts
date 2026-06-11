@@ -217,47 +217,62 @@ export function useROS2TopicWebSocket(
     }
 
     let isMounted = true;
-    setStatus("connecting");
+    let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+    let websocket: WebSocket | null = null;
+    const shouldReconnect = options.reconnect ?? true;
+    const reconnectInterval = options.reconnectInterval ?? 1500;
 
-    const websocket = createROS2TopicWebSocket(container, topic, {
-      ...options,
-      onOpen: () => {
-        if (isMounted) {
-          setStatus("connected");
-    options.onOpen?.();
-        }
-      },
-      onMessage: (data: string) => {
-        if (!isMounted) return;
-        try {
-          const parsed = JSON.parse(data);
-          // parsed is the ROS2TopicDataResponse object: {container, topic, msg_type, data, available, domain_id}
-          setTopicData(parsed);
-          options.onMessage?.(data);
-        } catch (e) {
-          // If not JSON, use as-is
-          options.onMessage?.(data);
-        }
-      },
-      onError: (error: Error) => {
-        if (isMounted) {
-          setStatus("error");
-          options.onError?.(error);
-        }
-      },
-      onClose: () => {
-        if (isMounted) {
+    const connect = () => {
+      if (!isMounted) return;
+      setStatus("connecting");
+
+      websocket = createROS2TopicWebSocket(container, topic, {
+        ...options,
+        onOpen: () => {
+          if (isMounted) {
+            setStatus("connected");
+            options.onOpen?.();
+          }
+        },
+        onMessage: (data: string) => {
+          if (!isMounted) return;
+          try {
+            const parsed = JSON.parse(data);
+            // parsed is the ROS2TopicDataResponse object: {container, topic, msg_type, data, available, domain_id}
+            setTopicData(parsed);
+            options.onMessage?.(data);
+          } catch (e) {
+            // If not JSON, use as-is
+            options.onMessage?.(data);
+          }
+        },
+        onError: (error: Error) => {
+          if (isMounted) {
+            setStatus("error");
+            options.onError?.(error);
+          }
+        },
+        onClose: () => {
+          if (!isMounted) return;
           setStatus("disconnected");
           options.onClose?.();
-        }
-      },
-    });
+          if (shouldReconnect) {
+            reconnectTimer = setTimeout(connect, reconnectInterval);
+          }
+        },
+      });
 
-    setWs(websocket);
+      setWs(websocket);
+    };
+
+    connect();
 
     return () => {
       isMounted = false;
-      if (websocket.readyState === WebSocket.OPEN || websocket.readyState === WebSocket.CONNECTING) {
+      if (reconnectTimer) {
+        clearTimeout(reconnectTimer);
+      }
+      if (websocket && (websocket.readyState === WebSocket.OPEN || websocket.readyState === WebSocket.CONNECTING)) {
         websocket.close(1000, "Component unmounting");
       }
       setWs(null);
@@ -268,4 +283,3 @@ export function useROS2TopicWebSocket(
 
   return { ws, status, topicData } as { ws: WebSocket | null; status: WebSocketStatus; topicData: any };
 }
-

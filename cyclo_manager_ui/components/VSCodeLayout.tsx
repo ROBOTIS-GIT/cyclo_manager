@@ -48,6 +48,7 @@ export default function VSCodeLayout({
     { href: topicsHref, label: "Topics", icon: "📡", isTopics: true },
     { href: "/docker", label: "Docker", icon: "🐳", isDocker: true },
     { href: "/novnc", label: "noVNC", icon: "🖥️" },
+    { href: "/navigation", label: "Nav", icon: "⌖" },
     { href: "/jog", label: "Jog", icon: "🎮" },
   ];
 
@@ -55,12 +56,13 @@ export default function VSCodeLayout({
     <div style={{ height: "100vh", display: "flex", overflow: "hidden" }}>
       {/* Sidebar */}
       <div
-        className="flex flex-col"
+        className="flex flex-col overscroll-contain"
         style={{
           backgroundColor: "var(--vscode-sidebar-background)",
           borderRight: "1px solid var(--vscode-sidebar-border)",
           width: `${SIDEBAR_WIDTH_PX}px`,
           minWidth: `${SIDEBAR_WIDTH_PX}px`,
+          touchAction: "pan-y",
         }}
       >
         {/* Sidebar Header */}
@@ -84,8 +86,12 @@ export default function VSCodeLayout({
 
         {/* Sidebar Navigation — narrow rail (~120px), Gi-style */}
         <nav
-          className="flex-1 min-h-0 w-full flex flex-col items-center gap-1.5 py-2 px-1 overflow-y-auto"
-          style={{ scrollbarGutter: "stable" }}
+          className="flex-1 min-h-0 w-full flex flex-col items-center gap-1.5 py-2 px-1 overflow-y-auto overscroll-contain"
+          style={{
+            scrollbarGutter: "stable",
+            touchAction: "pan-y",
+            WebkitOverflowScrolling: "touch",
+          }}
         >
           {navItems.map((item) => {
             const isSystemPage = pathname?.match(/^\/[^/]+\/system\/?$/);
