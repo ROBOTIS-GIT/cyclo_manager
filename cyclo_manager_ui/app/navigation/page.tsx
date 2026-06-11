@@ -40,10 +40,13 @@ const CAMERA_NEAR = 0.05;
 const CAMERA_FAR = 2000;
 const MAP_DISPLAY_ROTATION = Math.PI;
 const CLICK_DRAG_THRESHOLD_PX = 8;
+const TF_AXIS_LENGTH = 0.2;
 const LOG_PANEL_DEFAULT_WIDTH = 420;
 const LOG_PANEL_MIN_WIDTH = 320;
 const LOG_PANEL_MAX_WIDTH = 600;
 const SIDE_PANEL_TOTAL_WIDTH = 820;
+const ROS2_WS_FAST_TOPIC_OPTIONS = { throttleMs: 100 };
+const ROS2_WS_MAP_TOPIC_OPTIONS = { throttleMs: 300 };
 const IDLE_LAYER_PRESET = {
   map: false,
   globalCostmap: false,
@@ -61,7 +64,7 @@ const MAPPING_LAYER_PRESET = {
   scan: true,
   globalPlan: false,
   goalPose: false,
-  tf: true,
+  tf: false,
   robotModel: true,
 };
 const NAVIGATION_LAYER_PRESET = {
@@ -71,7 +74,7 @@ const NAVIGATION_LAYER_PRESET = {
   scan: true,
   globalPlan: true,
   goalPose: true,
-  tf: true,
+  tf: false,
   robotModel: true,
 };
 
@@ -163,7 +166,7 @@ type MapViewProps = {
   showRobotModel: boolean;
   interactionDisabled: boolean;
   interactionMode: MapInteractionMode;
-  onMapClick: (x: number, y: number) => void;
+  onMapPose: (x: number, y: number, yaw: number) => void;
 };
 
 function messageData<T>(value: unknown): T | null {
@@ -198,6 +201,17 @@ function yawFromPose(pose: Pose | null): number {
   const z = q.z ?? 0;
   const w = q.w ?? 1;
   return Math.atan2(2 * (w * z + x * y), 1 - 2 * (y * y + z * z));
+}
+
+function orientationFromYaw(yaw: number) {
+  return { x: 0, y: 0, z: Math.sin(yaw / 2), w: Math.cos(yaw / 2) };
+}
+
+function rosTimestampNow() {
+  const nowMs = Date.now();
+  const sec = Math.floor(nowMs / 1000);
+  const nanosec = Math.floor((nowMs % 1000) * 1_000_000);
+  return { sec, nanosec };
 }
 
 function gridMeta(grid: OccupancyGrid | null) {
@@ -300,6 +314,14 @@ function updateTfBuffer(buffer: Map<string, TransformStamped>, message: TfMsg | 
     const child = normalizeFrameId(transform.child_frame_id);
     const parent = normalizeFrameId(transform.header?.frame_id);
     if (!child || !parent || !transform.transform) continue;
+    const existing = buffer.get(child);
+    if (
+      existing &&
+      normalizeFrameId(existing.header?.frame_id) === parent &&
+      JSON.stringify(existing.transform) === JSON.stringify(transform.transform)
+    ) {
+      continue;
+    }
     buffer.set(child, transform);
     updated = true;
   }
@@ -546,37 +568,49 @@ function makePoseMarker(pose: Pose, color: number, z: number): THREE.Group {
 
 function makeTfAxes(pose: Pose, label: string): THREE.Group {
   const group = new THREE.Group();
-  group.position.set(Number(pose.position?.x ?? 0), Number(pose.position?.y ?? 0), 0.08);
+  group.position.set(
+    Number(pose.position?.x ?? 0),
+    Number(pose.position?.y ?? 0),
+    Number(pose.position?.z ?? 0) + 0.08
+  );
   group.rotation.z = yawFromPose(pose);
 
-  const xAxis = makeLine([new THREE.Vector3(0, 0, 0), new THREE.Vector3(0.55, 0, 0)], 0xef4444);
-  const yAxis = makeLine([new THREE.Vector3(0, 0, 0), new THREE.Vector3(0, 0.55, 0)], 0x22c55e);
+  const xAxis = makeLine([new THREE.Vector3(0, 0, 0), new THREE.Vector3(TF_AXIS_LENGTH, 0, 0)], 0xef4444);
+  const yAxis = makeLine([new THREE.Vector3(0, 0, 0), new THREE.Vector3(0, TF_AXIS_LENGTH, 0)], 0x22c55e);
+  const zAxis = makeLine([new THREE.Vector3(0, 0, 0), new THREE.Vector3(0, 0, TF_AXIS_LENGTH)], 0x3b82f6);
   if (xAxis) group.add(xAxis);
   if (yAxis) group.add(yAxis);
+  if (zAxis) group.add(zAxis);
 
-  const sprite = makeTextSprite(label);
-  sprite.position.set(0.22, 0.2, 0.03);
+  const sprite = makeTfLabelSprite(label);
+  sprite.position.set(0, -TF_AXIS_LENGTH * 0.85, 0.012);
   group.add(sprite);
   return group;
 }
 
-function makeTextSprite(text: string): THREE.Sprite {
+function makeTfLabelSprite(text: string): THREE.Sprite {
   const canvas = document.createElement("canvas");
   canvas.width = 256;
   canvas.height = 64;
   const ctx = canvas.getContext("2d");
   if (ctx) {
-    ctx.fillStyle = "rgba(0, 0, 0, 0.62)";
+    ctx.fillStyle = "rgba(0, 0, 0, 0.58)";
     ctx.fillRect(0, 0, canvas.width, canvas.height);
     ctx.fillStyle = "#ffffff";
-    ctx.font = "28px sans-serif";
-    ctx.fillText(text, 12, 42);
+    ctx.shadowColor = "rgba(0, 0, 0, 0.82)";
+    ctx.shadowBlur = 4;
+    ctx.shadowOffsetX = 1;
+    ctx.shadowOffsetY = 1;
+    ctx.font = "22px sans-serif";
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.fillText(text, canvas.width / 2, canvas.height / 2);
   }
   const texture = new THREE.CanvasTexture(canvas);
   texture.colorSpace = THREE.SRGBColorSpace;
   const material = new THREE.SpriteMaterial({ map: texture, transparent: true });
   const sprite = new THREE.Sprite(material);
-  sprite.scale.set(0.9, 0.225, 1);
+  sprite.scale.set(TF_AXIS_LENGTH * 1.8, TF_AXIS_LENGTH * 0.45, 1);
   return sprite;
 }
 
@@ -622,7 +656,7 @@ function MapView({
   showRobotModel,
   interactionDisabled,
   interactionMode,
-  onMapClick,
+  onMapPose,
 }: MapViewProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const sceneRef = useRef<THREE.Scene | null>(null);
@@ -631,12 +665,13 @@ function MapView({
   const controlsRef = useRef<OrbitControlsType | null>(null);
   const layersRef = useRef<THREE.Group | null>(null);
   const animationFrameRef = useRef<number | null>(null);
-  const fittedMapKeyRef = useRef<string | null>(null);
+  const didFitInitialMapRef = useRef(false);
+  const [dragPreviewPose, setDragPreviewPose] = useState<Pose | null>(null);
   // Freeze each LaserScan in display coordinates until the next scan or map geometry change.
   const scanProjectionRef = useRef<{ scan: LaserScan; mapKey: string | null; points: number[] } | null>(null);
   const raycasterRef = useRef(new THREE.Raycaster());
   const pointerRef = useRef(new THREE.Vector2());
-  const pointerDownRef = useRef<{ x: number; y: number } | null>(null);
+  const pointerDownRef = useRef<{ clientX: number; clientY: number; mapX: number; mapY: number } | null>(null);
 
   useEffect(() => {
     const containerEl = containerRef.current;
@@ -708,6 +743,7 @@ function MapView({
 
   useEffect(() => {
     const renderer = rendererRef.current;
+    const controls = controlsRef.current;
     if (!renderer) return;
     const cursor = interactionDisabled
       ? "cursor-wait"
@@ -715,6 +751,9 @@ function MapView({
         ? "cursor-grab"
         : "cursor-crosshair";
     renderer.domElement.className = `block w-full h-full ${cursor}`;
+    if (controls) {
+      controls.enabled = !interactionDisabled && interactionMode === "view";
+    }
   }, [interactionDisabled, interactionMode]);
 
   useEffect(() => {
@@ -770,6 +809,10 @@ function MapView({
       layers.add(makePoseMarker(goalPose.pose, 0xf59e0b, 0.14));
     }
 
+    if (dragPreviewPose?.position) {
+      layers.add(makePoseMarker(dragPreviewPose, interactionMode === "initial" ? 0x22c55e : 0xf59e0b, 0.2));
+    }
+
     const robotX = Number(pose?.position?.x ?? 0);
     const robotY = Number(pose?.position?.y ?? 0);
 
@@ -820,14 +863,15 @@ function MapView({
       layers.add(makePoseMarker(pose, showRobotModel && robotDescription ? 0x60a5fa : 0x007acc, 0.16));
     }
 
-    const nextMapKey = mapKey;
-    if (nextMapKey && fittedMapKeyRef.current !== nextMapKey) {
+    if (mapKey && !didFitInitialMapRef.current) {
       fitCameraToMap(camera, controls, meta);
-      fittedMapKeyRef.current = nextMapKey;
+      didFitInitialMapRef.current = true;
     }
   }, [
     globalCostmap,
+    dragPreviewPose,
     goalPose,
+    interactionMode,
     localCostmap,
     map,
     plan,
@@ -852,28 +896,17 @@ function MapView({
     const camera = cameraRef.current;
     if (!renderer || !camera) return;
 
-    const handlePointerDown = (event: PointerEvent) => {
-      if (event.button !== 0) return;
-      pointerDownRef.current = { x: event.clientX, y: event.clientY };
-    };
-
-    const handlePointerUp = (event: PointerEvent) => {
-      if (interactionDisabled || interactionMode === "view" || event.button !== 0) return;
-      const pointerDown = pointerDownRef.current;
-      pointerDownRef.current = null;
-      if (!pointerDown) return;
-      const moved = Math.hypot(event.clientX - pointerDown.x, event.clientY - pointerDown.y);
-      if (moved > CLICK_DRAG_THRESHOLD_PX) return;
+    const mapPointFromEvent = (event: PointerEvent): THREE.Vector3 | null => {
       const meta = gridMeta(map);
-      if (!meta) return;
+      if (!meta) return null;
       const rect = renderer.domElement.getBoundingClientRect();
-      if (rect.width <= 0 || rect.height <= 0) return;
+      if (rect.width <= 0 || rect.height <= 0) return null;
       pointerRef.current.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
       pointerRef.current.y = -(((event.clientY - rect.top) / rect.height) * 2 - 1);
       raycasterRef.current.setFromCamera(pointerRef.current, camera);
       const point = new THREE.Vector3();
       const plane = new THREE.Plane(new THREE.Vector3(0, 0, 1), 0);
-      if (!raycasterRef.current.ray.intersectPlane(plane, point)) return;
+      if (!raycasterRef.current.ray.intersectPlane(plane, point)) return null;
       const width = meta.width * meta.resolution;
       const height = meta.height * meta.resolution;
       if (
@@ -882,19 +915,98 @@ function MapView({
         point.y < meta.originY ||
         point.y > meta.originY + height
       ) {
+        return null;
+      }
+      if (!Number.isFinite(point.x) || !Number.isFinite(point.y)) return null;
+      return point;
+    };
+
+    const previewPoseFromDrag = (
+      start: NonNullable<typeof pointerDownRef.current>,
+      point: THREE.Vector3,
+      clientX: number,
+      clientY: number
+    ): Pose => {
+      const moved = Math.hypot(clientX - start.clientX, clientY - start.clientY);
+      const yaw = moved > CLICK_DRAG_THRESHOLD_PX
+        ? Math.atan2(point.y - start.mapY, point.x - start.mapX)
+        : yawFromPose(pose);
+      return {
+        position: { x: start.mapX, y: start.mapY, z: 0 },
+        orientation: orientationFromYaw(yaw),
+      };
+    };
+
+    const handlePointerDown = (event: PointerEvent) => {
+      if (event.button !== 0) return;
+      if (interactionDisabled || interactionMode === "view") {
+        pointerDownRef.current = null;
+        setDragPreviewPose(null);
         return;
       }
-      if (!Number.isFinite(point.x) || !Number.isFinite(point.y)) return;
-      onMapClick(point.x, point.y);
+      const point = mapPointFromEvent(event);
+      if (!point) {
+        pointerDownRef.current = null;
+        setDragPreviewPose(null);
+        return;
+      }
+      const pointerDown = {
+        clientX: event.clientX,
+        clientY: event.clientY,
+        mapX: point.x,
+        mapY: point.y,
+      };
+      pointerDownRef.current = pointerDown;
+      setDragPreviewPose(previewPoseFromDrag(pointerDown, point, event.clientX, event.clientY));
+      renderer.domElement.setPointerCapture(event.pointerId);
+    };
+
+    const handlePointerMove = (event: PointerEvent) => {
+      if (interactionDisabled || interactionMode === "view") return;
+      const pointerDown = pointerDownRef.current;
+      if (!pointerDown) return;
+      const point = mapPointFromEvent(event);
+      if (!point) return;
+      setDragPreviewPose(previewPoseFromDrag(pointerDown, point, event.clientX, event.clientY));
+    };
+
+    const handlePointerUp = (event: PointerEvent) => {
+      if (interactionDisabled || interactionMode === "view" || event.button !== 0) return;
+      const pointerDown = pointerDownRef.current;
+      pointerDownRef.current = null;
+      setDragPreviewPose(null);
+      if (renderer.domElement.hasPointerCapture(event.pointerId)) {
+        renderer.domElement.releasePointerCapture(event.pointerId);
+      }
+      if (!pointerDown) return;
+      const point = mapPointFromEvent(event);
+      if (!point) return;
+      const moved = Math.hypot(event.clientX - pointerDown.clientX, event.clientY - pointerDown.clientY);
+      const yaw = moved > CLICK_DRAG_THRESHOLD_PX
+        ? Math.atan2(point.y - pointerDown.mapY, point.x - pointerDown.mapX)
+        : yawFromPose(pose);
+      onMapPose(pointerDown.mapX, pointerDown.mapY, yaw);
+    };
+
+    const handlePointerCancel = (event: PointerEvent) => {
+      pointerDownRef.current = null;
+      setDragPreviewPose(null);
+      if (renderer.domElement.hasPointerCapture(event.pointerId)) {
+        renderer.domElement.releasePointerCapture(event.pointerId);
+      }
     };
 
     renderer.domElement.addEventListener("pointerdown", handlePointerDown);
+    renderer.domElement.addEventListener("pointermove", handlePointerMove);
     renderer.domElement.addEventListener("pointerup", handlePointerUp);
+    renderer.domElement.addEventListener("pointercancel", handlePointerCancel);
     return () => {
       renderer.domElement.removeEventListener("pointerdown", handlePointerDown);
+      renderer.domElement.removeEventListener("pointermove", handlePointerMove);
       renderer.domElement.removeEventListener("pointerup", handlePointerUp);
+      renderer.domElement.removeEventListener("pointercancel", handlePointerCancel);
     };
-  }, [interactionDisabled, interactionMode, map, onMapClick]);
+  }, [interactionDisabled, interactionMode, map, onMapPose, pose]);
 
   return (
     <div
@@ -1006,17 +1118,36 @@ export default function NavigationPage() {
   const [posePublishBusy, setPosePublishBusy] = useState(false);
   const [tfBufferRevision, setTfBufferRevision] = useState(0);
 
-  const { topicData: mapData } = useROS2TopicWebSocket(CONTAINER, "/map");
-  const { topicData: globalCostmapData } = useROS2TopicWebSocket(CONTAINER, "/global_costmap/costmap");
-  const { topicData: localCostmapData } = useROS2TopicWebSocket(CONTAINER, "/local_costmap/costmap");
-  const { topicData: scanData } = useROS2TopicWebSocket(CONTAINER, "/scan");
-  const { topicData: amclData } = useROS2TopicWebSocket(CONTAINER, "/amcl_pose");
-  const { topicData: odomData } = useROS2TopicWebSocket(CONTAINER, "/odom");
-  const { topicData: planData } = useROS2TopicWebSocket(CONTAINER, "/plan");
-  const { topicData: goalPoseData } = useROS2TopicWebSocket(CONTAINER, "/goal_pose");
-  const { topicData: tfData } = useROS2TopicWebSocket(CONTAINER, "/tf");
+  const { topicData: mapData } = useROS2TopicWebSocket(
+    CONTAINER,
+    showMap || clickMode !== "view" ? "/map" : null,
+    ROS2_WS_MAP_TOPIC_OPTIONS
+  );
+  const { topicData: globalCostmapData } = useROS2TopicWebSocket(
+    CONTAINER,
+    showGlobalCostmap ? "/global_costmap/costmap" : null,
+    ROS2_WS_MAP_TOPIC_OPTIONS
+  );
+  const { topicData: localCostmapData } = useROS2TopicWebSocket(
+    CONTAINER,
+    showLocalCostmap ? "/local_costmap/costmap" : null,
+    ROS2_WS_MAP_TOPIC_OPTIONS
+  );
+  const { topicData: scanData } = useROS2TopicWebSocket(
+    CONTAINER,
+    showScan ? "/scan" : null,
+    ROS2_WS_FAST_TOPIC_OPTIONS
+  );
+  const { topicData: amclData } = useROS2TopicWebSocket(CONTAINER, "/amcl_pose", ROS2_WS_FAST_TOPIC_OPTIONS);
+  const { topicData: odomData } = useROS2TopicWebSocket(CONTAINER, "/odom", ROS2_WS_FAST_TOPIC_OPTIONS);
+  const { topicData: planData } = useROS2TopicWebSocket(CONTAINER, showGlobalPlan ? "/plan" : null);
+  const { topicData: goalPoseData } = useROS2TopicWebSocket(CONTAINER, showGoalPose ? "/goal_pose" : null);
+  const { topicData: tfData } = useROS2TopicWebSocket(CONTAINER, "/tf", ROS2_WS_FAST_TOPIC_OPTIONS);
   const { topicData: tfStaticData } = useROS2TopicWebSocket(CONTAINER, "/tf_static");
-  const { topicData: robotDescriptionData } = useROS2TopicWebSocket(CONTAINER, "/robot_description");
+  const { topicData: robotDescriptionData } = useROS2TopicWebSocket(
+    CONTAINER,
+    showRobotModel ? "/robot_description" : null
+  );
 
   const map = useMemo(() => messageData<OccupancyGrid>(mapData), [mapData]);
   const globalCostmap = useMemo(() => messageData<OccupancyGrid>(globalCostmapData), [globalCostmapData]);
@@ -1130,49 +1261,47 @@ export default function NavigationPage() {
     });
   }, [mapName]);
 
-  const sendGoal = useCallback(async (x: number, y: number) => {
-    const stampSec = Math.floor(Date.now() / 1000);
+  const sendGoal = useCallback(async (x: number, y: number, yaw: number) => {
+    const orientation = orientationFromYaw(yaw);
+    const poseStamped = {
+      header: {
+        frame_id: "map",
+        stamp: rosTimestampNow(),
+      },
+      pose: {
+        position: { x, y, z: 0 },
+        orientation,
+      },
+    };
+    setLastGoalPose({
+      header: { frame_id: "map" },
+      pose: poseStamped.pose,
+    });
     try {
       await publishROS2Topic(CONTAINER, "/goal_pose", {
         msg_type: "geometry_msgs/msg/PoseStamped",
-        data: {
-          header: {
-            frame_id: "map",
-            stamp: { sec: stampSec, nanosec: 0 },
-          },
-          pose: {
-            position: { x, y, z: 0 },
-            orientation: { x: 0, y: 0, z: 0, w: 1 },
-          },
-        },
+        data: poseStamped,
       });
-      setLastGoalPose({
-        header: { frame_id: "map" },
-        pose: {
-          position: { x, y, z: 0 },
-          orientation: { x: 0, y: 0, z: 0, w: 1 },
-        },
-      });
-      setMessage(`Goal ${x.toFixed(2)}, ${y.toFixed(2)}`);
+      setMessage(`Goal ${x.toFixed(2)}, ${y.toFixed(2)}, yaw ${(yaw * 180 / Math.PI).toFixed(0)} deg`);
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Goal publish failed");
     }
   }, []);
 
-  const sendInitialPose = useCallback(async (x: number, y: number) => {
-    const stampSec = Math.floor(Date.now() / 1000);
+  const sendInitialPose = useCallback(async (x: number, y: number, yaw: number) => {
+    const orientation = orientationFromYaw(yaw);
     try {
       await publishROS2Topic(CONTAINER, "/initialpose", {
         msg_type: "geometry_msgs/msg/PoseWithCovarianceStamped",
         data: {
           header: {
             frame_id: "map",
-            stamp: { sec: stampSec, nanosec: 0 },
+            stamp: rosTimestampNow(),
           },
           pose: {
             pose: {
               position: { x, y, z: 0 },
-              orientation: { x: 0, y: 0, z: 0, w: 1 },
+              orientation,
             },
             covariance: [
               0.25, 0, 0, 0, 0, 0,
@@ -1185,18 +1314,19 @@ export default function NavigationPage() {
           },
         },
       });
-      setMessage(`Initial pose ${x.toFixed(2)}, ${y.toFixed(2)}`);
+      setMessage(`Initial pose ${x.toFixed(2)}, ${y.toFixed(2)}, yaw ${(yaw * 180 / Math.PI).toFixed(0)} deg`);
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Initial pose publish failed");
     }
   }, []);
 
-  const handleMapClick = useCallback((x: number, y: number) => {
+  const handleMapPose = useCallback((x: number, y: number, yaw: number) => {
     if (clickMode === "view") return;
     if (posePublishBusyRef.current) return;
     posePublishBusyRef.current = true;
     setPosePublishBusy(true);
-    const publish = clickMode === "initial" ? sendInitialPose(x, y) : sendGoal(x, y);
+    const publish = clickMode === "initial" ? sendInitialPose(x, y, yaw) : sendGoal(x, y, yaw);
+    setClickMode("view");
     void publish.finally(() => {
       posePublishBusyRef.current = false;
       setPosePublishBusy(false);
@@ -1409,7 +1539,7 @@ export default function NavigationPage() {
           showRobotModel={showRobotModel}
           interactionDisabled={posePublishBusy}
           interactionMode={clickMode}
-          onMapClick={handleMapClick}
+          onMapPose={handleMapPose}
         />
         <aside className="min-h-0 flex flex-col gap-3">
           <div

@@ -18,7 +18,7 @@
  * WebSocket utilities for real-time log streaming
  */
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 
 export type WebSocketMessage = {
   type: "logs" | "error" | "data";
@@ -34,6 +34,7 @@ export interface UseWebSocketOptions {
   onClose?: (event?: CloseEvent) => void;
   reconnect?: boolean;
   reconnectInterval?: number;
+  throttleMs?: number;
 }
 
 // Constants
@@ -210,9 +211,40 @@ export function useROS2TopicWebSocket(
   const [ws, setWs] = useState<WebSocket | null>(null);
   const [status, setStatus] = useState<WebSocketStatus>("disconnected");
   const [topicData, setTopicData] = useState<any>(null);
+  const lastTopicDataUpdateRef = useRef(0);
+  const pendingTopicDataRef = useRef<any>(null);
+  const throttleTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const setTopicDataThrottled = (data: any) => {
+    const throttleMs = options.throttleMs ?? 0;
+    if (throttleMs <= 0) {
+      setTopicData(data);
+      return;
+    }
+
+    const now = Date.now();
+    const elapsed = now - lastTopicDataUpdateRef.current;
+    if (elapsed >= throttleMs) {
+      lastTopicDataUpdateRef.current = now;
+      setTopicData(data);
+      return;
+    }
+
+    pendingTopicDataRef.current = data;
+    if (throttleTimerRef.current) return;
+    throttleTimerRef.current = setTimeout(() => {
+      throttleTimerRef.current = null;
+      lastTopicDataUpdateRef.current = Date.now();
+      setTopicData(pendingTopicDataRef.current);
+      pendingTopicDataRef.current = null;
+    }, throttleMs - elapsed);
+  };
 
   useEffect(() => {
     if (!container || !topic) {
+      setTopicData(null);
+      setWs(null);
+      setStatus("disconnected");
       return;
     }
 
@@ -239,7 +271,7 @@ export function useROS2TopicWebSocket(
           try {
             const parsed = JSON.parse(data);
             // parsed is the ROS2TopicDataResponse object: {container, topic, msg_type, data, available, domain_id}
-            setTopicData(parsed);
+            setTopicDataThrottled(parsed);
             options.onMessage?.(data);
           } catch (e) {
             // If not JSON, use as-is
@@ -272,6 +304,11 @@ export function useROS2TopicWebSocket(
       if (reconnectTimer) {
         clearTimeout(reconnectTimer);
       }
+      if (throttleTimerRef.current) {
+        clearTimeout(throttleTimerRef.current);
+        throttleTimerRef.current = null;
+      }
+      pendingTopicDataRef.current = null;
       if (websocket && (websocket.readyState === WebSocket.OPEN || websocket.readyState === WebSocket.CONNECTING)) {
         websocket.close(1000, "Component unmounting");
       }

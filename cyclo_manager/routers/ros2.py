@@ -23,6 +23,7 @@ import logging
 import os
 import re
 import subprocess
+import time
 from typing import Any
 
 import yaml
@@ -132,15 +133,50 @@ def _publish_topic_once_with_ros2_cli(
     """Publish a one-shot ROS message in a subprocess to isolate rclpy publisher failures."""
     env = os.environ.copy()
     env['ROS_DOMAIN_ID'] = str(domain_id)
+    header = data.get('header')
+    if isinstance(header, dict) and isinstance(header.get('stamp'), dict):
+        now_ns = time.time_ns()
+        header['stamp'] = {
+            'sec': now_ns // 1_000_000_000,
+            'nanosec': now_ns % 1_000_000_000,
+        }
     payload = yaml.safe_dump(data, default_flow_style=True, sort_keys=False)
+    command = [
+        'ros2',
+        'topic',
+        'pub',
+        '--once',
+        '--wait-matching-subscriptions',
+        '1',
+        '--keep-alive',
+        '8',
+        topic,
+        msg_type,
+        payload,
+    ]
     try:
-        proc = subprocess.run(
-            ['ros2', 'topic', 'pub', '--once', '--keep-alive', '1', topic, msg_type, payload],
-            capture_output=True,
-            text=True,
-            timeout=8,
-            env=env,
-        )
+        proc = subprocess.run(command, capture_output=True, text=True, timeout=12, env=env)
+        if proc.returncode != 0 and (
+            '--wait-matching-subscriptions' in (proc.stderr or '')
+        ):
+            fallback_command = [
+                'ros2',
+                'topic',
+                'pub',
+                '--once',
+                '--keep-alive',
+                '8',
+                topic,
+                msg_type,
+                payload,
+            ]
+            proc = subprocess.run(
+                fallback_command,
+                capture_output=True,
+                text=True,
+                timeout=12,
+                env=env,
+            )
     except subprocess.TimeoutExpired:
         return False, 'ros2 topic pub timed out'
     except FileNotFoundError:
