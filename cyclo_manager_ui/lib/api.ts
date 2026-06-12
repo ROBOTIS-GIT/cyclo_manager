@@ -475,3 +475,11 @@ export async function publishROS2Topic(
     handleError(error);
   }
 }
+
+export async function cancelNavigateToPoseGoal(container: string): Promise<void> {
+  try {
+    await apiClient.post(`/${container}/ros2/navigate_to_pose/cancel`, undefined, { timeout: 8000 });
+  } catch (error) {
+    handleError(error);
+  }
+}

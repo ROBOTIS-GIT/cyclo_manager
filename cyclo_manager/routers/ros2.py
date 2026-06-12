@@ -73,6 +73,11 @@ KNOWN_TOPIC_QOS_PRESETS: dict[str, dict[str, Any]] = {
         'reliability': 'reliable',
         'depth': 1,
     },
+    '/local_costmap/published_footprint': {
+        'durability': 'volatile',
+        'reliability': 'reliable',
+        'depth': 10,
+    },
     '/tf_static': {
         'durability': 'transient_local',
         'reliability': 'reliable',
@@ -124,6 +129,17 @@ def resolve_qos_profile_for_topic(container: str, topic: str, node) -> dict[str,
     return _get_topic_publisher_qos(container, topic, node)
 
 
+def _refresh_header_stamp(data: dict[str, Any]) -> None:
+    """Stamp outgoing ROS messages with the server's current ROS/system time."""
+    header = data.get('header')
+    if isinstance(header, dict) and isinstance(header.get('stamp'), dict):
+        now_ns = time.time_ns()
+        header['stamp'] = {
+            'sec': now_ns // 1_000_000_000,
+            'nanosec': now_ns % 1_000_000_000,
+        }
+
+
 def _publish_topic_once_with_ros2_cli(
     topic: str,
     msg_type: str,
@@ -133,13 +149,7 @@ def _publish_topic_once_with_ros2_cli(
     """Publish a one-shot ROS message in a subprocess to isolate rclpy publisher failures."""
     env = os.environ.copy()
     env['ROS_DOMAIN_ID'] = str(domain_id)
-    header = data.get('header')
-    if isinstance(header, dict) and isinstance(header.get('stamp'), dict):
-        now_ns = time.time_ns()
-        header['stamp'] = {
-            'sec': now_ns // 1_000_000_000,
-            'nanosec': now_ns % 1_000_000_000,
-        }
+    _refresh_header_stamp(data)
     payload = yaml.safe_dump(data, default_flow_style=True, sort_keys=False)
     command = [
         'ros2',
@@ -149,23 +159,21 @@ def _publish_topic_once_with_ros2_cli(
         '--wait-matching-subscriptions',
         '1',
         '--keep-alive',
-        '8',
+        '5',
         topic,
         msg_type,
         payload,
     ]
     try:
         proc = subprocess.run(command, capture_output=True, text=True, timeout=12, env=env)
-        if proc.returncode != 0 and (
-            '--wait-matching-subscriptions' in (proc.stderr or '')
-        ):
+        if proc.returncode != 0 and '--wait-matching-subscriptions' in (proc.stderr or ''):
             fallback_command = [
                 'ros2',
                 'topic',
                 'pub',
                 '--once',
                 '--keep-alive',
-                '8',
+                '5',
                 topic,
                 msg_type,
                 payload,
@@ -179,6 +187,44 @@ def _publish_topic_once_with_ros2_cli(
             )
     except subprocess.TimeoutExpired:
         return False, 'ros2 topic pub timed out'
+    except FileNotFoundError:
+        return False, 'ros2 CLI not found'
+
+    output = ((proc.stdout or '') + '\n' + (proc.stderr or '')).strip()
+    return proc.returncode == 0, output
+
+
+def _cancel_navigate_to_pose_goal_with_ros2_cli(domain_id: int) -> tuple[bool, str]:
+    """Cancel all active Nav2 NavigateToPose goals."""
+    env = os.environ.copy()
+    env['ROS_DOMAIN_ID'] = str(domain_id)
+    payload = yaml.safe_dump(
+        {
+            'goal_info': {
+                'goal_id': {'uuid': [0] * 16},
+                'stamp': {'sec': 0, 'nanosec': 0},
+            },
+        },
+        default_flow_style=True,
+        sort_keys=False,
+    )
+    try:
+        proc = subprocess.run(
+            [
+                'ros2',
+                'service',
+                'call',
+                '/navigate_to_pose/_action/cancel_goal',
+                'action_msgs/srv/CancelGoal',
+                payload,
+            ],
+            capture_output=True,
+            text=True,
+            timeout=5,
+            env=env,
+        )
+    except subprocess.TimeoutExpired:
+        return False, 'ros2 service call timed out'
     except FileNotFoundError:
         return False, 'ros2 CLI not found'
 
@@ -376,6 +422,30 @@ async def publish_cmd_vel(
     return {'ok': True, 'topic': body.topic}
 
 
+@router.post('/navigate_to_pose/cancel')
+async def cancel_navigate_to_pose_goal(
+    container: str = Depends(get_validated_container),
+):
+    """Cancel active Nav2 NavigateToPose action goals."""
+    node = get_ros2_node(container)
+    if node is None:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=f"ROS2 node for container '{container}' is not available.",
+        )
+
+    ok, output = await asyncio.to_thread(
+        _cancel_navigate_to_pose_goal_with_ros2_cli,
+        node.domain_id,
+    )
+    if not ok:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=f"Failed to cancel NavigateToPose action goal: {output}",
+        )
+    return {'ok': True, 'action': '/navigate_to_pose/cancel'}
+
+
 @router.post('/topics/{topic:path}/publish')
 async def ros2_topic_publish(
     topic: str,
@@ -408,6 +478,7 @@ async def ros2_topic_publish(
             )
         return {'ok': True, 'topic': topic, 'msg_type': body.msg_type}
 
+    _refresh_header_stamp(body.data)
     ok = node.publish_topic(topic, body.msg_type, body.data)
     if not ok:
         raise HTTPException(

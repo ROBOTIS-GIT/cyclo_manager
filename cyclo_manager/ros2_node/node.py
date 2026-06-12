@@ -48,6 +48,7 @@ KNOWN_TOPIC_TYPES: dict[str, str] = {
     '/map': 'nav_msgs/msg/OccupancyGrid',
     '/global_costmap/costmap': 'nav_msgs/msg/OccupancyGrid',
     '/local_costmap/costmap': 'nav_msgs/msg/OccupancyGrid',
+    '/local_costmap/published_footprint': 'geometry_msgs/msg/PolygonStamped',
     '/scan': 'sensor_msgs/msg/LaserScan',
     '/amcl_pose': 'geometry_msgs/msg/PoseWithCovarianceStamped',
     '/odom': 'nav_msgs/msg/Odometry',

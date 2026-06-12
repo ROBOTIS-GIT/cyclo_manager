@@ -19,6 +19,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { CSSProperties, PointerEvent as ReactPointerEvent } from "react";
 import {
+  cancelNavigateToPoseGoal,
   controlService,
   getServiceStatus,
   publishROS2Topic,
@@ -94,6 +95,7 @@ const TOPICS = [
   { topic: "/map", msgType: "nav_msgs/msg/OccupancyGrid" },
   { topic: "/global_costmap/costmap", msgType: "nav_msgs/msg/OccupancyGrid" },
   { topic: "/local_costmap/costmap", msgType: "nav_msgs/msg/OccupancyGrid" },
+  { topic: "/local_costmap/published_footprint", msgType: "geometry_msgs/msg/PolygonStamped" },
   { topic: "/scan", msgType: "sensor_msgs/msg/LaserScan" },
   { topic: "/amcl_pose", msgType: "geometry_msgs/msg/PoseWithCovarianceStamped" },
   { topic: "/odom", msgType: "nav_msgs/msg/Odometry" },
@@ -101,7 +103,6 @@ const TOPICS = [
   { topic: "/goal_pose", msgType: "geometry_msgs/msg/PoseStamped" },
   { topic: "/tf", msgType: "tf2_msgs/msg/TFMessage" },
   { topic: "/tf_static", msgType: "tf2_msgs/msg/TFMessage" },
-  { topic: "/robot_description", msgType: "std_msgs/msg/String" },
 ] as const;
 const DISPLAY_TOPICS = TOPICS.filter(({ topic }) => topic !== "/amcl_pose" && topic !== "/odom");
 
@@ -139,6 +140,13 @@ type PathMsg = {
   poses?: PoseStamped[];
 };
 
+type PolygonStamped = {
+  header?: { frame_id?: string };
+  polygon?: {
+    points?: Array<{ x?: number; y?: number; z?: number }>;
+  };
+};
+
 type TransformStamped = {
   header?: { frame_id?: string };
   child_frame_id?: string;
@@ -160,9 +168,9 @@ type MapViewProps = {
   pose: Pose | null;
   plan: PathMsg | null;
   goalPose: PoseStamped | null;
+  footprint: PolygonStamped | null;
   tf: TfMsg | null;
   tfStatic: TfMsg | null;
-  robotDescription: string | null;
   showMap: boolean;
   showGlobalCostmap: boolean;
   showLocalCostmap: boolean;
@@ -184,21 +192,6 @@ function messageData<T>(value: unknown): T | null {
   const data = "data" in outer ? outer.data : outer;
   if (!data || typeof data !== "object") return null;
   return data as T;
-}
-
-function messageString(value: unknown): string | null {
-  if (value && typeof value === "object") {
-    const outer = value as Record<string, unknown>;
-    if (typeof outer.data === "string") return outer.data;
-    if (outer.data && typeof outer.data === "object") {
-      const data = outer.data as Record<string, unknown>;
-      if (typeof data.data === "string") return data.data;
-    }
-  }
-
-  const data = messageData<{ data?: unknown }>(value);
-  if (typeof data?.data === "string") return data.data;
-  return typeof value === "string" ? value : null;
 }
 
 function yawFromPose(pose: Pose | null): number {
@@ -612,6 +605,59 @@ function makeTfAxes(pose: Pose, label: string): THREE.Group {
   return group;
 }
 
+function makeFootprintMarker(footprint: PolygonStamped, framePose: Pose | null): THREE.Group | null {
+  const sourcePoints = footprint.polygon?.points ?? [];
+  const polygonPoints = sourcePoints
+    .map((point) => ({
+      x: Number(point.x ?? 0),
+      y: Number(point.y ?? 0),
+      z: Number(point.z ?? 0),
+    }))
+    .filter((point) => Number.isFinite(point.x) && Number.isFinite(point.y) && Number.isFinite(point.z));
+  if (polygonPoints.length < 3) return null;
+
+  const group = new THREE.Group();
+  const yaw = framePose ? yawFromPose(framePose) : 0;
+  const cos = Math.cos(yaw);
+  const sin = Math.sin(yaw);
+  const frameX = Number(framePose?.position?.x ?? 0);
+  const frameY = Number(framePose?.position?.y ?? 0);
+  const frameZ = Number(framePose?.position?.z ?? 0);
+  const transformPoint = (point: { x: number; y: number; z: number }) => (
+    new THREE.Vector3(
+      frameX + cos * point.x - sin * point.y,
+      frameY + sin * point.x + cos * point.y,
+      frameZ + point.z + 0.18
+    )
+  );
+  const points = polygonPoints.map(transformPoint);
+  points.push(points[0].clone());
+
+  const line = makeLine(points, 0x38bdf8, 3);
+  if (line) group.add(line);
+
+  const shape = new THREE.Shape();
+  polygonPoints.forEach((point, index) => {
+    if (index === 0) shape.moveTo(point.x, point.y);
+    else shape.lineTo(point.x, point.y);
+  });
+  shape.closePath();
+  const fill = new THREE.Mesh(
+    new THREE.ShapeGeometry(shape),
+    new THREE.MeshBasicMaterial({
+      color: 0x38bdf8,
+      transparent: true,
+      opacity: 0.18,
+      depthWrite: false,
+      side: THREE.DoubleSide,
+    })
+  );
+  fill.position.set(frameX, frameY, frameZ + 0.17);
+  fill.rotation.z = yaw;
+  group.add(fill);
+  return group;
+}
+
 function makeTfLabelSprite(text: string): THREE.Sprite {
   const canvas = document.createElement("canvas");
   canvas.width = 256;
@@ -666,9 +712,9 @@ function MapView({
   pose,
   plan,
   goalPose,
+  footprint,
   tf,
   tfStatic,
-  robotDescription,
   showMap,
   showGlobalCostmap,
   showLocalCostmap,
@@ -883,8 +929,21 @@ function MapView({
       }
     }
 
+    if (showRobotModel && footprint?.polygon?.points?.length) {
+      const footprintFrame = normalizeFrameId(footprint.header?.frame_id);
+      const footprintFramePose = footprintFrame && footprintFrame !== "map"
+        ? tfFramePoseByName.get(footprintFrame) ?? null
+        : null;
+      const footprintMarker = makeFootprintMarker(footprint, footprintFramePose);
+      if (footprintMarker) layers.add(footprintMarker);
+    }
+
     if (pose?.position) {
-      layers.add(makePoseMarker(pose, showRobotModel && robotDescription ? 0x60a5fa : 0x007acc, 0.16));
+      layers.add(makePoseMarker(
+        pose,
+        showRobotModel && footprint?.polygon?.points?.length ? 0x60a5fa : 0x007acc,
+        0.16
+      ));
     }
 
     if (mapKey && !didFitInitialMapRef.current) {
@@ -895,12 +954,12 @@ function MapView({
     globalCostmap,
     dragPreviewPose,
     goalPose,
+    footprint,
     interactionMode,
     localCostmap,
     map,
     plan,
     pose,
-    robotDescription,
     scan,
     showGlobalCostmap,
     showLocalCostmap,
@@ -1106,6 +1165,19 @@ function ViewModeIcon() {
   );
 }
 
+function TopicName({ topic }: { topic: string }) {
+  if (topic === "/local_costmap/published_footprint") {
+    return (
+      <span className="font-mono min-w-0 leading-4">
+        <span className="block">/local_costmap</span>
+        <span className="block">/published_footprint</span>
+      </span>
+    );
+  }
+
+  return <span className="font-mono truncate min-w-0">{topic}</span>;
+}
+
 function LogIcon({ className }: { className?: string }) {
   return (
     <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}>
@@ -1161,6 +1233,11 @@ export default function NavigationPage() {
     showLocalCostmap ? "/local_costmap/costmap" : null,
     ROS2_WS_MAP_TOPIC_OPTIONS
   );
+  const { topicData: footprintData } = useROS2TopicWebSocket(
+    CONTAINER,
+    showRobotModel ? "/local_costmap/published_footprint" : null,
+    ROS2_WS_FAST_TOPIC_OPTIONS
+  );
   const { topicData: scanData } = useROS2TopicWebSocket(
     CONTAINER,
     showScan ? "/scan" : null,
@@ -1172,14 +1249,10 @@ export default function NavigationPage() {
   const { topicData: goalPoseData } = useROS2TopicWebSocket(CONTAINER, showGoalPose ? "/goal_pose" : null);
   const { topicData: tfData } = useROS2TopicWebSocket(CONTAINER, "/tf", ROS2_WS_FAST_TOPIC_OPTIONS);
   const { topicData: tfStaticData } = useROS2TopicWebSocket(CONTAINER, "/tf_static");
-  const { topicData: robotDescriptionData } = useROS2TopicWebSocket(
-    CONTAINER,
-    showRobotModel ? "/robot_description" : null
-  );
-
   const map = useMemo(() => messageData<OccupancyGrid>(mapData), [mapData]);
   const globalCostmap = useMemo(() => messageData<OccupancyGrid>(globalCostmapData), [globalCostmapData]);
   const localCostmap = useMemo(() => messageData<OccupancyGrid>(localCostmapData), [localCostmapData]);
+  const footprint = useMemo(() => messageData<PolygonStamped>(footprintData), [footprintData]);
   const scan = useMemo(() => messageData<LaserScan>(scanData), [scanData]);
   const amclPose = useMemo(() => messageData<{ pose?: { pose?: Pose } }>(amclData), [amclData]);
   const odom = useMemo(() => messageData<{ pose?: { pose?: Pose } }>(odomData), [odomData]);
@@ -1191,7 +1264,6 @@ export default function NavigationPage() {
   const bufferedTf = useMemo(() => (
     tfMessageFromBuffer(tfBufferRef.current) ?? latestTf
   ), [latestTf, tfBufferRevision]);
-  const robotDescription = useMemo(() => messageString(robotDescriptionData), [robotDescriptionData]);
   const fallbackPose = amclPose?.pose?.pose ?? null;
   const goalPose = hideReachedGoalPose ? null : (lastGoalPose ?? topicGoalPose);
   const topicBaseLinkPose = useMemo(() => poseFromBaseLinkTf(bufferedTf), [bufferedTf]);
@@ -1269,7 +1341,7 @@ export default function NavigationPage() {
       const next = await getServiceStatus(CONTAINER, NAVIGATION_SERVICE);
       setStatus(next);
     } catch {
-      setStatus(null);
+      setStatus((current) => current);
     }
   }, []);
 
@@ -1345,6 +1417,12 @@ export default function NavigationPage() {
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Goal publish failed");
     }
+  }, []);
+
+  const cancelGoal = useCallback(async () => {
+    await cancelNavigateToPoseGoal(CONTAINER);
+    setLastGoalPose(null);
+    setHideReachedGoalPose(true);
   }, []);
 
   const sendInitialPose = useCallback(async (x: number, y: number, yaw: number) => {
@@ -1443,6 +1521,7 @@ export default function NavigationPage() {
     if (topic === "/map") return !!map;
     if (topic === "/global_costmap/costmap") return !!globalCostmap;
     if (topic === "/local_costmap/costmap") return !!localCostmap;
+    if (topic === "/local_costmap/published_footprint") return !!footprint?.polygon?.points?.length;
     if (topic === "/scan") return !!scan;
     if (topic === "/amcl_pose") return !!amclPose;
     if (topic === "/odom") return !!odom;
@@ -1450,7 +1529,6 @@ export default function NavigationPage() {
     if (topic === "/goal_pose") return !!goalPose;
     if (topic === "/tf") return !!tf?.transforms?.length;
     if (topic === "/tf_static") return !!tfStatic?.transforms?.length;
-    if (topic === "/robot_description") return !!robotDescription;
     return false;
   };
 
@@ -1525,6 +1603,19 @@ export default function NavigationPage() {
             }}
           >
             <LogIcon />
+          </button>
+          <button
+            type="button"
+            disabled={busy !== null || !running}
+            onClick={() => runCommand("Cancel", cancelGoal)}
+            className="h-8 px-3 border text-sm font-semibold disabled:opacity-50"
+            style={{
+              color: "var(--vscode-button-secondaryForeground)",
+              backgroundColor: "var(--vscode-button-secondaryBackground)",
+              borderColor: "var(--vscode-panel-border)",
+            }}
+          >
+            Cancel
           </button>
           <button
             type="button"
@@ -1609,9 +1700,9 @@ export default function NavigationPage() {
           pose={currentPose}
           plan={plan}
           goalPose={goalPose}
+          footprint={footprint}
           tf={bufferedTf}
           tfStatic={null}
-          robotDescription={robotDescription}
           showMap={showMap}
           showGlobalCostmap={showGlobalCostmap}
           showLocalCostmap={showLocalCostmap}
@@ -1664,9 +1755,9 @@ export default function NavigationPage() {
           >
             <div className="font-semibold">Topics</div>
             {DISPLAY_TOPICS.map(({ topic }) => (
-              <div key={topic} className="flex items-center justify-between gap-3">
-                <span className="font-mono truncate">{topic}</span>
-                <span style={{ color: "var(--vscode-descriptionForeground)" }}>
+              <div key={topic} className="flex items-center justify-between gap-3 min-w-0">
+                <TopicName topic={topic} />
+                <span className="shrink-0" style={{ color: "var(--vscode-descriptionForeground)" }}>
                   {hasTopicData(topic) ? "live" : "wait"}
                 </span>
               </div>
