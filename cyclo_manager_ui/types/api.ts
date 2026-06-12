@@ -65,6 +65,33 @@ export interface ServiceControlResponse {
   result: string;
 }
 
+export interface PgmFileInfo {
+  path: string;
+  name: string;
+}
+
+export interface PgmFileListResponse {
+  container: string;
+  files: PgmFileInfo[];
+}
+
+export interface PgmImageResponse {
+  container: string;
+  path: string;
+  width: number;
+  height: number;
+  maxval: number;
+  pixels_base64: string;
+}
+
+export interface PgmSaveResponse {
+  container: string;
+  path: string;
+  width: number;
+  height: number;
+  saved: boolean;
+}
+
 export interface ServiceLogsResponse {
   container: string;
   service: string;

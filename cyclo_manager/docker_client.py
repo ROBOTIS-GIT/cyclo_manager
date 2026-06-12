@@ -20,6 +20,7 @@
 
 import io
 import logging
+from pathlib import PurePosixPath
 import tarfile
 
 import docker
@@ -328,6 +329,76 @@ class DockerClient:
             raise
         except DockerException as e:
             logger.error("Failed to read file from container '%s': %s", container_name, e)
+            raise
+
+    def read_container_file_bytes(self, container_name: str, path: str) -> bytes:
+        """
+        Read raw file bytes from a container via Docker archive API.
+
+        Args
+        ----
+        container_name: Container name or ID.
+        path: Absolute path to file inside container.
+
+        Returns
+        -------
+        File content as bytes.
+
+        Raises
+        ------
+        NotFound: If container or file is not found.
+
+        """
+        try:
+            container = self.get_container(container_name)
+            stream, _ = container.get_archive(path)
+            archive = b''.join(stream)
+            with tarfile.open(fileobj=io.BytesIO(archive), mode='r:*') as tar:
+                member = next((item for item in tar.getmembers() if item.isfile()), None)
+                if member is None:
+                    raise FileNotFoundError(f'No file found in archive for {path}')
+                extracted = tar.extractfile(member)
+                if extracted is None:
+                    raise FileNotFoundError(f'Unable to extract {path}')
+                return extracted.read()
+        except NotFound:
+            raise
+        except DockerException as e:
+            logger.error("Failed to read bytes from container '%s': %s", container_name, e)
+            raise
+
+    def write_container_file_bytes(self, container_name: str, path: str, content: bytes) -> None:
+        """
+        Write raw file bytes to a container via Docker archive API.
+
+        Args
+        ----
+        container_name: Container name or ID.
+        path: Absolute path to file inside container.
+        content: New file content.
+
+        Raises
+        ------
+        NotFound: If container is not found.
+
+        """
+        try:
+            container = self.get_container(container_name)
+            target = PurePosixPath(path)
+            parent = str(target.parent)
+            filename = target.name
+            buf = io.BytesIO()
+            with tarfile.open(fileobj=buf, mode='w') as tar:
+                ti = tarfile.TarInfo(name=filename)
+                ti.size = len(content)
+                tar.addfile(ti, io.BytesIO(content))
+            buf.seek(0)
+            container.put_archive(parent, buf.getvalue())
+            logger.info("Successfully wrote %s in container '%s'", path, container_name)
+        except NotFound:
+            raise
+        except DockerException as e:
+            logger.error("Failed to write bytes to container '%s': %s", container_name, e)
             raise
 
     def get_container_top(self, container_name: str) -> dict:

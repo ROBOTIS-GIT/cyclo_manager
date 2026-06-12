@@ -26,6 +26,7 @@ from cyclo_manager.routers import (
     container,
     containers,
     docker,
+    maps,
     root,
     ros2,
     services,
@@ -105,6 +106,10 @@ app = FastAPI(
             'description': 'ROS2 topic operations. Subscribe to ROS2 topics using zenoh_ros2_sdk.',
         },
         {
+            'name': 'maps',
+            'description': 'Map file maintenance operations.',
+        },
+        {
             'name': 'container',
             'description': 'Container-level operations (bashrc, etc.).',
         },
@@ -134,6 +139,7 @@ app.include_router(container.router)
 app.include_router(services.router)
 app.include_router(version.router)
 app.include_router(docker.router)
+app.include_router(maps.router)
 app.include_router(ros2.router)
 app.include_router(websocket.router)
 

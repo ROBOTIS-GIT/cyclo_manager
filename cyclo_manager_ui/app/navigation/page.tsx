@@ -26,6 +26,7 @@ import {
 } from "@/lib/api";
 import { useROS2TopicWebSocket } from "@/lib/websocket";
 import type { ServiceStatusResponse } from "@/types/api";
+import { MapEditorControls, useMapEditor } from "./map_editor";
 import StatusBadge from "@/components/StatusBadge";
 import FixedLogPanel from "@/components/FixedLogPanel";
 import * as THREE from "three";
@@ -182,6 +183,9 @@ type MapViewProps = {
   showRobotModel: boolean;
   interactionDisabled: boolean;
   interactionMode: MapInteractionMode;
+  editorActive: boolean;
+  waitingLabel?: string;
+  onEditorMapPoint: (x: number, y: number) => void;
   onMapPose: (x: number, y: number, yaw: number) => void;
 };
 
@@ -726,6 +730,9 @@ function MapView({
   showRobotModel,
   interactionDisabled,
   interactionMode,
+  editorActive,
+  waitingLabel = "Waiting for /map",
+  onEditorMapPoint,
   onMapPose,
 }: MapViewProps) {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -735,7 +742,7 @@ function MapView({
   const controlsRef = useRef<OrbitControlsType | null>(null);
   const layersRef = useRef<THREE.Group | null>(null);
   const animationFrameRef = useRef<number | null>(null);
-  const didFitInitialMapRef = useRef(false);
+  const fitMapKeyRef = useRef<string | null>(null);
   const [dragPreviewPose, setDragPreviewPose] = useState<Pose | null>(null);
   // Freeze each LaserScan in display coordinates until the next scan or map geometry change.
   const scanProjectionRef = useRef<{ scan: LaserScan; mapKey: string | null; points: number[] } | null>(null);
@@ -817,14 +824,16 @@ function MapView({
     if (!renderer) return;
     const cursor = interactionDisabled
       ? "cursor-wait"
-      : interactionMode === "view"
-        ? "cursor-grab"
-        : "cursor-crosshair";
+      : editorActive
+        ? "cursor-cell"
+        : interactionMode === "view"
+          ? "cursor-grab"
+          : "cursor-crosshair";
     renderer.domElement.className = `block w-full h-full ${cursor}`;
     if (controls) {
-      controls.enabled = !interactionDisabled && interactionMode === "view";
+      controls.enabled = !interactionDisabled && !editorActive && interactionMode === "view";
     }
-  }, [interactionDisabled, interactionMode]);
+  }, [editorActive, interactionDisabled, interactionMode]);
 
   useEffect(() => {
     const scene = sceneRef.current;
@@ -946,9 +955,9 @@ function MapView({
       ));
     }
 
-    if (mapKey && !didFitInitialMapRef.current) {
+    if (mapKey && fitMapKeyRef.current !== mapKey) {
       fitCameraToMap(camera, controls, meta);
-      didFitInitialMapRef.current = true;
+      fitMapKeyRef.current = mapKey;
     }
   }, [
     globalCostmap,
@@ -1022,6 +1031,11 @@ function MapView({
 
     const handlePointerDown = (event: PointerEvent) => {
       if (event.button !== 0) return;
+      if (editorActive) {
+        const point = mapPointFromEvent(event);
+        if (point) onEditorMapPoint(point.x, point.y);
+        return;
+      }
       if (interactionDisabled || interactionMode === "view") {
         pointerDownRef.current = null;
         setDragPreviewPose(null);
@@ -1089,7 +1103,7 @@ function MapView({
       renderer.domElement.removeEventListener("pointerup", handlePointerUp);
       renderer.domElement.removeEventListener("pointercancel", handlePointerCancel);
     };
-  }, [interactionDisabled, interactionMode, map, onMapPose, pose]);
+  }, [editorActive, interactionDisabled, interactionMode, map, onEditorMapPoint, onMapPose, pose]);
 
   return (
     <div
@@ -1106,7 +1120,7 @@ function MapView({
           className="absolute inset-0 flex items-center justify-center text-sm pointer-events-none"
           style={{ color: "var(--vscode-descriptionForeground)" }}
         >
-          Waiting for /map
+          {waitingLabel}
         </div>
       )}
     </div>
@@ -1216,7 +1230,13 @@ export default function NavigationPage() {
   const [mapPanelWidth, setMapPanelWidth] = useState(MAP_PANEL_DEFAULT_WIDTH);
   const [clickMode, setClickMode] = useState<MapInteractionMode>("view");
   const [posePublishBusy, setPosePublishBusy] = useState(false);
+  const [showPgmFix, setShowPgmFix] = useState(false);
   const [tfBufferRevision, setTfBufferRevision] = useState(0);
+  const mapEditor = useMapEditor({
+    open: showPgmFix,
+    mapName,
+    onMessage: setMessage,
+  });
 
   const { topicData: mapData } = useROS2TopicWebSocket(
     CONTAINER,
@@ -1271,6 +1291,7 @@ export default function NavigationPage() {
   const currentPose = baseLinkPose ?? fallbackPose;
   const running = status?.is_up ?? false;
   const mode = running ? "running" : "idle";
+  const displayedMap = showPgmFix ? mapEditor.map : map;
   const layersPanelWidth = SIDE_PANEL_TOTAL_WIDTH - logPanelWidth;
   const getMaxMapPanelWidth = useCallback(() => {
     const gridWidth = contentGridRef.current?.clientWidth ?? 0;
@@ -1301,7 +1322,6 @@ export default function NavigationPage() {
     setShowTf(preset.tf);
     setShowRobotModel(preset.robotModel);
   }, []);
-
   useEffect(() => {
     const updatedStatic = updateTfBuffer(tfBufferRef.current, tfStatic);
     const updatedDynamic = updateTfBuffer(tfBufferRef.current, tf);
@@ -1322,7 +1342,11 @@ export default function NavigationPage() {
   }, [currentPose, lastGoalPose]);
 
   useEffect(() => {
-    if (!running) applyLayerPreset(IDLE_LAYER_PRESET);
+    if (running) {
+      applyLayerPreset(NAVIGATION_LAYER_PRESET);
+      return;
+    }
+    applyLayerPreset(IDLE_LAYER_PRESET);
   }, [applyLayerPreset, running]);
 
   useEffect(() => {
@@ -1353,11 +1377,11 @@ export default function NavigationPage() {
     };
   }, [loadStatus]);
 
-  const runCommand = useCallback(async (label: string, action: () => Promise<void>) => {
+  const runCommand = useCallback(async (label: string, action: () => Promise<string | void>) => {
     setBusy(label);
     try {
-      await action();
-      setMessage(`${label} complete`);
+      const nextMessage = await action();
+      setMessage(nextMessage || `${label} complete`);
     } catch (error) {
       setMessage(error instanceof Error ? error.message : `${label} failed`);
     } finally {
@@ -1653,6 +1677,25 @@ export default function NavigationPage() {
           >
             Save Map
           </button>
+          <button
+            type="button"
+            disabled={busy !== null || !mapName.trim()}
+            onClick={() => setShowPgmFix((value) => !value)}
+            className="h-8 px-3 border text-sm font-semibold disabled:opacity-50"
+            style={{
+              color: showPgmFix
+                ? "var(--vscode-button-secondaryForeground)"
+                : "var(--vscode-button-foreground)",
+              backgroundColor: showPgmFix
+                ? "var(--vscode-button-secondaryBackground)"
+                : "var(--vscode-button-background)",
+              borderColor: showPgmFix
+                ? "var(--vscode-panel-border)"
+                : "var(--vscode-focusBorder)",
+            }}
+          >
+            Fix
+          </button>
           <div
             className="h-8 border grid grid-cols-3 overflow-hidden"
             style={{ borderColor: "var(--vscode-panel-border)" }}
@@ -1682,6 +1725,29 @@ export default function NavigationPage() {
           </div>
         </div>
       </header>
+      {showPgmFix && (
+        <div
+          className="shrink-0 border mb-4 p-3"
+          style={{
+            borderColor: "var(--vscode-panel-border)",
+            backgroundColor: "var(--vscode-sideBar-background)",
+          }}
+        >
+          <MapEditorControls
+            files={mapEditor.files}
+            selectedPath={mapEditor.selectedPath}
+            setSelectedPath={mapEditor.setSelectedPath}
+            tool={mapEditor.tool}
+            setTool={mapEditor.setTool}
+            busy={mapEditor.busy}
+            image={mapEditor.image}
+            dirty={mapEditor.dirty}
+            canUndo={mapEditor.canUndo}
+            undo={mapEditor.undo}
+            save={mapEditor.save}
+          />
+        </div>
+      )}
       <div
         ref={contentGridRef}
         className={[
@@ -1693,27 +1759,30 @@ export default function NavigationPage() {
         style={contentGridStyle}
       >
         <MapView
-          map={map}
-          globalCostmap={globalCostmap}
-          localCostmap={localCostmap}
-          scan={scan}
-          pose={currentPose}
-          plan={plan}
-          goalPose={goalPose}
-          footprint={footprint}
-          tf={bufferedTf}
+          map={displayedMap}
+          globalCostmap={showPgmFix ? null : globalCostmap}
+          localCostmap={showPgmFix ? null : localCostmap}
+          scan={showPgmFix ? null : scan}
+          pose={showPgmFix ? null : currentPose}
+          plan={showPgmFix ? null : plan}
+          goalPose={showPgmFix ? null : goalPose}
+          footprint={showPgmFix ? null : footprint}
+          tf={showPgmFix ? null : bufferedTf}
           tfStatic={null}
-          showMap={showMap}
-          showGlobalCostmap={showGlobalCostmap}
-          showLocalCostmap={showLocalCostmap}
-          showScan={showScan}
-          showGlobalPlan={showGlobalPlan}
-          showGoalPose={showGoalPose}
-          showTf={showTf}
-          tfAvailable={!!bufferedTf?.transforms?.length}
-          showRobotModel={showRobotModel}
-          interactionDisabled={posePublishBusy}
-          interactionMode={clickMode}
+          showMap={showPgmFix ? true : showMap}
+          showGlobalCostmap={showPgmFix ? false : showGlobalCostmap}
+          showLocalCostmap={showPgmFix ? false : showLocalCostmap}
+          showScan={showPgmFix ? false : showScan}
+          showGlobalPlan={showPgmFix ? false : showGlobalPlan}
+          showGoalPose={showPgmFix ? false : showGoalPose}
+          showTf={showPgmFix ? false : showTf}
+          tfAvailable={!showPgmFix && !!bufferedTf?.transforms?.length}
+          showRobotModel={showPgmFix ? false : showRobotModel}
+          interactionDisabled={posePublishBusy || (showPgmFix && mapEditor.busy)}
+          interactionMode={showPgmFix ? "view" : clickMode}
+          editorActive={showPgmFix && !!mapEditor.map && mapEditor.tool !== "view"}
+          waitingLabel={showPgmFix ? "Select a PGM" : "Waiting for /map"}
+          onEditorMapPoint={mapEditor.editAtMapPoint}
           onMapPose={handleMapPose}
         />
         <div

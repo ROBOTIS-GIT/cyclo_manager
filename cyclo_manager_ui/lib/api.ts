@@ -35,6 +35,9 @@ import type {
   BashrcResponse,
   RepoVersionResponse,
   CycloManagerVersionResponse,
+  PgmFileListResponse,
+  PgmImageResponse,
+  PgmSaveResponse,
   ROS2TopicsListResponse,
   ROS2TopicDataResponse,
   ROS2TopicPublishRequest,
@@ -157,6 +160,57 @@ export async function controlService(
     const response = await apiClient.post<ServiceControlResponse>(
       `/${container}/services/${service}`,
       request
+    );
+    return response.data;
+  } catch (error) {
+    handleError(error);
+  }
+}
+
+export async function getPgmFiles(container: string): Promise<PgmFileListResponse> {
+  try {
+    const response = await apiClient.get<PgmFileListResponse>(
+      `/${container}/maps/pgm-files`
+    );
+    return response.data;
+  } catch (error) {
+    handleError(error);
+  }
+}
+
+export async function getPgmImage(
+  container: string,
+  path: string
+): Promise<PgmImageResponse> {
+  try {
+    const response = await apiClient.get<PgmImageResponse>(
+      `/${container}/maps/pgm`,
+      { params: { path } }
+    );
+    return response.data;
+  } catch (error) {
+    handleError(error);
+  }
+}
+
+export async function savePgmImage(
+  container: string,
+  path: string,
+  width: number,
+  height: number,
+  maxval: number,
+  pixelsBase64: string
+): Promise<PgmSaveResponse> {
+  try {
+    const response = await apiClient.post<PgmSaveResponse>(
+      `/${container}/maps/pgm/save`,
+      {
+        path,
+        width,
+        height,
+        maxval,
+        pixels_base64: pixelsBase64,
+      }
     );
     return response.data;
   } catch (error) {
