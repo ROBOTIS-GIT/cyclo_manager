@@ -44,9 +44,17 @@ const TF_AXIS_LENGTH = 0.2;
 const LOG_PANEL_DEFAULT_WIDTH = 420;
 const LOG_PANEL_MIN_WIDTH = 320;
 const LOG_PANEL_MAX_WIDTH = 600;
+const MAP_PANEL_DEFAULT_WIDTH = 820;
+const MAP_PANEL_MIN_WIDTH = 420;
+const MAP_PANEL_MAX_WIDTH = 1200;
 const SIDE_PANEL_TOTAL_WIDTH = 820;
+const CONTENT_GRID_GAP_PX = 16;
+const MAP_RESIZE_HANDLE_WIDTH_PX = 8;
+const LOG_RESIZE_HANDLE_WIDTH_PX = 8;
 const ROS2_WS_FAST_TOPIC_OPTIONS = { throttleMs: 100 };
 const ROS2_WS_MAP_TOPIC_OPTIONS = { throttleMs: 300 };
+const GOAL_REACHED_XY_TOLERANCE_M = 0.2;
+const GOAL_REACHED_YAW_TOLERANCE_RAD = 0.4;
 const IDLE_LAYER_PRESET = {
   map: false,
   globalCostmap: false,
@@ -205,6 +213,22 @@ function yawFromPose(pose: Pose | null): number {
 
 function orientationFromYaw(yaw: number) {
   return { x: 0, y: 0, z: Math.sin(yaw / 2), w: Math.cos(yaw / 2) };
+}
+
+function normalizeAngle(angle: number): number {
+  return Math.atan2(Math.sin(angle), Math.cos(angle));
+}
+
+function isGoalReached(current: Pose | null, goal: PoseStamped | null): boolean {
+  const currentPosition = current?.position;
+  const goalPose = goal?.pose;
+  const goalPosition = goalPose?.position;
+  if (!currentPosition || !goalPosition) return false;
+  const dx = Number(currentPosition.x ?? 0) - Number(goalPosition.x ?? 0);
+  const dy = Number(currentPosition.y ?? 0) - Number(goalPosition.y ?? 0);
+  const distance = Math.hypot(dx, dy);
+  const yawError = Math.abs(normalizeAngle(yawFromPose(current) - yawFromPose(goalPose)));
+  return distance <= GOAL_REACHED_XY_TOLERANCE_M && yawError <= GOAL_REACHED_YAW_TOLERANCE_RAD;
 }
 
 function rosTimestampNow() {
@@ -1097,12 +1121,15 @@ function LogIcon({ className }: { className?: string }) {
 export default function NavigationPage() {
   const posePublishBusyRef = useRef(false);
   const logResizeRef = useRef<{ startX: number; startWidth: number } | null>(null);
+  const mapResizeRef = useRef<{ startX: number; startWidth: number } | null>(null);
+  const contentGridRef = useRef<HTMLDivElement>(null);
   const tfBufferRef = useRef<Map<string, TransformStamped>>(new Map());
   const [status, setStatus] = useState<ServiceStatusResponse | null>(null);
   const [mapName, setMapName] = useState(DEFAULT_MAP_NAME);
   const [busy, setBusy] = useState<string | null>(null);
   const [message, setMessage] = useState("Ready");
   const [lastGoalPose, setLastGoalPose] = useState<PoseStamped | null>(null);
+  const [hideReachedGoalPose, setHideReachedGoalPose] = useState(false);
   const [lastBaseLinkPose, setLastBaseLinkPose] = useState<Pose | null>(null);
   const [showMap, setShowMap] = useState(false);
   const [showGlobalCostmap, setShowGlobalCostmap] = useState(false);
@@ -1114,6 +1141,7 @@ export default function NavigationPage() {
   const [showRobotModel, setShowRobotModel] = useState(false);
   const [showLogs, setShowLogs] = useState(false);
   const [logPanelWidth, setLogPanelWidth] = useState(LOG_PANEL_DEFAULT_WIDTH);
+  const [mapPanelWidth, setMapPanelWidth] = useState(MAP_PANEL_DEFAULT_WIDTH);
   const [clickMode, setClickMode] = useState<MapInteractionMode>("view");
   const [posePublishBusy, setPosePublishBusy] = useState(false);
   const [tfBufferRevision, setTfBufferRevision] = useState(0);
@@ -1165,19 +1193,31 @@ export default function NavigationPage() {
   ), [latestTf, tfBufferRevision]);
   const robotDescription = useMemo(() => messageString(robotDescriptionData), [robotDescriptionData]);
   const fallbackPose = amclPose?.pose?.pose ?? null;
-  const goalPose = topicGoalPose ?? lastGoalPose;
+  const goalPose = hideReachedGoalPose ? null : (lastGoalPose ?? topicGoalPose);
   const topicBaseLinkPose = useMemo(() => poseFromBaseLinkTf(bufferedTf), [bufferedTf]);
   const baseLinkPose = topicBaseLinkPose ?? lastBaseLinkPose;
   const currentPose = baseLinkPose ?? fallbackPose;
   const running = status?.is_up ?? false;
   const mode = running ? "running" : "idle";
   const layersPanelWidth = SIDE_PANEL_TOTAL_WIDTH - logPanelWidth;
-  const contentGridStyle = showLogs
-    ? ({
-      "--layers-panel-width": `${layersPanelWidth}px`,
-      "--log-panel-width": `${logPanelWidth}px`,
-    } as CSSProperties)
-    : undefined;
+  const getMaxMapPanelWidth = useCallback(() => {
+    const gridWidth = contentGridRef.current?.clientWidth ?? 0;
+    if (!gridWidth) return MAP_PANEL_MAX_WIDTH;
+    const reservedWidth = showLogs
+      ? layersPanelWidth + logPanelWidth + MAP_RESIZE_HANDLE_WIDTH_PX + LOG_RESIZE_HANDLE_WIDTH_PX + CONTENT_GRID_GAP_PX * 4
+      : 300 + MAP_RESIZE_HANDLE_WIDTH_PX + CONTENT_GRID_GAP_PX * 2;
+    return clamp(gridWidth - reservedWidth, MAP_PANEL_MIN_WIDTH, MAP_PANEL_MAX_WIDTH);
+  }, [layersPanelWidth, logPanelWidth, showLogs]);
+
+  const contentGridStyle = {
+    "--map-panel-width": `${mapPanelWidth}px`,
+    ...(showLogs
+      ? {
+        "--layers-panel-width": `${layersPanelWidth}px`,
+        "--log-panel-width": `${logPanelWidth}px`,
+      }
+      : {}),
+  } as CSSProperties;
 
   const applyLayerPreset = useCallback((preset: LayerPreset) => {
     setShowMap(preset.map);
@@ -1203,8 +1243,26 @@ export default function NavigationPage() {
   }, [topicBaseLinkPose]);
 
   useEffect(() => {
+    if (!lastGoalPose || !isGoalReached(currentPose, lastGoalPose)) return;
+    setLastGoalPose(null);
+    setHideReachedGoalPose(true);
+    setMessage("Goal reached");
+  }, [currentPose, lastGoalPose]);
+
+  useEffect(() => {
     if (!running) applyLayerPreset(IDLE_LAYER_PRESET);
   }, [applyLayerPreset, running]);
+
+  useEffect(() => {
+    const resize = () => {
+      setMapPanelWidth((width) => Math.min(width, getMaxMapPanelWidth()));
+    };
+    resize();
+    window.addEventListener("resize", resize);
+    return () => {
+      window.removeEventListener("resize", resize);
+    };
+  }, [getMaxMapPanelWidth]);
 
   const loadStatus = useCallback(async () => {
     try {
@@ -1277,6 +1335,7 @@ export default function NavigationPage() {
       header: { frame_id: "map" },
       pose: poseStamped.pose,
     });
+    setHideReachedGoalPose(false);
     try {
       await publishROS2Topic(CONTAINER, "/goal_pose", {
         msg_type: "geometry_msgs/msg/PoseStamped",
@@ -1333,6 +1392,29 @@ export default function NavigationPage() {
     });
   }, [clickMode, sendGoal, sendInitialPose]);
 
+  const handleMapResizePointerDown = useCallback((event: ReactPointerEvent<HTMLDivElement>) => {
+    event.preventDefault();
+    mapResizeRef.current = { startX: event.clientX, startWidth: mapPanelWidth };
+
+    const handlePointerMove = (moveEvent: PointerEvent) => {
+      const resizeStart = mapResizeRef.current;
+      if (!resizeStart) return;
+      const nextWidth = resizeStart.startWidth + moveEvent.clientX - resizeStart.startX;
+      setMapPanelWidth(clamp(nextWidth, MAP_PANEL_MIN_WIDTH, getMaxMapPanelWidth()));
+    };
+
+    const handlePointerUp = () => {
+      mapResizeRef.current = null;
+      document.body.style.userSelect = "";
+      window.removeEventListener("pointermove", handlePointerMove);
+      window.removeEventListener("pointerup", handlePointerUp);
+    };
+
+    document.body.style.userSelect = "none";
+    window.addEventListener("pointermove", handlePointerMove);
+    window.addEventListener("pointerup", handlePointerUp, { once: true });
+  }, [getMaxMapPanelWidth, mapPanelWidth]);
+
   const handleLogResizePointerDown = useCallback((event: ReactPointerEvent<HTMLDivElement>) => {
     event.preventDefault();
     logResizeRef.current = { startX: event.clientX, startWidth: logPanelWidth };
@@ -1342,6 +1424,7 @@ export default function NavigationPage() {
       if (!resizeStart) return;
       const nextWidth = resizeStart.startWidth + resizeStart.startX - moveEvent.clientX;
       setLogPanelWidth(clamp(nextWidth, LOG_PANEL_MIN_WIDTH, LOG_PANEL_MAX_WIDTH));
+      setMapPanelWidth((width) => Math.min(width, getMaxMapPanelWidth()));
     };
 
     const handlePointerUp = () => {
@@ -1354,7 +1437,7 @@ export default function NavigationPage() {
     document.body.style.userSelect = "none";
     window.addEventListener("pointermove", handlePointerMove);
     window.addEventListener("pointerup", handlePointerUp, { once: true });
-  }, [logPanelWidth]);
+  }, [getMaxMapPanelWidth, logPanelWidth]);
 
   const hasTopicData = (topic: string) => {
     if (topic === "/map") return !!map;
@@ -1509,11 +1592,12 @@ export default function NavigationPage() {
         </div>
       </header>
       <div
+        ref={contentGridRef}
         className={[
           "flex-1 min-h-0 grid grid-cols-1 gap-4",
           showLogs
-            ? "xl:grid-cols-[minmax(460px,1fr)_var(--layers-panel-width)_8px_var(--log-panel-width)]"
-            : "xl:grid-cols-[minmax(520px,820px)_minmax(300px,1fr)]",
+            ? "xl:grid-cols-[var(--map-panel-width)_8px_var(--layers-panel-width)_8px_var(--log-panel-width)]"
+            : "xl:grid-cols-[var(--map-panel-width)_8px_minmax(300px,1fr)]",
         ].join(" ")}
         style={contentGridStyle}
       >
@@ -1540,6 +1624,14 @@ export default function NavigationPage() {
           interactionDisabled={posePublishBusy}
           interactionMode={clickMode}
           onMapPose={handleMapPose}
+        />
+        <div
+          className="hidden xl:block min-h-0 cursor-col-resize"
+          onPointerDown={handleMapResizePointerDown}
+          title="Resize map"
+          aria-label="Resize map"
+          role="separator"
+          style={{ backgroundColor: "var(--vscode-panel-border)" }}
         />
         <aside className="min-h-0 flex flex-col gap-3">
           <div
