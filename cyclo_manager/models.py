@@ -369,3 +369,10 @@ class ROS2TopicPublishRequest(BaseModel):
 
     msg_type: str = Field(..., description='Message type, e.g. geometry_msgs/msg/PoseStamped')
     data: dict[str, Any] = Field(..., description='Message fields to publish')
+
+
+class ROS2NavigateToPoseGoalRequest(BaseModel):
+    """Request body for sending a Nav2 NavigateToPose action goal."""
+
+    pose: dict[str, Any] = Field(..., description='geometry_msgs/msg/PoseStamped fields')
+    behavior_tree: str = Field('', description='Optional Nav2 behavior tree XML path')

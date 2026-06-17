@@ -1,3 +1,19 @@
+// Copyright 2026 ROBOTIS CO., LTD.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+//
+// Author: Howon Kim
+
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
@@ -7,9 +23,10 @@ import type { PgmFileInfo, PgmImageResponse } from "@/types/api";
 const CONTAINER = "ai_worker";
 const FREE_VALUE = 254;
 const OCCUPIED_VALUE = 0;
-const FREE_THRESHOLD = 200;
+const FREE_THRESHOLD = 250;
 const OCCUPIED_THRESHOLD = 50;
-const DEFAULT_RADIUS_CELLS = 2;
+const DEFAULT_BRUSH_SIZE_CELLS = 1;
+const MAX_BRUSH_SIZE_CELLS = 10;
 
 export type MapEditorOperation = "erase_black" | "draw_black";
 export type MapEditorTool = "view" | MapEditorOperation;
@@ -60,16 +77,14 @@ function paintPgmPixels(
   pixelX: number,
   pixelY: number,
   operation: MapEditorOperation,
-  radiusCells: number
+  brushSizeCells: number
 ) {
   const next = new Uint8Array(pixels);
   const value = operation === "erase_black" ? FREE_VALUE : OCCUPIED_VALUE;
-  const radiusSq = radiusCells * radiusCells;
-  for (let y = pixelY - radiusCells; y <= pixelY + radiusCells; y += 1) {
+  for (let y = pixelY; y < pixelY + brushSizeCells; y += 1) {
     if (y < 0 || y >= height) continue;
-    for (let x = pixelX - radiusCells; x <= pixelX + radiusCells; x += 1) {
+    for (let x = pixelX; x < pixelX + brushSizeCells; x += 1) {
       if (x < 0 || x >= width) continue;
-      if ((x - pixelX) ** 2 + (y - pixelY) ** 2 > radiusSq) continue;
       next[x + y * width] = value;
     }
   }
@@ -114,6 +129,11 @@ function mapPointToPgmPixel(image: PgmImageResponse, x: number, y: number) {
   return { pixelX, pixelY };
 }
 
+function normalizeBrushSize(value: number) {
+  if (!Number.isFinite(value)) return DEFAULT_BRUSH_SIZE_CELLS;
+  return Math.min(Math.max(Math.floor(value), 1), MAX_BRUSH_SIZE_CELLS);
+}
+
 export function useMapEditor({ open, mapName, onMessage }: UseMapEditorOptions) {
   const [files, setFiles] = useState<PgmFileInfo[]>([]);
   const [selectedPath, setSelectedPath] = useState("");
@@ -122,6 +142,7 @@ export function useMapEditor({ open, mapName, onMessage }: UseMapEditorOptions) 
   const [undoStack, setUndoStack] = useState<Uint8Array[]>([]);
   const [dirty, setDirty] = useState(false);
   const [tool, setTool] = useState<MapEditorTool>("view");
+  const [brushSize, setBrushSize] = useState(DEFAULT_BRUSH_SIZE_CELLS);
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
@@ -192,7 +213,7 @@ export function useMapEditor({ open, mapName, onMessage }: UseMapEditorOptions) 
       pixelX,
       pixelY,
       tool,
-      DEFAULT_RADIUS_CELLS
+      brushSize
     );
     let editedPixels = 0;
     for (let index = 0; index < pixels.length; index += 1) {
@@ -207,7 +228,7 @@ export function useMapEditor({ open, mapName, onMessage }: UseMapEditorOptions) 
     setDirty(true);
     const action = tool === "erase_black" ? "Removed" : "Added";
     onMessage(`${action} ${editedPixels} pixels locally`);
-  }, [busy, image, onMessage, open, pixels, tool]);
+  }, [brushSize, busy, image, onMessage, open, pixels, tool]);
 
   const undo = useCallback(() => {
     setUndoStack((stack) => {
@@ -250,6 +271,8 @@ export function useMapEditor({ open, mapName, onMessage }: UseMapEditorOptions) 
     map,
     tool,
     setTool,
+    brushSize,
+    setBrushSize: (value: number) => setBrushSize(normalizeBrushSize(value)),
     busy,
     dirty,
     canUndo: undoStack.length > 0,
@@ -289,6 +312,8 @@ export function MapEditorControls({
   setSelectedPath,
   tool,
   setTool,
+  brushSize,
+  setBrushSize,
   busy,
   image,
   dirty,
@@ -301,6 +326,8 @@ export function MapEditorControls({
   setSelectedPath: (path: string) => void;
   tool: MapEditorTool;
   setTool: (tool: MapEditorTool) => void;
+  brushSize: number;
+  setBrushSize: (value: number) => void;
   busy: boolean;
   image: PgmImageResponse | null;
   dirty: boolean;
@@ -327,6 +354,11 @@ export function MapEditorControls({
           </option>
         ))}
       </select>
+      <div
+        className="h-6 w-px"
+        aria-hidden="true"
+        style={{ backgroundColor: "var(--vscode-panel-border)" }}
+      />
       <button
         type="button"
         disabled={busy}
@@ -363,9 +395,31 @@ export function MapEditorControls({
             borderColor: "var(--vscode-panel-border)",
           }}
         >
-          {value === "erase_black" ? "Remove" : "Add"}
+          {value === "erase_black" ? "-" : "+"}
         </button>
       ))}
+      <input
+        type="number"
+        min={1}
+        max={MAX_BRUSH_SIZE_CELLS}
+        step={1}
+        value={brushSize}
+        disabled={busy}
+        onChange={(event) => setBrushSize(event.currentTarget.valueAsNumber)}
+        className="h-8 w-8 border text-center text-sm font-semibold disabled:opacity-50"
+        title="Brush size"
+        aria-label="Brush size"
+        style={{
+          color: "var(--vscode-input-foreground)",
+          backgroundColor: "var(--vscode-input-background)",
+          borderColor: "var(--vscode-input-border, var(--vscode-panel-border))",
+        }}
+      />
+      <div
+        className="h-6 w-px"
+        aria-hidden="true"
+        style={{ backgroundColor: "var(--vscode-panel-border)" }}
+      />
       <button
         type="button"
         disabled={busy || !canUndo}

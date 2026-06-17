@@ -40,6 +40,7 @@ import type {
   PgmSaveResponse,
   ROS2TopicsListResponse,
   ROS2TopicDataResponse,
+  ROS2NavigateToPoseGoalRequest,
   ROS2TopicPublishRequest,
   ROS2TwistPublishRequest,
 } from "@/types/api";
@@ -523,7 +524,7 @@ export async function publishROS2Topic(
     await apiClient.post(
       `/${container}/ros2/topics/${encodeURIComponent(topic)}/publish`,
       message,
-      { timeout: 10000 }
+      { timeout: 6000 }
     );
   } catch (error) {
     handleError(error);
@@ -533,6 +534,17 @@ export async function publishROS2Topic(
 export async function cancelNavigateToPoseGoal(container: string): Promise<void> {
   try {
     await apiClient.post(`/${container}/ros2/navigate_to_pose/cancel`, undefined, { timeout: 8000 });
+  } catch (error) {
+    handleError(error);
+  }
+}
+
+export async function sendNavigateToPoseGoal(
+  container: string,
+  goal: ROS2NavigateToPoseGoalRequest
+): Promise<void> {
+  try {
+    await apiClient.post(`/${container}/ros2/navigate_to_pose/goal`, goal, { timeout: 12000 });
   } catch (error) {
     handleError(error);
   }

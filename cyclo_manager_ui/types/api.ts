@@ -222,3 +222,8 @@ export interface ROS2TopicPublishRequest {
   msg_type: string;
   data: Record<string, any>;
 }
+
+export interface ROS2NavigateToPoseGoalRequest {
+  pose: Record<string, any>;
+  behavior_tree?: string;
+}

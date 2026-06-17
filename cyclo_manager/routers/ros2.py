@@ -19,15 +19,18 @@
 """ROS2 endpoints router."""
 
 import asyncio
+import copy
 import logging
 import os
 import re
+import shlex
 import subprocess
 import time
 from typing import Any
 
 import yaml
 from cyclo_manager.models import (
+    ROS2NavigateToPoseGoalRequest,
     ROS2SubscribeRequest,
     ROS2TopicDataResponse,
     ROS2TopicPublishRequest,
@@ -35,7 +38,8 @@ from cyclo_manager.models import (
     ROS2TopicStatus,
     ROS2TwistPublishRequest,
 )
-from cyclo_manager.state import get_ros2_node, get_validated_container
+from cyclo_manager.state import get_docker_client, get_ros2_node, get_validated_container
+from docker.errors import DockerException, NotFound
 from fastapi import APIRouter, Body, Depends, HTTPException, status
 
 logger = logging.getLogger(__name__)
@@ -159,13 +163,13 @@ def _publish_topic_once_with_ros2_cli(
         '--wait-matching-subscriptions',
         '1',
         '--keep-alive',
-        '5',
+        '2',
         topic,
         msg_type,
         payload,
     ]
     try:
-        proc = subprocess.run(command, capture_output=True, text=True, timeout=12, env=env)
+        proc = subprocess.run(command, capture_output=True, text=True, timeout=5, env=env)
         if proc.returncode != 0 and '--wait-matching-subscriptions' in (proc.stderr or ''):
             fallback_command = [
                 'ros2',
@@ -173,7 +177,7 @@ def _publish_topic_once_with_ros2_cli(
                 'pub',
                 '--once',
                 '--keep-alive',
-                '5',
+                '2',
                 topic,
                 msg_type,
                 payload,
@@ -182,11 +186,16 @@ def _publish_topic_once_with_ros2_cli(
                 fallback_command,
                 capture_output=True,
                 text=True,
-                timeout=12,
+                timeout=5,
                 env=env,
             )
-    except subprocess.TimeoutExpired:
-        return False, 'ros2 topic pub timed out'
+    except subprocess.TimeoutExpired as exc:
+        stdout = exc.stdout.decode(errors='replace') if isinstance(exc.stdout, bytes) else exc.stdout
+        stderr = exc.stderr.decode(errors='replace') if isinstance(exc.stderr, bytes) else exc.stderr
+        output = ((stdout or '') + '\n' + (stderr or '')).strip()
+        if 'publishing #1' in output:
+            return True, output or 'ros2 topic pub timed out after publishing once'
+        return False, f'ros2 topic pub timed out: {output}' if output else 'ros2 topic pub timed out'
     except FileNotFoundError:
         return False, 'ros2 CLI not found'
 
@@ -230,6 +239,41 @@ def _cancel_navigate_to_pose_goal_with_ros2_cli(domain_id: int) -> tuple[bool, s
 
     output = ((proc.stdout or '') + '\n' + (proc.stderr or '')).strip()
     return proc.returncode == 0, output
+
+
+def _send_navigate_to_pose_goal_in_container(
+    docker_client,
+    container: str,
+    domain_id: int,
+    pose: dict[str, Any],
+    behavior_tree: str = '',
+) -> tuple[bool, str]:
+    """Send a Nav2 NavigateToPose action goal from inside the target container."""
+    pose_stamped = copy.deepcopy(pose)
+    _refresh_header_stamp(pose_stamped)
+    payload = yaml.safe_dump(
+        {'pose': pose_stamped, 'behavior_tree': behavior_tree},
+        default_flow_style=True,
+        sort_keys=False,
+    )
+    command = (
+        'for setup_file in /opt/ros/*/setup.bash; do '
+        '[ -f "$setup_file" ] && source "$setup_file" && break; '
+        'done; '
+        '[ -f /root/ros2_ws/install/setup.bash ] && '
+        'source /root/ros2_ws/install/setup.bash; '
+        'timeout 5s ros2 action send_goal '
+        f'/navigate_to_pose nav2_msgs/action/NavigateToPose {shlex.quote(payload)}'
+    )
+    container_obj = docker_client.get_container(container)
+    result = container_obj.exec_run(
+        ['bash', '-lc', command],
+        environment={'ROS_DOMAIN_ID': str(domain_id)},
+    )
+    output = result.output.decode(errors='replace').strip()
+    return result.exit_code == 0 or (
+        result.exit_code == 124 and 'Goal accepted' in output
+    ), output
 
 
 def _get_topic_publisher_qos(container: str, topic: str, node) -> dict:
@@ -444,6 +488,43 @@ async def cancel_navigate_to_pose_goal(
             detail=f"Failed to cancel NavigateToPose action goal: {output}",
         )
     return {'ok': True, 'action': '/navigate_to_pose/cancel'}
+
+
+@router.post('/navigate_to_pose/goal')
+async def send_navigate_to_pose_goal(
+    body: ROS2NavigateToPoseGoalRequest,
+    container: str = Depends(get_validated_container),
+    docker_client=Depends(get_docker_client),
+):
+    """Send a Nav2 NavigateToPose action goal from inside the target container."""
+    node = get_ros2_node(container)
+    if node is None:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=f"ROS2 node for container '{container}' is not available.",
+        )
+
+    try:
+        ok, output = await asyncio.to_thread(
+            _send_navigate_to_pose_goal_in_container,
+            docker_client,
+            container,
+            node.domain_id,
+            body.pose,
+            body.behavior_tree,
+        )
+    except (DockerException, NotFound) as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=f"Failed to exec NavigateToPose action CLI in container '{container}': {exc}",
+        ) from exc
+
+    if not ok:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=f"Failed to send NavigateToPose action goal: {output}",
+        )
+    return {'ok': True, 'action': '/navigate_to_pose/goal'}
 
 
 @router.post('/topics/{topic:path}/publish')
