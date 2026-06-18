@@ -29,7 +29,7 @@ import { useROS2TopicWebSocket } from "@/lib/websocket";
 import type { ServiceStatusResponse } from "@/types/api";
 import { MapEditorControls, useMapEditor } from "@/components/MapEditor";
 import { MapViewer } from "@/components/MapViewer";
-import { NavigationSidePanel } from "@/components/NavigationSidePanel";
+import { NavigationSidePanel, type NavigationLayerToggle } from "@/components/NavigationSidePanel";
 import { NavigationToolbar } from "@/components/NavigationToolbar";
 import type {
   LaserScan,
@@ -198,37 +198,56 @@ export default function NavigationPage() {
     mapName,
     onMessage: setMessage,
   });
+  const running = status?.is_up ?? false;
+  const navigationTopicsActive = running && busy !== "Stop" && !showPgmFix;
 
   const { topicData: mapData } = useROS2TopicWebSocket(
     CONTAINER,
-    showMap || clickMode !== "view" ? "/map" : null,
+    navigationTopicsActive && (showMap || clickMode !== "view") ? "/map" : null,
     ROS2_WS_MAP_TOPIC_OPTIONS
   );
   const { topicData: globalCostmapData } = useROS2TopicWebSocket(
     CONTAINER,
-    showGlobalCostmap ? "/global_costmap/costmap" : null,
+    navigationTopicsActive && showGlobalCostmap ? "/global_costmap/costmap" : null,
     ROS2_WS_MAP_TOPIC_OPTIONS
   );
   const { topicData: localCostmapData } = useROS2TopicWebSocket(
     CONTAINER,
-    showLocalCostmap ? "/local_costmap/costmap" : null,
+    navigationTopicsActive && showLocalCostmap ? "/local_costmap/costmap" : null,
     ROS2_WS_MAP_TOPIC_OPTIONS
   );
   const { topicData: footprintData } = useROS2TopicWebSocket(
     CONTAINER,
-    showRobotModel ? "/local_costmap/published_footprint" : null,
+    navigationTopicsActive && showRobotModel ? "/local_costmap/published_footprint" : null,
     ROS2_WS_FAST_TOPIC_OPTIONS
   );
   const { topicData: scanData } = useROS2TopicWebSocket(
     CONTAINER,
-    showScan ? "/scan" : null,
+    navigationTopicsActive && showScan ? "/scan" : null,
     ROS2_WS_FAST_TOPIC_OPTIONS
   );
-  const { topicData: amclData } = useROS2TopicWebSocket(CONTAINER, "/amcl_pose", ROS2_WS_FAST_TOPIC_OPTIONS);
-  const { topicData: planData } = useROS2TopicWebSocket(CONTAINER, showGlobalPlan ? "/plan" : null);
-  const { topicData: goalPoseData } = useROS2TopicWebSocket(CONTAINER, showGoalPose ? "/goal_pose" : null);
-  const { topicData: tfData } = useROS2TopicWebSocket(CONTAINER, "/tf", ROS2_WS_FAST_TOPIC_OPTIONS);
-  const { topicData: tfStaticData } = useROS2TopicWebSocket(CONTAINER, "/tf_static");
+  const { topicData: amclData } = useROS2TopicWebSocket(
+    CONTAINER,
+    navigationTopicsActive ? "/amcl_pose" : null,
+    ROS2_WS_FAST_TOPIC_OPTIONS
+  );
+  const { topicData: planData } = useROS2TopicWebSocket(
+    CONTAINER,
+    navigationTopicsActive && showGlobalPlan ? "/plan" : null
+  );
+  const { topicData: goalPoseData } = useROS2TopicWebSocket(
+    CONTAINER,
+    navigationTopicsActive && showGoalPose ? "/goal_pose" : null
+  );
+  const { topicData: tfData } = useROS2TopicWebSocket(
+    CONTAINER,
+    navigationTopicsActive ? "/tf" : null,
+    ROS2_WS_FAST_TOPIC_OPTIONS
+  );
+  const { topicData: tfStaticData } = useROS2TopicWebSocket(
+    CONTAINER,
+    navigationTopicsActive ? "/tf_static" : null
+  );
   const map = useMemo(() => messageData<OccupancyGrid>(mapData), [mapData]);
   const globalCostmap = useMemo(() => messageData<OccupancyGrid>(globalCostmapData), [globalCostmapData]);
   const localCostmap = useMemo(() => messageData<OccupancyGrid>(localCostmapData), [localCostmapData]);
@@ -248,8 +267,9 @@ export default function NavigationPage() {
   const topicBaseLinkPose = useMemo(() => poseFromBaseLinkTf(bufferedTf), [bufferedTf]);
   const baseLinkPose = topicBaseLinkPose ?? lastBaseLinkPose;
   const currentPose = baseLinkPose ?? fallbackPose;
-  const running = status?.is_up ?? false;
   const mode = running ? "running" : "idle";
+  const trimmedMapName = mapName.trim();
+  const hasMapName = trimmedMapName.length > 0;
   const displayedMap = showPgmFix ? mapEditor.map : map;
   const mapViewKey = showPgmFix
     ? `editor:${mapEditor.selectedPath || "none"}`
@@ -273,6 +293,70 @@ export default function NavigationPage() {
       }
       : {}),
   } as CSSProperties;
+
+  const layerToggles = useMemo<NavigationLayerToggle[]>(() => [
+    { id: "map", label: "Map", checked: showMap, onChange: setShowMap },
+    {
+      id: "globalCostmap",
+      label: "Global costmap",
+      checked: showGlobalCostmap,
+      onChange: setShowGlobalCostmap,
+    },
+    {
+      id: "localCostmap",
+      label: "Local costmap",
+      checked: showLocalCostmap,
+      onChange: setShowLocalCostmap,
+    },
+    { id: "scan", label: "Lidar", checked: showScan, onChange: setShowScan },
+    {
+      id: "globalPlan",
+      label: "Global plan",
+      checked: showGlobalPlan,
+      onChange: setShowGlobalPlan,
+    },
+    { id: "goalPose", label: "Goal Pose", checked: showGoalPose, onChange: setShowGoalPose },
+    { id: "tf", label: "TF", checked: showTf, onChange: setShowTf },
+    {
+      id: "robotModel",
+      label: "Robot Model",
+      checked: showRobotModel,
+      onChange: setShowRobotModel,
+    },
+  ], [
+    showGlobalCostmap,
+    showGlobalPlan,
+    showGoalPose,
+    showLocalCostmap,
+    showMap,
+    showRobotModel,
+    showScan,
+    showTf,
+  ]);
+
+  const topicAvailability = useMemo<Record<string, boolean>>(() => ({
+    "/map": !!map,
+    "/global_costmap/costmap": !!globalCostmap,
+    "/local_costmap/costmap": !!localCostmap,
+    "/local_costmap/published_footprint": !!footprint?.polygon?.points?.length,
+    "/scan": !!scan,
+    "/plan": !!plan,
+    "/goal_pose": !!goalPose,
+    "/tf": !!tf?.transforms?.length,
+  }), [
+    footprint,
+    globalCostmap,
+    goalPose,
+    localCostmap,
+    map,
+    plan,
+    scan,
+    tf,
+  ]);
+
+  const hasTopicData = useCallback((topic: string) => {
+    return topicAvailability[topic] ?? false;
+  }, [topicAvailability]);
 
   const applyLayerPreset = useCallback((preset: LayerPreset) => {
     setShowMap(preset.map);
@@ -375,14 +459,16 @@ export default function NavigationPage() {
 
   const stopNavigationService = useCallback(async () => {
     await controlService(CONTAINER, NAVIGATION_SERVICE, "down");
+    setStatus((current) => current ? { ...current, is_up: false, pid: null } : current);
     applyLayerPreset(IDLE_LAYER_PRESET);
   }, [applyLayerPreset]);
 
   const saveMap = useCallback(async () => {
+    if (!trimmedMapName) return "Map name required";
     await controlService(CONTAINER, MAP_SAVE_SERVICE, "restart", {
-      map_name: mapName,
+      map_name: trimmedMapName,
     });
-  }, [mapName]);
+  }, [trimmedMapName]);
 
   const sendGoal = useCallback(async (x: number, y: number, yaw: number) => {
     const orientation = orientationFromYaw(yaw);
@@ -507,18 +593,6 @@ export default function NavigationPage() {
     window.addEventListener("pointerup", handlePointerUp, { once: true });
   }, [getMaxMapPanelWidth, logPanelWidth]);
 
-  const hasTopicData = (topic: string) => {
-    if (topic === "/map") return !!map;
-    if (topic === "/global_costmap/costmap") return !!globalCostmap;
-    if (topic === "/local_costmap/costmap") return !!localCostmap;
-    if (topic === "/local_costmap/published_footprint") return !!footprint?.polygon?.points?.length;
-    if (topic === "/scan") return !!scan;
-    if (topic === "/plan") return !!plan;
-    if (topic === "/goal_pose") return !!goalPose;
-    if (topic === "/tf") return !!tf?.transforms?.length;
-    return false;
-  };
-
   return (
     <div className="h-full min-h-[520px] flex flex-col overflow-hidden">
       <header
@@ -539,6 +613,7 @@ export default function NavigationPage() {
           mapName={mapName}
           mode={mode}
           running={running}
+          canSaveMap={hasMapName}
           showLogs={showLogs}
           showPgmFix={showPgmFix}
           onCancel={() => runCommand("Cancel", cancelGoal)}
@@ -624,24 +699,9 @@ export default function NavigationPage() {
         <NavigationSidePanel
           displayTopics={DISPLAY_TOPICS}
           hasTopicData={hasTopicData}
+          layerToggles={layerToggles}
           mapName={mapName}
           status={status}
-          showGlobalCostmap={showGlobalCostmap}
-          showGlobalPlan={showGlobalPlan}
-          showGoalPose={showGoalPose}
-          showLocalCostmap={showLocalCostmap}
-          showMap={showMap}
-          showRobotModel={showRobotModel}
-          showScan={showScan}
-          showTf={showTf}
-          setShowGlobalCostmap={setShowGlobalCostmap}
-          setShowGlobalPlan={setShowGlobalPlan}
-          setShowGoalPose={setShowGoalPose}
-          setShowLocalCostmap={setShowLocalCostmap}
-          setShowMap={setShowMap}
-          setShowRobotModel={setShowRobotModel}
-          setShowScan={setShowScan}
-          setShowTf={setShowTf}
         />
         {showLogs && (
           <div

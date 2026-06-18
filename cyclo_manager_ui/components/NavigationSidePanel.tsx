@@ -22,27 +22,19 @@ type TopicInfo = {
   topic: string;
 };
 
+export type NavigationLayerToggle = {
+  id: string;
+  label: string;
+  checked: boolean;
+  onChange: (value: boolean) => void;
+};
+
 type NavigationSidePanelProps = {
   displayTopics: readonly TopicInfo[];
+  layerToggles: readonly NavigationLayerToggle[];
   mapName: string;
   status: ServiceStatusResponse | null;
-  showGlobalCostmap: boolean;
-  showGlobalPlan: boolean;
-  showGoalPose: boolean;
-  showLocalCostmap: boolean;
-  showMap: boolean;
-  showRobotModel: boolean;
-  showScan: boolean;
-  showTf: boolean;
   hasTopicData: (topic: string) => boolean;
-  setShowGlobalCostmap: (value: boolean) => void;
-  setShowGlobalPlan: (value: boolean) => void;
-  setShowGoalPose: (value: boolean) => void;
-  setShowLocalCostmap: (value: boolean) => void;
-  setShowMap: (value: boolean) => void;
-  setShowRobotModel: (value: boolean) => void;
-  setShowScan: (value: boolean) => void;
-  setShowTf: (value: boolean) => void;
 };
 
 function Toggle({
@@ -89,24 +81,9 @@ function TopicName({ topic }: { topic: string }) {
 export function NavigationSidePanel({
   displayTopics,
   hasTopicData,
+  layerToggles,
   mapName,
   status,
-  showGlobalCostmap,
-  showGlobalPlan,
-  showGoalPose,
-  showLocalCostmap,
-  showMap,
-  showRobotModel,
-  showScan,
-  showTf,
-  setShowGlobalCostmap,
-  setShowGlobalPlan,
-  setShowGoalPose,
-  setShowLocalCostmap,
-  setShowMap,
-  setShowRobotModel,
-  setShowScan,
-  setShowTf,
 }: NavigationSidePanelProps) {
   return (
     <aside className="min-h-0 flex flex-col gap-3">
@@ -120,14 +97,14 @@ export function NavigationSidePanel({
       >
         <div className="text-xs font-semibold">Layers</div>
         <div className="flex flex-wrap gap-2">
-          <Toggle label="Map" checked={showMap} onChange={setShowMap} />
-          <Toggle label="Global costmap" checked={showGlobalCostmap} onChange={setShowGlobalCostmap} />
-          <Toggle label="Local costmap" checked={showLocalCostmap} onChange={setShowLocalCostmap} />
-          <Toggle label="Lidar" checked={showScan} onChange={setShowScan} />
-          <Toggle label="Global plan" checked={showGlobalPlan} onChange={setShowGlobalPlan} />
-          <Toggle label="Goal Pose" checked={showGoalPose} onChange={setShowGoalPose} />
-          <Toggle label="TF" checked={showTf} onChange={setShowTf} />
-          <Toggle label="Robot Model" checked={showRobotModel} onChange={setShowRobotModel} />
+          {layerToggles.map((layer) => (
+            <Toggle
+              key={layer.id}
+              label={layer.label}
+              checked={layer.checked}
+              onChange={layer.onChange}
+            />
+          ))}
         </div>
       </div>
       <div

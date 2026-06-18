@@ -24,6 +24,7 @@ import logging
 import queue
 import threading
 import time
+import zlib
 from typing import Any, Optional, TypeAlias
 
 from cyclo_manager.ros2_node.message import (
@@ -88,6 +89,23 @@ def _ensure_rclpy_init() -> None:
             _rclpy_initialized = True
 
 
+def _checksum_int8_sequence(data: Any) -> int:
+    try:
+        return zlib.crc32(data)
+    except (BufferError, TypeError, ValueError):
+        pass
+
+    try:
+        return zlib.crc32(memoryview(data))
+    except (BufferError, TypeError, ValueError):
+        pass
+
+    try:
+        return zlib.crc32(bytes(data))
+    except (TypeError, ValueError):
+        return zlib.crc32(bytes((int(value) & 0xff for value in data)))
+
+
 class CycloManagerTopicSubscriber:
     """
     cyclo_manager topic subscriber: one rclpy node per container.
@@ -109,6 +127,7 @@ class CycloManagerTopicSubscriber:
         self._lock = threading.Lock()
 
         self._subs: dict[str, Subscription] = {}
+        self._sub_owners: dict[str, str] = {}
         self._pubs: dict[tuple[str, str], Publisher] = {}
         self._msg_cache: dict[str, TopicCacheEntry] = {}
         self._discovered_topics: dict[str, list[str]] = {}
@@ -179,11 +198,11 @@ class CycloManagerTopicSubscriber:
                 if kind == RequestKind.RUN_DISCOVERY:
                     self._handle_run_discovery()
                 elif kind == RequestKind.ADD_TOPIC:
-                    topic, msg_type, qos_profile = payload
-                    self._handle_add_topic(topic, msg_type, qos_profile)
+                    topic, msg_type, qos_profile, owner_id = payload
+                    self._handle_add_topic(topic, msg_type, qos_profile, owner_id)
                 elif kind == RequestKind.REMOVE_TOPIC:
-                    topic = payload
-                    self._handle_remove_topic(topic)
+                    topic, owner_id = payload
+                    self._handle_remove_topic(topic, owner_id)
                 elif kind == RequestKind.PUBLISH_TOPIC:
                     topic, msg_type, data, response_queue = payload
                     try:
@@ -211,9 +230,17 @@ class CycloManagerTopicSubscriber:
         except Exception as e:
             logger.warning('Discovery failed for %s: %s', self.container_name, e)
 
-    def _handle_add_topic(self, topic: str, msg_type: str, qos_profile: dict) -> None:
+    def _handle_add_topic(
+        self,
+        topic: str,
+        msg_type: str,
+        qos_profile: dict,
+        owner_id: Optional[str],
+    ) -> None:
         with self._lock:
             if topic in self._subs:
+                if owner_id is not None:
+                    self._sub_owners[topic] = owner_id
                 return
         profile = dict(qos_profile or {})
         if topic == '/robot_description':
@@ -227,6 +254,8 @@ class CycloManagerTopicSubscriber:
         if sub:
             with self._lock:
                 self._subs[topic] = sub
+                if owner_id is not None:
+                    self._sub_owners[topic] = owner_id
                 self._topic_msg_types[topic] = msg_type
                 if profile.get('durability') == 'transient_local':
                     self._topics_transient_local.add(topic)
@@ -237,9 +266,13 @@ class CycloManagerTopicSubscriber:
                 msg_type,
             )
 
-    def _handle_remove_topic(self, topic: str) -> None:
+    def _handle_remove_topic(self, topic: str, owner_id: Optional[str] = None) -> None:
         with self._lock:
+            current_owner_id = self._sub_owners.get(topic)
+            if owner_id is not None and current_owner_id != owner_id:
+                return
             sub = self._subs.pop(topic, None)
+            self._sub_owners.pop(topic, None)
             self._topic_msg_types.pop(topic, None)
             self._topics_transient_local.discard(topic)
             self._msg_cache.pop(topic, None)
@@ -327,6 +360,7 @@ class CycloManagerTopicSubscriber:
         with self._lock:
             all_subs = list(self._subs.items())
             self._subs.clear()
+            self._sub_owners.clear()
         for topic, sub in all_subs:
             try:
                 self._node.destroy_subscription(sub)
@@ -383,12 +417,15 @@ class CycloManagerTopicSubscriber:
         topic: str,
         msg_type: str,
         qos_profile: Optional[dict] = None,
+        owner_id: Optional[str] = None,
     ) -> bool:
         with self._lock:
             if topic in self._subs:
+                if owner_id is not None:
+                    self._sub_owners[topic] = owner_id
                 return True
         self._enqueue_and_wait(
-            (RequestKind.ADD_TOPIC, (topic, msg_type, qos_profile or {}))
+            (RequestKind.ADD_TOPIC, (topic, msg_type, qos_profile or {}, owner_id))
         )
         with self._lock:
             return topic in self._subs
@@ -437,8 +474,8 @@ class CycloManagerTopicSubscriber:
         except queue.Empty:
             return False
 
-    def remove_topic_subscription(self, topic: str) -> None:
-        self._enqueue_and_wait((RequestKind.REMOVE_TOPIC, topic))
+    def remove_topic_subscription(self, topic: str, owner_id: Optional[str] = None) -> None:
+        self._enqueue_and_wait((RequestKind.REMOVE_TOPIC, (topic, owner_id)))
 
     def is_topic_transient_local_subscription(self, topic: str) -> bool:
         """Return whether this topic is subscribed with TRANSIENT_LOCAL durability."""
@@ -459,6 +496,41 @@ class CycloManagerTopicSubscriber:
             data = message_to_dict(raw, convert_value_for_json)
             return {'data': data, 'received_at': cached.get('received_at')}
 
+    def get_topic_signature(self, topic: str) -> Optional[tuple[Any, ...]]:
+        with self._lock:
+            cached = self._msg_cache.get(topic)
+            if cached is None:
+                return None
+            if not self._is_cached_valid(topic, cached):
+                del self._msg_cache[topic]
+                return None
+            raw = cached.get('raw_message')
+        if raw is None:
+            return None
+
+        info = getattr(raw, 'info', None)
+        data = getattr(raw, 'data', None)
+        if info is not None and data is not None:
+            checksum = _checksum_int8_sequence(data)
+            origin = getattr(info, 'origin', None)
+            position = getattr(origin, 'position', None)
+            orientation = getattr(origin, 'orientation', None)
+            return (
+                getattr(info, 'width', None),
+                getattr(info, 'height', None),
+                getattr(info, 'resolution', None),
+                getattr(position, 'x', None),
+                getattr(position, 'y', None),
+                getattr(position, 'z', None),
+                getattr(orientation, 'x', None),
+                getattr(orientation, 'y', None),
+                getattr(orientation, 'z', None),
+                getattr(orientation, 'w', None),
+                checksum,
+            )
+
+        return None
+
     def list_topics(self) -> list[str]:
         """All known topics: KNOWN_TOPIC_TYPES + discovered + subscribed."""
         with self._lock:
@@ -476,8 +548,14 @@ class CycloManagerTopicSubscriber:
         return msg_type or None
 
     def is_topic_available(self, topic: str) -> bool:
-        data = self.get_topic_data(topic)
-        return data is not None
+        with self._lock:
+            cached = self._msg_cache.get(topic)
+            if cached is None:
+                return False
+            if not self._is_cached_valid(topic, cached):
+                del self._msg_cache[topic]
+                return False
+            return cached.get('raw_message') is not None
 
     def request_discovery(self) -> None:
         """Enqueue discovery request; spin thread will run get_topic_names_and_types."""

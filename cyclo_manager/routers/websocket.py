@@ -22,6 +22,7 @@ import asyncio
 import logging
 import time
 from typing import Any, Optional, Tuple
+from uuid import uuid4
 
 from cyclo_manager.models import ROS2TopicDataResponse
 from cyclo_manager.routers import ros2 as ros2_router
@@ -46,6 +47,14 @@ FALLBACK_LOG_TAIL = 10000
 # ROS2 topic WebSocket throttling: maximum send rate per topic (Hz)
 # Prevents overwhelming WebSocket with high-frequency topics (e.g., 100Hz)
 ROS2_TOPIC_MAX_SEND_RATE = 10.0  # Hz (10 messages per second max)
+ROS2_TOPIC_SEND_RATES: dict[str, float] = {
+    '/map': 1.0,
+    '/global_costmap/costmap': 1.0,
+    '/local_costmap/costmap': 5.0,
+    '/local_costmap/published_footprint': 10.0,
+    '/scan': 10.0,
+    '/tf': 10.0,
+}
 
 
 # ============================================================================
@@ -297,15 +306,30 @@ def _get_topic_msg_type(node: Any, topic: str) -> str:
     return node.get_topic_msg_type(topic) or ''
 
 
+def _get_topic_send_rate(topic: str) -> float:
+    return ROS2_TOPIC_SEND_RATES.get(topic, ROS2_TOPIC_MAX_SEND_RATE)
+
+
+def _get_topic_change_marker(node: Any, topic: str, data: Any | None = None) -> Any:
+    try:
+        signature = node.get_topic_signature(topic)
+    except Exception as e:
+        logger.debug('Failed to build ROS2 topic signature for %s: %s', topic, e)
+        signature = None
+    if signature is not None:
+        return signature
+    return hash(str(data)) if data is not None else None
+
+
 async def _poll_and_send_single_topic_data(
     websocket: WebSocket,
     container: str,
     node: Any,
     topic: str,
     last_send_time: float,
-    last_sent_data_hash: Optional[int],
+    last_sent_marker: Any,
     min_interval: float
-) -> Tuple[bool, float, Optional[int]]:
+) -> Tuple[bool, float, Any]:
     """
     Poll for single topic data and send if changed (with throttling).
 
@@ -318,7 +342,7 @@ async def _poll_and_send_single_topic_data(
     node: CycloManagerTopicSubscriber instance.
     topic: Topic name.
     last_send_time: Last send time for this topic.
-    last_sent_data_hash: Last sent data hash for this topic.
+    last_sent_marker: Last sent change marker for this topic.
     min_interval: Minimum time between sends (throttling).
 
     Returns
@@ -330,18 +354,21 @@ async def _poll_and_send_single_topic_data(
     time_since_last_send = current_time - last_send_time
 
     if time_since_last_send < min_interval:
-        return True, last_send_time, last_sent_data_hash  # Throttled
+        return True, last_send_time, last_sent_marker  # Throttled
 
-    # Get latest cached data
-    cached_data = node.get_topic_data(topic)
     available = node.is_topic_available(topic)
+    marker = _get_topic_change_marker(node, topic)
+    if marker is not None and marker == last_sent_marker and available:
+        return True, last_send_time, last_sent_marker
+
+    # Get latest cached data only after the lightweight marker says it changed.
+    cached_data = node.get_topic_data(topic)
 
     if cached_data:
         data = cached_data.get('data')
-        # Check if data changed (simple hash comparison)
-        data_hash = hash(str(data)) if data is not None else None
+        marker = marker if marker is not None else _get_topic_change_marker(node, topic, data)
 
-        if data_hash != last_sent_data_hash or not available:
+        if marker != last_sent_marker or not available:
             # Data changed or became unavailable, send update
             msg_type = _get_topic_msg_type(node, topic)
             response = ROS2TopicDataResponse(
@@ -354,12 +381,12 @@ async def _poll_and_send_single_topic_data(
             )
 
             success = await _send_websocket_data(websocket, response.model_dump())
-            return success, current_time, data_hash
+            return success, current_time, marker
     elif not available:
         # Topic became unavailable or no data yet
-        # Send notification if this is the first check (last_sent_data_hash is None)
-        # or if we had data before (last_sent_data_hash is not None)
-        if last_sent_data_hash is None:
+        # Send notification if this is the first check (last_sent_marker is None)
+        # or if we had data before (last_sent_marker is not None)
+        if last_sent_marker is None:
             # First time checking - send initial unavailable status
             msg_type = _get_topic_msg_type(node, topic)
             response = ROS2TopicDataResponse(
@@ -374,7 +401,7 @@ async def _poll_and_send_single_topic_data(
             success = await _send_websocket_data(websocket, response.model_dump())
             # Use -1 as sentinel value to indicate unavailable status sent
             return success, current_time, -1
-        elif last_sent_data_hash != -1:
+        elif last_sent_marker != -1:
             # We had data before, now it's unavailable - send notification
             msg_type = _get_topic_msg_type(node, topic)
             response = ROS2TopicDataResponse(
@@ -389,9 +416,9 @@ async def _poll_and_send_single_topic_data(
             success = await _send_websocket_data(websocket, response.model_dump())
             return success, current_time, -1
         # If last_sent_data_hash is -1, we already sent unavailable status, don't send again
-        return True, last_send_time, last_sent_data_hash
+        return True, last_send_time, last_sent_marker
 
-    return True, last_send_time, last_sent_data_hash  # No change
+    return True, last_send_time, last_sent_marker  # No change
 
 
 @router.websocket('/ws/{container}/services/{service}/logs')
@@ -507,6 +534,9 @@ async def websocket_ros2_topic_data(websocket: WebSocket, container: str, topic:
     """
     await websocket.accept()
     logger.info(f'WebSocket connection established for {container}/ros2/{topic}')
+    node = None
+    subscribed = False
+    subscription_owner_id = uuid4().hex
 
     try:
         node = get_ros2_node(container)
@@ -530,17 +560,22 @@ async def websocket_ros2_topic_data(websocket: WebSocket, container: str, topic:
         msg_type = node.get_topic_msg_type(topic)
         if msg_type:
             qos_profile = ros2_router.resolve_qos_profile_for_topic(container, topic, node)
-            node.add_topic_subscription(topic, msg_type, qos_profile=qos_profile)
+            subscribed = node.add_topic_subscription(
+                topic,
+                msg_type,
+                qos_profile=qos_profile,
+                owner_id=subscription_owner_id,
+            )
             # Give TRANSIENT_LOCAL callback time to receive the last message (DDS is async)
-            if node.is_topic_transient_local_subscription(topic):
+            if subscribed and node.is_topic_transient_local_subscription(topic):
                 for _ in range(5):
                     await asyncio.sleep(0.1)
                     if node.get_topic_data(topic):
                         break
 
         last_send_time: float = 0.0
-        last_sent_data_hash: Optional[int] = None
-        min_interval = 1.0 / ROS2_TOPIC_MAX_SEND_RATE
+        last_sent_marker: Any = None
+        min_interval = 1.0 / _get_topic_send_rate(topic)
 
         try:
             cached_data = node.get_topic_data(topic)
@@ -548,7 +583,7 @@ async def websocket_ros2_topic_data(websocket: WebSocket, container: str, topic:
 
             if cached_data:
                 data = cached_data.get('data')
-                data_hash = hash(str(data)) if data is not None else None
+                marker = _get_topic_change_marker(node, topic, data)
                 msg_type = _get_topic_msg_type(node, topic)
                 response = ROS2TopicDataResponse(
                     container=container,
@@ -560,7 +595,7 @@ async def websocket_ros2_topic_data(websocket: WebSocket, container: str, topic:
                 )
                 if await _send_websocket_data(websocket, response.model_dump()):
                     last_send_time = time.time()
-                    last_sent_data_hash = data_hash
+                    last_sent_marker = marker
             elif not available:
                 msg_type = _get_topic_msg_type(node, topic)
                 response = ROS2TopicDataResponse(
@@ -573,15 +608,15 @@ async def websocket_ros2_topic_data(websocket: WebSocket, container: str, topic:
                 )
                 if await _send_websocket_data(websocket, response.model_dump()):
                     last_send_time = time.time()
-                    last_sent_data_hash = -1
+                    last_sent_marker = -1
 
             while True:
                 await asyncio.sleep(min(LOG_POLL_INTERVAL, min_interval))
 
-                connection_alive, new_last_send_time, new_last_sent_data_hash = (
+                connection_alive, new_last_send_time, new_last_sent_marker = (
                     await _poll_and_send_single_topic_data(
                         websocket, container, node, topic,
-                        last_send_time, last_sent_data_hash, min_interval
+                        last_send_time, last_sent_marker, min_interval
                     )
                 )
 
@@ -591,7 +626,7 @@ async def websocket_ros2_topic_data(websocket: WebSocket, container: str, topic:
 
                 # Update state
                 last_send_time = new_last_send_time
-                last_sent_data_hash = new_last_sent_data_hash
+                last_sent_marker = new_last_sent_marker
 
         except WebSocketDisconnect:
             logger.info(f'WebSocket disconnected for {container}/ros2/{topic}')
@@ -606,3 +641,14 @@ async def websocket_ros2_topic_data(websocket: WebSocket, container: str, topic:
     except Exception as e:
         logger.error(f'WebSocket error for {container}/ros2/{topic}: {e}', exc_info=True)
         await _close_websocket_ignoring_error(websocket)
+    finally:
+        if subscribed and node is not None:
+            try:
+                node.remove_topic_subscription(topic, owner_id=subscription_owner_id)
+            except Exception as e:
+                logger.warning(
+                    'Failed to cleanup ROS2 subscription for %s/ros2/%s: %s',
+                    container,
+                    topic,
+                    e,
+                )
