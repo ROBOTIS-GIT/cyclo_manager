@@ -29,7 +29,11 @@ import { useROS2TopicWebSocket } from "@/lib/websocket";
 import type { ServiceStatusResponse } from "@/types/api";
 import { MapEditorControls, useMapEditor } from "@/components/MapEditor";
 import { MapViewer } from "@/components/MapViewer";
-import { NavigationSidePanel, type NavigationLayerToggle } from "@/components/NavigationSidePanel";
+import {
+  NavigationSidePanel,
+  type NavigationLayerToggle,
+  type NavigationTopicRow,
+} from "@/components/NavigationSidePanel";
 import { NavigationToolbar } from "@/components/NavigationToolbar";
 import type {
   LaserScan,
@@ -106,21 +110,16 @@ const NAVIGATION_LAYER_PRESET = {
 type LayerPreset = typeof IDLE_LAYER_PRESET;
 type NavigationServiceMode = "mapping" | "navigation";
 
-const TOPICS = [
-  { topic: "/map", msgType: "nav_msgs/msg/OccupancyGrid" },
-  { topic: "/global_costmap/costmap", msgType: "nav_msgs/msg/OccupancyGrid" },
-  { topic: "/local_costmap/costmap", msgType: "nav_msgs/msg/OccupancyGrid" },
-  { topic: "/local_costmap/published_footprint", msgType: "geometry_msgs/msg/PolygonStamped" },
-  { topic: "/scan", msgType: "sensor_msgs/msg/LaserScan" },
-  { topic: "/amcl_pose", msgType: "geometry_msgs/msg/PoseWithCovarianceStamped" },
-  { topic: "/plan", msgType: "nav_msgs/msg/Path" },
-  { topic: "/goal_pose", msgType: "geometry_msgs/msg/PoseStamped" },
-  { topic: "/tf", msgType: "tf2_msgs/msg/TFMessage" },
-  { topic: "/tf_static", msgType: "tf2_msgs/msg/TFMessage" },
+const DISPLAY_TOPICS = [
+  "/map",
+  "/global_costmap/costmap",
+  "/local_costmap/costmap",
+  "/local_costmap/published_footprint",
+  "/scan",
+  "/plan",
+  "/goal_pose",
+  "/tf",
 ] as const;
-const DISPLAY_TOPICS = TOPICS.filter(
-  ({ topic }) => topic !== "/amcl_pose" && topic !== "/tf_static"
-);
 
 function messageData<T>(value: unknown): T | null {
   if (!value || typeof value !== "object") return null;
@@ -334,15 +333,18 @@ export default function NavigationPage() {
     showTf,
   ]);
 
-  const topicAvailability = useMemo<Record<string, boolean>>(() => ({
-    "/map": !!map,
-    "/global_costmap/costmap": !!globalCostmap,
-    "/local_costmap/costmap": !!localCostmap,
-    "/local_costmap/published_footprint": !!footprint?.polygon?.points?.length,
-    "/scan": !!scan,
-    "/plan": !!plan,
-    "/goal_pose": !!goalPose,
-    "/tf": !!tf?.transforms?.length,
+  const topicRows = useMemo<NavigationTopicRow[]>(() => DISPLAY_TOPICS.map((topic) => {
+    if (topic === "/map") return { topic, isLive: !!map };
+    if (topic === "/global_costmap/costmap") return { topic, isLive: !!globalCostmap };
+    if (topic === "/local_costmap/costmap") return { topic, isLive: !!localCostmap };
+    if (topic === "/local_costmap/published_footprint") {
+      return { topic, isLive: !!footprint?.polygon?.points?.length };
+    }
+    if (topic === "/scan") return { topic, isLive: !!scan };
+    if (topic === "/plan") return { topic, isLive: !!plan };
+    if (topic === "/goal_pose") return { topic, isLive: !!goalPose };
+    if (topic === "/tf") return { topic, isLive: !!tf?.transforms?.length };
+    return { topic, isLive: false };
   }), [
     footprint,
     globalCostmap,
@@ -353,10 +355,6 @@ export default function NavigationPage() {
     scan,
     tf,
   ]);
-
-  const hasTopicData = useCallback((topic: string) => {
-    return topicAvailability[topic] ?? false;
-  }, [topicAvailability]);
 
   const applyLayerPreset = useCallback((preset: LayerPreset) => {
     setShowMap(preset.map);
@@ -613,7 +611,7 @@ export default function NavigationPage() {
           mapName={mapName}
           mode={mode}
           running={running}
-          canSaveMap={hasMapName}
+          hasMapName={hasMapName}
           showLogs={showLogs}
           showPgmFix={showPgmFix}
           onCancel={() => runCommand("Cancel", cancelGoal)}
@@ -697,11 +695,10 @@ export default function NavigationPage() {
           style={{ backgroundColor: "var(--vscode-panel-border)" }}
         />
         <NavigationSidePanel
-          displayTopics={DISPLAY_TOPICS}
-          hasTopicData={hasTopicData}
           layerToggles={layerToggles}
           mapName={mapName}
           status={status}
+          topicRows={topicRows}
         />
         {showLogs && (
           <div

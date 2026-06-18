@@ -22,7 +22,7 @@ import type { MapInteractionMode } from "@/lib/ros_types";
 
 type NavigationToolbarProps = {
   busy: string | null;
-  canSaveMap: boolean;
+  hasMapName: boolean;
   clickMode: MapInteractionMode;
   mapName: string;
   mode: string;
@@ -88,7 +88,7 @@ function LogIcon({ className }: { className?: string }) {
 
 export function NavigationToolbar({
   busy,
-  canSaveMap,
+  hasMapName,
   clickMode,
   mapName,
   mode,
@@ -204,7 +204,7 @@ export function NavigationToolbar({
       />
       <button
         type="button"
-        disabled={busy !== null || !canSaveMap}
+        disabled={busy !== null || !hasMapName}
         onClick={onSaveMap}
         className="h-8 px-3 border text-sm font-semibold disabled:opacity-50"
         style={{
@@ -217,7 +217,7 @@ export function NavigationToolbar({
       </button>
       <button
         type="button"
-        disabled={busy !== null || !mapName.trim()}
+        disabled={busy !== null || !hasMapName}
         onClick={onFixToggle}
         className="h-8 px-3 border text-sm font-semibold disabled:opacity-50"
         style={{

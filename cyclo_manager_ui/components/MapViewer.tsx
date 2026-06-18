@@ -481,6 +481,8 @@ export function MapViewer({
   const fitMapKeyRef = useRef<string | null>(null);
   const viewRollRef = useRef(0);
   const viewRotateDragRef = useRef<{ clientX: number; roll: number } | null>(null);
+  const latestFootprintRef = useRef<PolygonStamped | null>(null);
+  const tfSyncedFootprintRef = useRef<PolygonStamped | null>(null);
   const [dragPreviewPose, setDragPreviewPose] = useState<Pose | null>(null);
   // Freeze each LaserScan in display coordinates until the next scan or map geometry change.
   const scanProjectionRef = useRef<{ scan: LaserScan; mapKey: string | null; points: number[] } | null>(null);
@@ -575,6 +577,14 @@ export function MapViewer({
   }, [editorActive, interactionDisabled, interactionMode]);
 
   useEffect(() => {
+    latestFootprintRef.current = footprint;
+  }, [footprint]);
+
+  useEffect(() => {
+    tfSyncedFootprintRef.current = latestFootprintRef.current;
+  }, [tf]);
+
+  useEffect(() => {
     const scene = sceneRef.current;
     const layers = layersRef.current;
     const camera = cameraRef.current;
@@ -586,6 +596,7 @@ export function MapViewer({
 
     const meta = gridMeta(map);
     const mapKey = meta ? `${meta.width}:${meta.height}:${meta.resolution}:${meta.originX}:${meta.originY}` : null;
+    const tfSyncedFootprint = tfSyncedFootprintRef.current;
     const tfFramePoses = buildTfFramePoses(tf, "map");
     const tfFramePoseByName = new Map(tfFramePoses.map(({ frame, pose: framePose }) => [frame, framePose]));
     if (showMap) {
@@ -677,19 +688,19 @@ export function MapViewer({
       }
     }
 
-    if (showRobotModel && footprint?.polygon?.points?.length) {
-      const footprintFrame = normalizeFrameId(footprint.header?.frame_id);
+    if (showRobotModel && tfSyncedFootprint?.polygon?.points?.length) {
+      const footprintFrame = normalizeFrameId(tfSyncedFootprint.header?.frame_id);
       const footprintFramePose = footprintFrame && footprintFrame !== "map"
         ? tfFramePoseByName.get(footprintFrame) ?? null
         : null;
-      const footprintMarker = makeFootprintMarker(footprint, footprintFramePose);
+      const footprintMarker = makeFootprintMarker(tfSyncedFootprint, footprintFramePose);
       if (footprintMarker) layers.add(footprintMarker);
     }
 
     if (pose?.position) {
       layers.add(makePoseMarker(
         pose,
-        showRobotModel && footprint?.polygon?.points?.length ? 0x60a5fa : 0x007acc,
+        showRobotModel && tfSyncedFootprint?.polygon?.points?.length ? 0x60a5fa : 0x007acc,
         0.16
       ));
     }
@@ -703,7 +714,6 @@ export function MapViewer({
     globalCostmap,
     dragPreviewPose,
     goalPose,
-    footprint,
     interactionMode,
     localCostmap,
     map,

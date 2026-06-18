@@ -81,9 +81,12 @@ function paintPgmPixels(
 ) {
   const next = new Uint8Array(pixels);
   const value = operation === "erase_black" ? FREE_VALUE : OCCUPIED_VALUE;
-  for (let y = pixelY; y < pixelY + brushSizeCells; y += 1) {
+  const offset = Math.floor(brushSizeCells / 2);
+  const startX = pixelX - offset;
+  const startY = pixelY - offset;
+  for (let y = startY; y < startY + brushSizeCells; y += 1) {
     if (y < 0 || y >= height) continue;
-    for (let x = pixelX; x < pixelX + brushSizeCells; x += 1) {
+    for (let x = startX; x < startX + brushSizeCells; x += 1) {
       if (x < 0 || x >= width) continue;
       next[x + y * width] = value;
     }

@@ -18,8 +18,9 @@
 
 import type { ServiceStatusResponse } from "@/types/api";
 
-type TopicInfo = {
+export type NavigationTopicRow = {
   topic: string;
+  isLive: boolean;
 };
 
 export type NavigationLayerToggle = {
@@ -30,11 +31,10 @@ export type NavigationLayerToggle = {
 };
 
 type NavigationSidePanelProps = {
-  displayTopics: readonly TopicInfo[];
+  topicRows: readonly NavigationTopicRow[];
   layerToggles: readonly NavigationLayerToggle[];
   mapName: string;
   status: ServiceStatusResponse | null;
-  hasTopicData: (topic: string) => boolean;
 };
 
 function Toggle({
@@ -79,11 +79,10 @@ function TopicName({ topic }: { topic: string }) {
 }
 
 export function NavigationSidePanel({
-  displayTopics,
-  hasTopicData,
   layerToggles,
   mapName,
   status,
+  topicRows,
 }: NavigationSidePanelProps) {
   return (
     <aside className="min-h-0 flex flex-col gap-3">
@@ -116,11 +115,11 @@ export function NavigationSidePanel({
         }}
       >
         <div className="font-semibold">Topics</div>
-        {displayTopics.map(({ topic }) => (
+        {topicRows.map(({ topic, isLive }) => (
           <div key={topic} className="flex items-center justify-between gap-3 min-w-0">
             <TopicName topic={topic} />
             <span className="shrink-0" style={{ color: "var(--vscode-descriptionForeground)" }}>
-              {hasTopicData(topic) ? "live" : "wait"}
+              {isLive ? "live" : "wait"}
             </span>
           </div>
         ))}
