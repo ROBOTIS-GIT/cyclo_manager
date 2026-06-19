@@ -185,6 +185,21 @@ function InfoRow({ label, value }: { label: string; value: string | null | undef
   );
 }
 
+function InfoStatusRow({ label, value }: { label: string; value: boolean | null | undefined }) {
+  if (value == null) {
+    return <InfoRow label={label} value={undefined} />;
+  }
+
+  return (
+    <div className="flex items-start justify-between gap-3 py-2">
+      <span className="shrink-0 text-sm" style={{ color: "var(--vscode-descriptionForeground)" }}>
+        {label}
+      </span>
+      <StatusBadge status={value} label={value ? "Connected" : "Disconnected"} />
+    </div>
+  );
+}
+
 const iconBtn: React.CSSProperties = {
   display: "flex", alignItems: "center", justifyContent: "center",
   width: 30, height: 30, padding: 0, border: "none", borderRadius: "50%",
@@ -442,6 +457,7 @@ export default function HomePage() {
                 <InfoRow label="Hostname" value={robotInfo?.hostname} />
                 <InfoRow label="OS" value={robotInfo?.os_info} />
                 <InfoRow label="IP Address" value={robotInfo?.ip_address} />
+                <InfoStatusRow label="Internet" value={robotInfo?.internet_connected} />
                 <InfoRow
                   label="Uptime"
                   value={systemStats ? formatUptime(systemStats.uptime_seconds) : undefined}

@@ -182,6 +182,7 @@ export interface RobotInfoResponse {
   hostname: string;
   os_info: string | null;
   ip_address: string | null;
+  internet_connected: boolean;
 }
 
 export interface HostSystemStatsResponse {

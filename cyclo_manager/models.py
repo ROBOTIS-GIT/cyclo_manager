@@ -363,6 +363,7 @@ class RobotInfoResponse(BaseModel):
     hostname: str
     os_info: Optional[str] = None
     ip_address: Optional[str] = None
+    internet_connected: bool = False
 
 
 class SystemStatsResponse(BaseModel):

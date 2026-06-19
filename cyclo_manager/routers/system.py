@@ -36,6 +36,14 @@ router = APIRouter(prefix='/system', tags=['system'])
 _HOST_ROOT = '/host_root'
 
 
+def _check_internet() -> bool:
+    try:
+        with socket.create_connection(("8.8.8.8", 53), timeout=3):
+            return True
+    except OSError:
+        return False
+
+
 def _read_file(path: str) -> str | None:
     """파일을 읽어 null 바이트를 제거한 문자열을 반환한다. 없으면 None."""
     try:
@@ -95,6 +103,7 @@ async def get_robot_info() -> RobotInfoResponse:
         hostname=hostname,
         os_info=_os_info(),
         ip_address=ip_address,
+        internet_connected=_check_internet(),
     )
 
 

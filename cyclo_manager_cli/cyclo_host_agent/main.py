@@ -118,7 +118,7 @@ def main() -> None:
     systemd socket activation 여부를 감지해 동작 방식을 결정한다.
     - activation인 경우: systemd가 전달한 fd로 uvicorn을 시작한다.
       소켓 파일은 systemd가 관리하므로 직접 생성/삭제하지 않는다.
-    - 직접 실행인 경우(개발/테스트): SOCKET_PATH에 직접 바인딩한다.
+    - 직접 실행인 경우(개발/테스트): config의 socket_path에 직접 바인딩한다.
     어느 경우든 IDLE_TIMEOUT 후 자동 종료되며, socket activation 환경에서는
     다음 연결 시 systemd가 자동으로 재기동한다.
     """
@@ -132,3 +132,7 @@ def main() -> None:
         socket_path.unlink(missing_ok=True)
         logger.info('Starting on %s (direct mode)', socket_path)
         uvicorn.run(app, uds=str(socket_path), log_level='info')
+
+
+if __name__ == '__main__':
+    main()
