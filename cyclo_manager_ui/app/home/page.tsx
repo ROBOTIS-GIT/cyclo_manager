@@ -17,17 +17,8 @@
 "use client";
 
 import { useEffect, useState, useCallback } from "react";
-import {
-  getConfiguredContainers,
-  getServiceStatuses,
-  getSystemStats,
-  getRobotInfo,
-} from "@/lib/api";
-import type {
-  ServiceStatusResponse,
-  HostSystemStatsResponse,
-  RobotInfoResponse,
-} from "@/types/api";
+import { getSystemStats, getRobotInfo } from "@/lib/api";
+import type { HostSystemStatsResponse, RobotInfoResponse } from "@/types/api";
 import CycloManagerUpdateAnnouncement from "@/components/CycloManagerUpdateAnnouncement";
 
 const POLL_INTERVAL = 5000;
@@ -43,7 +34,7 @@ function formatUptime(seconds: number): string {
   return `${m}m`;
 }
 
-function pct(used: number, total: number) {
+function pct(used: number, total: number): number {
   return total > 0 ? Math.round((used / total) * 100) : 0;
 }
 
@@ -53,52 +44,69 @@ function gaugeColor(percent: number): string {
   return "var(--vscode-button-background, #0078d4)";
 }
 
-function tempColor(c: number): string {
-  if (c >= 85) return "#f44336";
-  if (c >= 70) return "#ff9800";
-  return "var(--vscode-foreground)";
+// ─── primitives ─────────────────────────────────────────────────────────────
+
+function SectionHeading({ children }: { children: React.ReactNode }) {
+  return (
+    <h2
+      className="text-xs font-semibold uppercase tracking-widest mb-3"
+      style={{ color: "var(--vscode-descriptionForeground)" }}
+    >
+      {children}
+    </h2>
+  );
+}
+
+function Card({ children, className = "" }: { children: React.ReactNode; className?: string }) {
+  return (
+    <div
+      className={`rounded-lg border ${className}`}
+      style={{
+        borderColor: "var(--vscode-panel-border)",
+        backgroundColor: "var(--vscode-sidebar-background)",
+      }}
+    >
+      {children}
+    </div>
+  );
 }
 
 // ─── sub-components ─────────────────────────────────────────────────────────
 
 function CircleGauge({
-  percent,
+  fill,
   label,
+  display,
   sub,
-  valueText,
-  arcPercent,
 }: {
-  percent?: number;
+  fill: number;
   label: string;
+  display?: string;
   sub?: string;
-  valueText?: string;
-  arcPercent?: number;
 }) {
-  const size = 90;
-  const strokeWidth = 7;
-  const radius = (size - strokeWidth) / 2;
-  const circumference = 2 * Math.PI * radius;
-  const arc = arcPercent ?? percent ?? 0;
-  const offset = circumference - (Math.min(arc, 100) / 100) * circumference;
-  const color = gaugeColor(arc);
-  const cx = size / 2;
-  const cy = size / 2;
-  const display = valueText ?? `${percent}%`;
+  const SIZE = 90;
+  const STROKE = 7;
+  const r = (SIZE - STROKE) / 2;
+  const circumference = 2 * Math.PI * r;
+  const offset = circumference - (Math.min(fill, 100) / 100) * circumference;
+  const color = gaugeColor(fill);
+  const cx = SIZE / 2;
+  const cy = SIZE / 2;
 
   return (
     <div className="flex flex-col items-center gap-1">
-      <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`}>
+      <svg width={SIZE} height={SIZE} viewBox={`0 0 ${SIZE} ${SIZE}`}>
         <circle
-          cx={cx} cy={cy} r={radius}
+          cx={cx} cy={cy} r={r}
           fill="none"
           stroke="var(--vscode-input-background, rgba(128,128,128,0.2))"
-          strokeWidth={strokeWidth}
+          strokeWidth={STROKE}
         />
         <circle
-          cx={cx} cy={cy} r={radius}
+          cx={cx} cy={cy} r={r}
           fill="none"
           stroke={color}
-          strokeWidth={strokeWidth}
+          strokeWidth={STROKE}
           strokeDasharray={circumference}
           strokeDashoffset={offset}
           strokeLinecap="round"
@@ -119,7 +127,7 @@ function CircleGauge({
           fontSize="13" fontWeight="700"
           fill={color}
         >
-          {display}
+          {display ?? `${fill}%`}
         </text>
       </svg>
       {sub && (
@@ -134,7 +142,7 @@ function CircleGauge({
 function InfoRow({ label, value }: { label: string; value: string | null | undefined }) {
   return (
     <div
-      className="flex items-start justify-between gap-3 py-2 text-sm"
+      className="flex items-start justify-between gap-3 py-2"
       style={{ borderTop: "1px solid var(--vscode-panel-border)" }}
     >
       <span className="shrink-0 text-xs" style={{ color: "var(--vscode-descriptionForeground)" }}>
@@ -150,81 +158,19 @@ function InfoRow({ label, value }: { label: string; value: string | null | undef
   );
 }
 
-function ServiceRow({ s, container }: { s: ServiceStatusResponse; container: string }) {
-  return (
-    <div
-      className="flex items-center gap-3 py-2.5 px-4"
-      style={{ borderTop: "1px solid var(--vscode-panel-border)" }}
-    >
-      <span
-        className="w-2 h-2 rounded-full shrink-0"
-        style={{
-          backgroundColor: s.is_up
-            ? "var(--vscode-testing-iconPassed, #4caf50)"
-            : "var(--vscode-descriptionForeground)",
-        }}
-      />
-      <div className="flex-1 min-w-0">
-        <div className="text-sm font-medium truncate" style={{ color: "var(--vscode-foreground)" }}>
-          {s.service_label ?? s.service}
-        </div>
-        <div className="text-xs" style={{ color: "var(--vscode-descriptionForeground)" }}>
-          {container}
-          {s.is_up && s.uptime_seconds != null && (
-            <span className="ml-2">· {formatUptime(s.uptime_seconds)}</span>
-          )}
-        </div>
-      </div>
-      <span
-        className="text-xs px-2 py-0.5 rounded shrink-0"
-        style={{
-          backgroundColor: s.is_up ? "rgba(76, 175, 80, 0.15)" : "rgba(128, 128, 128, 0.15)",
-          color: s.is_up
-            ? "var(--vscode-testing-iconPassed, #4caf50)"
-            : "var(--vscode-descriptionForeground)",
-        }}
-      >
-        {s.is_up ? "running" : "stopped"}
-      </span>
-    </div>
-  );
-}
-
 // ─── page ────────────────────────────────────────────────────────────────────
 
 export default function HomePage() {
   const [cmUpdateBanner, setCmUpdateBanner] = useState(false);
   const [robotInfo, setRobotInfo] = useState<RobotInfoResponse | null>(null);
   const [systemStats, setSystemStats] = useState<HostSystemStatsResponse | null>(null);
-  const [allServices, setAllServices] = useState<{ container: string; service: ServiceStatusResponse }[]>([]);
-  const [appsLoading, setAppsLoading] = useState(true);
-
-  const loadRobotInfo = useCallback(async () => {
-    try { setRobotInfo(await getRobotInfo()); } catch {}
-  }, []);
-
-  const loadSystemStats = useCallback(async () => {
-    try { setSystemStats(await getSystemStats()); } catch {}
-  }, []);
-
-  const loadServices = useCallback(async () => {
-    try {
-      const { containers } = await getConfiguredContainers();
-      const results = await Promise.allSettled(
-        containers.map(async (c) => {
-          const res = await getServiceStatuses(c.name);
-          return res.statuses.map((s) => ({ container: c.name, service: s }));
-        })
-      );
-      setAllServices(results.flatMap((r) => (r.status === "fulfilled" ? r.value : [])));
-    } catch {} finally {
-      setAppsLoading(false);
-    }
-  }, []);
 
   const loadAll = useCallback(async () => {
-    await Promise.allSettled([loadRobotInfo(), loadSystemStats(), loadServices()]);
-  }, [loadRobotInfo, loadSystemStats, loadServices]);
+    await Promise.allSettled([
+      getRobotInfo().then(setRobotInfo).catch(() => {}),
+      getSystemStats().then(setSystemStats).catch(() => {}),
+    ]);
+  }, []);
 
   useEffect(() => {
     loadAll();
@@ -234,25 +180,18 @@ export default function HomePage() {
 
   const memPct = systemStats ? pct(systemStats.memory_used_mb, systemStats.memory_total_mb) : 0;
   const diskPct = systemStats ? pct(systemStats.disk_used_gb, systemStats.disk_total_gb) : 0;
-  const runningCount = allServices.filter((x) => x.service.is_up).length;
 
   return (
     <>
       <CycloManagerUpdateAnnouncement suppressed={false} onBannerVisibilityChange={setCmUpdateBanner} />
       <div className={`flex flex-col gap-6 max-w-4xl ${cmUpdateBanner ? "pt-14" : ""}`}>
 
-        {/* ── Top row: Robot Information + System Status ── */}
         <div className="flex gap-4 items-stretch">
 
           {/* Robot Information */}
           <section className="w-56 shrink-0">
-            <h2 className="text-xs font-semibold uppercase tracking-widest mb-3" style={{ color: "var(--vscode-descriptionForeground)" }}>
-              Robot Information
-            </h2>
-            <div
-              className="rounded-lg border h-[calc(100%-28px)]"
-              style={{ borderColor: "var(--vscode-panel-border)", backgroundColor: "var(--vscode-sidebar-background)" }}
-            >
+            <SectionHeading>Robot Information</SectionHeading>
+            <Card className="h-[calc(100%-28px)]">
               <div className="px-4 pb-1">
                 <InfoRow label="Hostname" value={robotInfo?.hostname} />
                 <InfoRow label="OS" value={robotInfo?.os_info} />
@@ -262,86 +201,43 @@ export default function HomePage() {
                   value={systemStats ? formatUptime(systemStats.uptime_seconds) : undefined}
                 />
               </div>
-            </div>
+            </Card>
           </section>
 
           {/* System Status */}
           <section className="flex-1 min-w-0">
-            <h2 className="text-xs font-semibold uppercase tracking-widest mb-3" style={{ color: "var(--vscode-descriptionForeground)" }}>
-              System Status
-            </h2>
-            <div
-              className="rounded-lg border h-[calc(100%-28px)]"
-              style={{ borderColor: "var(--vscode-panel-border)", backgroundColor: "var(--vscode-sidebar-background)" }}
-            >
+            <SectionHeading>System Status</SectionHeading>
+            <Card className="h-[calc(100%-28px)]">
               {systemStats == null ? (
                 <div className="p-5 text-sm" style={{ color: "var(--vscode-descriptionForeground)" }}>
                   Unavailable
                 </div>
               ) : (
-                <div className="p-5 flex flex-col gap-4 h-full">
-                  {/* Circles */}
-                  <div className="flex gap-4 justify-around">
-                    <CircleGauge percent={systemStats.cpu_percent} label="CPU" />
+                <div className="p-5 flex gap-4 justify-around">
+                  <CircleGauge fill={systemStats.cpu_percent} label="CPU" />
+                  <CircleGauge
+                    fill={memPct}
+                    label="Memory"
+                    sub={`${(systemStats.memory_used_mb / 1024).toFixed(1)} / ${(systemStats.memory_total_mb / 1024).toFixed(1)} GB`}
+                  />
+                  <CircleGauge
+                    fill={diskPct}
+                    label="Disk"
+                    sub={`${systemStats.disk_used_gb} / ${systemStats.disk_total_gb} GB`}
+                  />
+                  {systemStats.temperature_celsius != null && (
                     <CircleGauge
-                      percent={memPct}
-                      label="Memory"
-                      sub={`${(systemStats.memory_used_mb / 1024).toFixed(1)} / ${(systemStats.memory_total_mb / 1024).toFixed(1)} GB`}
+                      fill={Math.round(systemStats.temperature_celsius)}
+                      label="Temp"
+                      display={`${systemStats.temperature_celsius}°C`}
                     />
-                    <CircleGauge
-                      percent={diskPct}
-                      label="Disk"
-                      sub={`${systemStats.disk_used_gb} / ${systemStats.disk_total_gb} GB`}
-                    />
-                    {systemStats.temperature_celsius != null && (
-                      <CircleGauge
-                        label="Temp"
-                        valueText={`${systemStats.temperature_celsius}°C`}
-                        arcPercent={Math.round((systemStats.temperature_celsius / 100) * 100)}
-                      />
-                    )}
-                  </div>
+                  )}
                 </div>
               )}
-            </div>
+            </Card>
           </section>
-        </div>
 
-        {/* ── Running Applications ── */}
-        <section>
-          <div className="flex items-center justify-between mb-3">
-            <h2 className="text-xs font-semibold uppercase tracking-widest" style={{ color: "var(--vscode-descriptionForeground)" }}>
-              Running Applications
-            </h2>
-            {!appsLoading && (
-              <span className="text-xs" style={{ color: "var(--vscode-descriptionForeground)" }}>
-                {runningCount} / {allServices.length} running
-              </span>
-            )}
-          </div>
-          <div
-            className="rounded-lg border overflow-hidden"
-            style={{ borderColor: "var(--vscode-panel-border)", backgroundColor: "var(--vscode-sidebar-background)" }}
-          >
-            {appsLoading ? (
-              <div className="p-4 text-sm" style={{ color: "var(--vscode-descriptionForeground)" }}>
-                Loading...
-              </div>
-            ) : allServices.length === 0 ? (
-              <div className="p-4 text-sm" style={{ color: "var(--vscode-descriptionForeground)" }}>
-                No services found
-              </div>
-            ) : (
-              [...allServices]
-                .sort((a, b) => Number(b.service.is_up) - Number(a.service.is_up))
-                .map(({ container, service }, i) => (
-                  <div key={`${container}/${service.service}`} style={i === 0 ? { borderTop: "none" } : {}}>
-                    <ServiceRow s={service} container={container} />
-                  </div>
-                ))
-            )}
-          </div>
-        </section>
+        </div>
 
       </div>
     </>

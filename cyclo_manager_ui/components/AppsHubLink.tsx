@@ -86,12 +86,12 @@ export function AppsHubButton({
   );
 }
 
-/** Floating on /home and /app; sidebar pages use AppsHubButton in VSCodeLayout. */
+/** Floating on /app only; sidebar pages use AppsHubButton in VSCodeLayout. */
 export default function AppsHubLink() {
   const pathname = usePathname();
   const { updateBannerVisible } = useAppsHubBanner();
 
-  if (pathname !== "/home" && pathname !== "/app") {
+  if (pathname !== "/app") {
     return null;
   }
 

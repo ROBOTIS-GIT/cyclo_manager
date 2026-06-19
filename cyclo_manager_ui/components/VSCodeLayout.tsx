@@ -32,18 +32,19 @@ export default function VSCodeLayout({
   children: React.ReactNode;
 }) {
   const pathname = usePathname();
-  const [systemHref, setSystemHref] = useState("/app");
-  const [topicsHref, setTopicsHref] = useState("/app");
+  const [systemHref, setSystemHref] = useState("/containers");
+  const [topicsHref, setTopicsHref] = useState("/containers");
 
   useEffect(() => {
     if (typeof window === "undefined") return;
     const last =
       localStorage.getItem(LAST_CONTAINER_KEY) ?? localStorage.getItem("last_control_container");
-    setSystemHref(last ? `/${last}/system` : "/app");
-    setTopicsHref(last ? `/${last}/topics` : "/app");
+    setSystemHref(last ? `/${last}/system` : "/containers");
+    setTopicsHref(last ? `/${last}/topics` : "/containers");
   }, [pathname]);
 
   const navItems = [
+    { href: "/home", label: "Home", icon: "🏠", isHome: true },
     { href: systemHref, label: "System", icon: "🤖", isSystem: true },
     { href: topicsHref, label: "Topics", icon: "📡", isTopics: true },
     { href: "/docker", label: "Docker", icon: "🐳", isDocker: true },
@@ -90,8 +91,11 @@ export default function VSCodeLayout({
             const isSystemPage = pathname?.match(/^\/[^/]+\/system\/?$/);
             const isTopicsPage = pathname?.match(/^\/[^/]+\/topics\/?$/);
             const isDockerPage = pathname === "/docker" || (pathname?.startsWith("/docker/") ?? false);
+            const isHomePage = pathname === "/home";
             const isActive =
-              "isSystem" in item && item.isSystem
+              "isHome" in item && item.isHome
+                ? !!isHomePage
+                : "isSystem" in item && item.isSystem
                 ? !!isSystemPage
                 : "isTopics" in item && item.isTopics
                   ? !!isTopicsPage
@@ -106,7 +110,7 @@ export default function VSCodeLayout({
 
             return (
               <Link
-                key={item.label === "System" ? `system-${item.href}` : item.label === "Topics" ? `topics-${item.href}` : item.href}
+                key={item.label === "Home" ? "home" : item.label === "System" ? `system-${item.href}` : item.label === "Topics" ? `topics-${item.href}` : item.href}
                 href={item.href}
                 className="flex flex-col items-center justify-center gap-0.5 rounded-md w-full aspect-square shrink-0 px-1 py-1 text-center no-underline transition-colors box-border"
                 style={linkStyle}
