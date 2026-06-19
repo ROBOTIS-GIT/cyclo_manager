@@ -86,12 +86,8 @@ export default function VSCodeLayout({
 
         {/* Sidebar Navigation — narrow rail (~120px), Gi-style */}
         <nav
-          className="flex-1 min-h-0 w-full flex flex-col items-center gap-1.5 py-2 px-1 overflow-y-auto overscroll-contain"
-          style={{
-            scrollbarGutter: "stable",
-            touchAction: "pan-y",
-            WebkitOverflowScrolling: "touch",
-          }}
+          className="flex-1 min-h-0 w-full flex flex-col items-center gap-1.5 py-2 px-1 overflow-y-auto"
+          style={{ scrollbarGutter: "stable" }}
         >
           {navItems.map((item) => {
             const isSystemPage = pathname?.match(/^\/[^/]+\/system\/?$/);

@@ -45,7 +45,7 @@ from fastapi import APIRouter, Body, Depends, HTTPException, status
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix='/{container}/ros2', tags=['ros2'])
-ISOLATED_PUBLISH_TOPICS = frozenset({'/goal_pose', '/initialpose'})
+ISOLATED_PUBLISH_TOPICS = frozenset({'/initialpose'})
 
 # QoS presets for topics the UI subscribes on every System page load.
 # Skips `ros2 topic info -v` (blocking subprocess) — keeps the FastAPI event loop responsive.
@@ -144,55 +144,31 @@ def _refresh_header_stamp(data: dict[str, Any]) -> None:
         }
 
 
-def _publish_topic_once_with_ros2_cli(
+def _publish_initial_pose_with_ros2_cli(
     topic: str,
     msg_type: str,
     data: dict[str, Any],
     domain_id: int,
 ) -> tuple[bool, str]:
-    """Publish a one-shot ROS message in a subprocess to isolate rclpy publisher failures."""
+    """Publish an initial pose once in a subprocess to isolate rclpy publisher failures."""
     env = os.environ.copy()
     env['ROS_DOMAIN_ID'] = str(domain_id)
     _refresh_header_stamp(data)
     payload = yaml.safe_dump(data, default_flow_style=True, sort_keys=False)
-    command = [
-        'ros2',
-        'topic',
-        'pub',
-        '--once',
-        '--wait-matching-subscriptions',
-        '1',
-        '--keep-alive',
-        '2',
-        topic,
-        msg_type,
-        payload,
-    ]
+    base_command = ['ros2', 'topic', 'pub', '--once']
+    message_args = [topic, msg_type, payload]
+    run_options = {'capture_output': True, 'text': True, 'timeout': 5, 'env': env}
     try:
-        proc = subprocess.run(command, capture_output=True, text=True, timeout=5, env=env)
+        command = [*base_command, '--wait-matching-subscriptions', '1', '--keep-alive', '2', *message_args]
+        proc = subprocess.run(command, **run_options)
         if proc.returncode != 0 and '--wait-matching-subscriptions' in (proc.stderr or ''):
-            fallback_command = [
-                'ros2',
-                'topic',
-                'pub',
-                '--once',
-                '--keep-alive',
-                '2',
-                topic,
-                msg_type,
-                payload,
-            ]
-            proc = subprocess.run(
-                fallback_command,
-                capture_output=True,
-                text=True,
-                timeout=5,
-                env=env,
-            )
+            proc = subprocess.run([*base_command, '--keep-alive', '2', *message_args], **run_options)
     except subprocess.TimeoutExpired as exc:
-        stdout = exc.stdout.decode(errors='replace') if isinstance(exc.stdout, bytes) else exc.stdout
-        stderr = exc.stderr.decode(errors='replace') if isinstance(exc.stderr, bytes) else exc.stderr
-        output = ((stdout or '') + '\n' + (stderr or '')).strip()
+        streams = (
+            value.decode(errors='replace') if isinstance(value, bytes) else value
+            for value in (exc.stdout, exc.stderr)
+        )
+        output = '\n'.join(value or '' for value in streams).strip()
         if 'publishing #1' in output:
             return True, output or 'ros2 topic pub timed out after publishing once'
         return False, f'ros2 topic pub timed out: {output}' if output else 'ros2 topic pub timed out'
@@ -219,13 +195,8 @@ def _cancel_navigate_to_pose_goal_with_ros2_cli(domain_id: int) -> tuple[bool, s
     )
     try:
         proc = subprocess.run(
-            [
-                'ros2',
-                'service',
-                'call',
-                '/navigate_to_pose/_action/cancel_goal',
-                'action_msgs/srv/CancelGoal',
-                payload,
+            ['ros2', 'service', 'call', '/navigate_to_pose/_action/cancel_goal',
+            'action_msgs/srv/CancelGoal', payload,
             ],
             capture_output=True,
             text=True,
@@ -543,7 +514,7 @@ async def ros2_topic_publish(
 
     if topic in ISOLATED_PUBLISH_TOPICS:
         ok, output = await asyncio.to_thread(
-            _publish_topic_once_with_ros2_cli,
+            _publish_initial_pose_with_ros2_cli,
             topic,
             body.msg_type,
             body.data,

@@ -61,7 +61,7 @@ KNOWN_TOPIC_TYPES: dict[str, str] = {
 # Topics that never expire (static URDF, etc.)
 STATIC_TOPICS = frozenset(['/robot_description', '/tf_static'])
 # Seconds after which dynamic topic data is considered stale
-DYNAMIC_TOPIC_STALE_TIME = 10.0
+DYNAMIC_TOPIC_STALE_TIME = 3.0   # 고려 10.0   org: 3.0
 
 
 class RequestKind:
@@ -89,23 +89,6 @@ def _ensure_rclpy_init() -> None:
             _rclpy_initialized = True
 
 
-def _checksum_int8_sequence(data: Any) -> int:
-    try:
-        return zlib.crc32(data)
-    except (BufferError, TypeError, ValueError):
-        pass
-
-    try:
-        return zlib.crc32(memoryview(data))
-    except (BufferError, TypeError, ValueError):
-        pass
-
-    try:
-        return zlib.crc32(bytes(data))
-    except (TypeError, ValueError):
-        return zlib.crc32(bytes((int(value) & 0xff for value in data)))
-
-
 class CycloManagerTopicSubscriber:
     """
     cyclo_manager topic subscriber: one rclpy node per container.
@@ -127,7 +110,7 @@ class CycloManagerTopicSubscriber:
         self._lock = threading.Lock()
 
         self._subs: dict[str, Subscription] = {}
-        self._sub_owners: dict[str, str] = {}
+        self._sub_connections: dict[str, str] = {}
         self._pubs: dict[tuple[str, str], Publisher] = {}
         self._msg_cache: dict[str, TopicCacheEntry] = {}
         self._discovered_topics: dict[str, list[str]] = {}
@@ -198,11 +181,11 @@ class CycloManagerTopicSubscriber:
                 if kind == RequestKind.RUN_DISCOVERY:
                     self._handle_run_discovery()
                 elif kind == RequestKind.ADD_TOPIC:
-                    topic, msg_type, qos_profile, owner_id = payload
-                    self._handle_add_topic(topic, msg_type, qos_profile, owner_id)
+                    topic, msg_type, qos_profile, subscription_id = payload
+                    self._handle_add_topic(topic, msg_type, qos_profile, subscription_id)
                 elif kind == RequestKind.REMOVE_TOPIC:
-                    topic, owner_id = payload
-                    self._handle_remove_topic(topic, owner_id)
+                    topic, subscription_id = payload
+                    self._handle_remove_topic(topic, subscription_id)
                 elif kind == RequestKind.PUBLISH_TOPIC:
                     topic, msg_type, data, response_queue = payload
                     try:
@@ -235,12 +218,12 @@ class CycloManagerTopicSubscriber:
         topic: str,
         msg_type: str,
         qos_profile: dict,
-        owner_id: Optional[str],
+        subscription_id: Optional[str],
     ) -> None:
         with self._lock:
             if topic in self._subs:
-                if owner_id is not None:
-                    self._sub_owners[topic] = owner_id
+                if subscription_id is not None:
+                    self._sub_connections[topic] = subscription_id
                 return
         profile = dict(qos_profile or {})
         if topic == '/robot_description':
@@ -254,8 +237,8 @@ class CycloManagerTopicSubscriber:
         if sub:
             with self._lock:
                 self._subs[topic] = sub
-                if owner_id is not None:
-                    self._sub_owners[topic] = owner_id
+                if subscription_id is not None:
+                    self._sub_connections[topic] = subscription_id
                 self._topic_msg_types[topic] = msg_type
                 if profile.get('durability') == 'transient_local':
                     self._topics_transient_local.add(topic)
@@ -266,13 +249,13 @@ class CycloManagerTopicSubscriber:
                 msg_type,
             )
 
-    def _handle_remove_topic(self, topic: str, owner_id: Optional[str] = None) -> None:
+    def _handle_remove_topic(self, topic: str, subscription_id: Optional[str] = None) -> None:
         with self._lock:
-            current_owner_id = self._sub_owners.get(topic)
-            if owner_id is not None and current_owner_id != owner_id:
+            current_subscription_id = self._sub_connections.get(topic)
+            if subscription_id is not None and current_subscription_id != subscription_id:
                 return
             sub = self._subs.pop(topic, None)
-            self._sub_owners.pop(topic, None)
+            self._sub_connections.pop(topic, None)
             self._topic_msg_types.pop(topic, None)
             self._topics_transient_local.discard(topic)
             self._msg_cache.pop(topic, None)
@@ -305,12 +288,7 @@ class CycloManagerTopicSubscriber:
         qos = parse_qos_profile(profile)
         return self._node.create_subscription(msg_class, topic, callback, qos)
 
-    def _handle_publish_topic(
-        self,
-        topic: str,
-        msg_type: str,
-        data: dict[str, Any],
-    ) -> bool:
+    def _handle_publish_topic(self, topic: str, msg_type: str, data: dict[str, Any]) -> bool:
         if not self._node:
             return False
         msg_class = get_message_class(msg_type)
@@ -360,7 +338,7 @@ class CycloManagerTopicSubscriber:
         with self._lock:
             all_subs = list(self._subs.items())
             self._subs.clear()
-            self._sub_owners.clear()
+            self._sub_connections.clear()
         for topic, sub in all_subs:
             try:
                 self._node.destroy_subscription(sub)
@@ -417,15 +395,15 @@ class CycloManagerTopicSubscriber:
         topic: str,
         msg_type: str,
         qos_profile: Optional[dict] = None,
-        owner_id: Optional[str] = None,
+        subscription_id: Optional[str] = None,
     ) -> bool:
         with self._lock:
             if topic in self._subs:
-                if owner_id is not None:
-                    self._sub_owners[topic] = owner_id
+                if subscription_id is not None:
+                    self._sub_connections[topic] = subscription_id
                 return True
         self._enqueue_and_wait(
-            (RequestKind.ADD_TOPIC, (topic, msg_type, qos_profile or {}, owner_id))
+            (RequestKind.ADD_TOPIC, (topic, msg_type, qos_profile or {}, subscription_id))
         )
         with self._lock:
             return topic in self._subs
@@ -474,8 +452,8 @@ class CycloManagerTopicSubscriber:
         except queue.Empty:
             return False
 
-    def remove_topic_subscription(self, topic: str, owner_id: Optional[str] = None) -> None:
-        self._enqueue_and_wait((RequestKind.REMOVE_TOPIC, (topic, owner_id)))
+    def remove_topic_subscription(self, topic: str, subscription_id: Optional[str] = None) -> None:
+        self._enqueue_and_wait((RequestKind.REMOVE_TOPIC, (topic, subscription_id)))
 
     def is_topic_transient_local_subscription(self, topic: str) -> bool:
         """Return whether this topic is subscribed with TRANSIENT_LOCAL durability."""
@@ -496,7 +474,7 @@ class CycloManagerTopicSubscriber:
             data = message_to_dict(raw, convert_value_for_json)
             return {'data': data, 'received_at': cached.get('received_at')}
 
-    def get_topic_signature(self, topic: str) -> Optional[tuple[Any, ...]]:
+    def get_map_data_diff_marker(self, topic: str) -> Optional[int]:
         with self._lock:
             cached = self._msg_cache.get(topic)
             if cached is None:
@@ -511,23 +489,19 @@ class CycloManagerTopicSubscriber:
         info = getattr(raw, 'info', None)
         data = getattr(raw, 'data', None)
         if info is not None and data is not None:
-            checksum = _checksum_int8_sequence(data)
-            origin = getattr(info, 'origin', None)
-            position = getattr(origin, 'position', None)
-            orientation = getattr(origin, 'orientation', None)
-            return (
-                getattr(info, 'width', None),
-                getattr(info, 'height', None),
-                getattr(info, 'resolution', None),
-                getattr(position, 'x', None),
-                getattr(position, 'y', None),
-                getattr(position, 'z', None),
-                getattr(orientation, 'x', None),
-                getattr(orientation, 'y', None),
-                getattr(orientation, 'z', None),
-                getattr(orientation, 'w', None),
-                checksum,
-            )
+            # Use map data checksum as the diff marker for occupancy grid updates.
+            try:
+                return zlib.crc32(data)
+            except (BufferError, TypeError, ValueError):
+                pass
+            try:
+                return zlib.crc32(memoryview(data))
+            except (BufferError, TypeError, ValueError):
+                pass
+            try:
+                return zlib.crc32(bytes(data))
+            except (TypeError, ValueError):
+                return zlib.crc32(bytes((int(value) & 0xff for value in data)))
 
         return None
 

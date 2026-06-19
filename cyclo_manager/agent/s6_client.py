@@ -62,7 +62,8 @@ def list_services() -> list[str]:
         services = []
         for item in S6_SERVICE_DIR.iterdir():
             if item.is_dir():
-                # Check if it looks like an s6 service directory.
+                # Check if it looks like an s6 service directory
+                # s6 services typically have a 'run' file
                 if (item / 'run').exists() or (item / 'type').exists():
                     services.append(item.name)
 
@@ -98,6 +99,7 @@ def get_service_status(name: str) -> ServiceStatus:
         raise FileNotFoundError(f"Service '{name}' not found at {service_path}")
 
     try:
+        # Call s6-svstat to get service status
         result = subprocess.check_output(
             ['s6-svstat', str(service_path)],
             stderr=subprocess.STDOUT,
@@ -108,19 +110,27 @@ def get_service_status(name: str) -> ServiceStatus:
         raw_output = result.strip()
         logger.debug(f"Service '{name}' status: {raw_output}")
 
+        # Parse the output
+        # Example formats:
+        # "up (pid 1234) 10 seconds"
+        # "down 5 seconds"
+        # "up (pid 1234) 0 seconds"
         is_up = raw_output.startswith('up')
         pid: Optional[int] = None
         uptime_seconds: Optional[int] = None
 
         if is_up:
+            # Extract PID: "up (pid 1234) 10 seconds"
             pid_match = re.search(r'\(pid\s+(\d+)\)', raw_output)
             if pid_match:
                 pid = int(pid_match.group(1))
 
+            # Extract uptime: "10 seconds" or "0 seconds"
             uptime_match = re.search(r'(\d+)\s+seconds', raw_output)
             if uptime_match:
                 uptime_seconds = int(uptime_match.group(1))
         else:
+            # For down services, might have: "down 5 seconds"
             uptime_match = re.search(r'(\d+)\s+seconds', raw_output)
             if uptime_match:
                 uptime_seconds = int(uptime_match.group(1))
@@ -166,6 +176,7 @@ def get_all_services_status() -> list[ServiceStatus]:
                 status = get_service_status(service_name)
                 statuses.append(status)
             except Exception as e:
+                # Log but don't fail - continue with other services
                 logger.warning(f"Failed to get status for service '{service_name}': {e}")
 
         return statuses
@@ -241,11 +252,14 @@ def _is_s6rc_service(service_path: Path, service_def_path: Path) -> bool:
     if service_def_path.exists():
         return True
 
+    # Check if this is an s6-rc service (has producer-for or consumer-for)
+    # For s6-rc services with pipelines, we should use s6-rc commands
     if service_path.exists() and (
         (service_path / 'producer-for').exists() or (service_path / 'consumer-for').exists()
     ):
         return True
 
+    # Also check if it's a symlink to s6-rc servicedirs (indicates s6-rc service)
     try:
         if service_path.is_symlink():
             target = service_path.readlink()
@@ -308,6 +322,7 @@ def control_service(
         _write_navigation_type(navigation_type, launch_args)
         launch_args = _strip_navigation_mode_args(launch_args)
 
+    # Write launch args before up/restart so the run script can read them
     if action in ('up', 'restart') and launch_args is not None:
         _write_launch_args(name, launch_args)
 
@@ -315,6 +330,8 @@ def control_service(
 
     try:
         if is_s6rc_service:
+            # For s6-rc services, use s6-rc commands
+            # For pipelines, starting the producer service will start the entire pipeline
             if action == 'up':
                 cmd = ['s6-rc', '-u', 'change', name]
             elif action == 'down':
@@ -322,12 +339,14 @@ def control_service(
             else:
                 cmd = ['s6-rc', '-d', 'change', name]
                 subprocess.check_output(cmd, stderr=subprocess.STDOUT, text=True, timeout=60)
+                # Wait a moment, then bring it back up
                 time.sleep(1)
                 cmd = ['s6-rc', '-u', 'change', name]
 
             subprocess.check_output(cmd, stderr=subprocess.STDOUT, text=True, timeout=60)
             logger.info(f"Successfully executed action '{action}' on s6-rc service '{name}'")
         else:
+            # For legacy services, use s6-svc
             action_map = {
                 'up': '-u',
                 'down': '-d',

@@ -312,9 +312,9 @@ def _get_topic_send_rate(topic: str) -> float:
 
 def _get_topic_change_marker(node: Any, topic: str, data: Any | None = None) -> Any:
     try:
-        signature = node.get_topic_signature(topic)
+        signature = node.get_map_data_diff_marker(topic)
     except Exception as e:
-        logger.debug('Failed to build ROS2 topic signature for %s: %s', topic, e)
+        logger.debug('Failed to build ROS2 map data diff marker for %s: %s', topic, e)
         signature = None
     if signature is not None:
         return signature
@@ -536,7 +536,7 @@ async def websocket_ros2_topic_data(websocket: WebSocket, container: str, topic:
     logger.info(f'WebSocket connection established for {container}/ros2/{topic}')
     node = None
     subscribed = False
-    subscription_owner_id = uuid4().hex
+    connection_id = uuid4().hex
 
     try:
         node = get_ros2_node(container)
@@ -564,7 +564,7 @@ async def websocket_ros2_topic_data(websocket: WebSocket, container: str, topic:
                 topic,
                 msg_type,
                 qos_profile=qos_profile,
-                owner_id=subscription_owner_id,
+                subscription_id=connection_id,
             )
             # Give TRANSIENT_LOCAL callback time to receive the last message (DDS is async)
             if subscribed and node.is_topic_transient_local_subscription(topic):
@@ -644,7 +644,7 @@ async def websocket_ros2_topic_data(websocket: WebSocket, container: str, topic:
     finally:
         if subscribed and node is not None:
             try:
-                node.remove_topic_subscription(topic, owner_id=subscription_owner_id)
+                node.remove_topic_subscription(topic, subscription_id=connection_id)
             except Exception as e:
                 logger.warning(
                     'Failed to cleanup ROS2 subscription for %s/ros2/%s: %s',
