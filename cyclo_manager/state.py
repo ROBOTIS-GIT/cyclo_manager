@@ -23,6 +23,7 @@ from typing import Optional
 from cyclo_manager.agent_client import AgentClient, AgentClientPool
 from cyclo_manager.config import SystemConfig
 from cyclo_manager.docker_client import DockerClient
+from cyclo_manager.host_agent_client import HostAgentClient
 from cyclo_manager.ros2_node import CycloManagerTopicSubscriber
 from cyclo_manager.terminal_session_manager import TerminalSessionManager
 from fastapi import Depends, HTTPException, status
@@ -41,6 +42,7 @@ class AppState:
         self._config: Optional[SystemConfig] = None
         self._client_pool: Optional[AgentClientPool] = None
         self._docker_client: Optional[DockerClient] = None
+        self._host_agent_client: Optional[HostAgentClient] = None
         self._ros2_nodes: dict[str, CycloManagerTopicSubscriber] = {}
         self._terminal_session_manager: Optional[TerminalSessionManager] = None
 
@@ -62,6 +64,12 @@ class AppState:
 
     def set_docker_client(self, client: Optional[DockerClient]) -> None:
         self._docker_client = client
+
+    def set_host_agent_client(self, client: Optional[HostAgentClient]) -> None:
+        self._host_agent_client = client
+
+    def get_host_agent_client_or_none(self) -> Optional[HostAgentClient]:
+        return self._host_agent_client
 
     def set_ros2_node(self, container_name: str, node: CycloManagerTopicSubscriber) -> None:
         self._ros2_nodes[container_name] = node
@@ -129,6 +137,17 @@ def get_docker_client() -> DockerClient:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail='Docker client not available. Ensure Docker socket is mounted.',
+        )
+    return client
+
+
+def get_host_agent_client() -> HostAgentClient:
+    """Dependency: return host agent client or raise 503."""
+    client = app_state.get_host_agent_client_or_none()
+    if client is None:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail='Host agent not available. Ensure cyclo_host_agent service is running.',
         )
     return client
 

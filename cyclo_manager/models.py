@@ -67,11 +67,24 @@ class ContainerConfig(BaseModel):
     )
 
 
+class HostAgentConfig(BaseModel):
+    """Configuration for the cyclo_host_agent running on the host."""
+
+    socket_path: str = Field(
+        default='/agents/host/host_agent.sock',
+        description='Path to host agent Unix domain socket (as seen from inside the container)',
+    )
+
+
 class SystemConfig(BaseModel):
     """Root configuration model."""
 
     containers: dict[str, ContainerConfig] = Field(
         default_factory=dict, description='Map of container names to their configurations'
+    )
+    host_agent: HostAgentConfig = Field(
+        default_factory=HostAgentConfig,
+        description='Host agent configuration',
     )
 
 

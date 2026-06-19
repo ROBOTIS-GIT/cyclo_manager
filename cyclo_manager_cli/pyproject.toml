@@ -9,7 +9,10 @@ description = "cyclo_manager CLI: pip-installable launcher for cyclo_manager ser
 readme = "README.md"
 license = "Apache-2.0"
 requires-python = ">=3.10"
-dependencies = []
+dependencies = [
+    "fastapi>=0.100.0",
+    "uvicorn[standard]>=0.23.0",
+]
 
 [project.optional-dependencies]
 dev = [
@@ -19,10 +22,11 @@ dev = [
 
 [project.scripts]
 cyclo_manager = "cyclo_manager_cli.cli:main"
+cyclo_host_agent = "cyclo_host_agent.main:main"
 
 [tool.setuptools.packages.find]
 where = ["."]
-include = ["cyclo_manager_cli*"]
+include = ["cyclo_manager_cli*", "cyclo_host_agent*"]
 
 [tool.setuptools.package-data]
 cyclo_manager_cli = ["docker/*.yml", "docker/*.yaml", "config/*.yml", "config/*.yaml"]

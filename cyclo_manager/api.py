@@ -26,6 +26,7 @@ from cyclo_manager.routers import (
     container,
     containers,
     docker,
+    host,
     root,
     ros2,
     services,
@@ -114,6 +115,12 @@ app = FastAPI(
                 'cyclo_manager version check (PyPI) and update (pip + cyclo_manager up).'
             ),
         },
+        {
+            'name': 'host',
+            'description': (
+                'Host agent operations: ROS2 workspace repo management (clone, pull, delete).'
+            ),
+        },
     ],
 )
 
@@ -136,6 +143,7 @@ app.include_router(version.router)
 app.include_router(docker.router)
 app.include_router(ros2.router)
 app.include_router(websocket.router)
+app.include_router(host.router)
 
 
 @app.exception_handler(HTTPException)

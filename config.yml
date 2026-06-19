@@ -10,3 +10,6 @@ containers:
     socket_path: "/agents/ai_worker/s6_agent.sock"
   physical_ai_server:
     socket_path: "/agents/physical_ai_server/s6_agent.sock"
+
+host_agent:
+  socket_path: "/agents/host/host_agent.sock"
