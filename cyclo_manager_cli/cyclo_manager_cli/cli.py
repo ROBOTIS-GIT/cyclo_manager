@@ -31,6 +31,8 @@ import subprocess
 import sys
 
 PYPI_PACKAGE = 'cyclo-manager'
+HOST_AGENT_SERVICE = 'cyclo_host_agent'
+HOST_AGENT_SOCKET = '/var/run/robotis/agent_sockets/host/host_agent.sock'
 
 # `cyclo_manager up` starts these immediately.
 COMPOSE_SERVICES_UP = ('cyclo_manager', 'ui')
@@ -51,8 +53,100 @@ def _packaged_config_path() -> Path:
     return _config_dir() / 'config.yml'
 
 
+def _check_host_agent() -> bool:
+    """cyclo_host_agent 소켓 유닛이 이미 활성화되어 있는지 확인한다."""
+    result = subprocess.run(
+        ['systemctl', 'is-active', f'{HOST_AGENT_SERVICE}.socket'],
+        capture_output=True,
+        text=True,
+    )
+    return result.returncode == 0
+
+
+def _create_host_agent() -> int:
+    """
+    cyclo_host_agent systemd socket/service 유닛 파일을 작성하고 소켓을 활성화한다.
+
+    socket activation 방식이므로 소켓 유닛만 enable한다.
+    이후 소켓에 연결이 들어올 때 systemd가 서비스를 자동 기동한다.
+    """
+    socket_unit = f'{HOST_AGENT_SERVICE}.socket'
+
+    # Check cyclo_host_agent main executable
+    agent_exe = shutil.which('cyclo_host_agent')
+    if not agent_exe:
+        print(
+            'Warning: cyclo_host_agent not found in PATH. '
+            'Run `pip install cyclo-manager` and retry.',
+            file=sys.stderr,
+        )
+        return 1
+
+    socket_content = f"""\
+[Unit]
+Description=Cyclo Host Agent Socket
+
+[Socket]
+ListenStream={HOST_AGENT_SOCKET}
+DirectoryMode=0755
+SocketMode=0660
+
+[Install]
+WantedBy=sockets.target
+"""
+
+    service_content = f"""\
+[Unit]
+Description=Cyclo Host Agent
+Requires={socket_unit}
+After={socket_unit}
+
+[Service]
+Type=simple
+ExecStart={agent_exe}
+Restart=no
+
+[Install]
+WantedBy=multi-user.target
+"""
+
+    socket_file = f'/etc/systemd/system/{socket_unit}'
+    service_file = f'/etc/systemd/system/{HOST_AGENT_SERVICE}.service'
+
+    print(f'Installing {HOST_AGENT_SERVICE} systemd units (requires sudo)...')
+    try:
+        subprocess.run(
+            ['sudo', 'tee', socket_file],
+            input=socket_content.encode(),
+            capture_output=True,
+            check=True,
+        )
+        subprocess.run(
+            ['sudo', 'tee', service_file],
+            input=service_content.encode(),
+            capture_output=True,
+            check=True,
+        )
+        subprocess.run(['sudo', 'systemctl', 'daemon-reload'], check=True)
+        subprocess.run(['sudo', 'systemctl', 'enable', '--now', socket_unit], check=True)
+        print('Host agent socket installed and activated.')
+        return 0
+    except subprocess.CalledProcessError as e:
+        print(f'Failed to install host agent units: {e}', file=sys.stderr)
+        return 1
+    except FileNotFoundError:
+        print('sudo not found. Install the host agent units manually.', file=sys.stderr)
+        return 1
+
+
 def cmd_up(args: argparse.Namespace) -> int:
     """Start API + UI; create zenoh and noVNC containers without starting them."""
+    if not _check_host_agent():
+        if _create_host_agent() != 0:
+            print(
+                'Warning: Failed to install host agent units.'
+            )
+
     config_path = _packaged_config_path()
     if not config_path.is_file():
         print(f'Bundled config not found: {config_path}', file=sys.stderr)
