@@ -30,6 +30,7 @@ from cyclo_manager.routers import (
     root,
     ros2,
     services,
+    system,
     version,
     websocket,
 )
@@ -136,6 +137,7 @@ app.add_middleware(
 
 # Include routers
 app.include_router(root.router)
+app.include_router(system.router)
 app.include_router(containers.router)
 app.include_router(container.router)
 app.include_router(services.router)

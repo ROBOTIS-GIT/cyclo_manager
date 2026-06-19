@@ -160,6 +160,22 @@ export interface ErrorResponse {
   detail: string | null;
 }
 
+export interface RobotInfoResponse {
+  hostname: string;
+  os_info: string | null;
+  ip_address: string | null;
+}
+
+export interface HostSystemStatsResponse {
+  cpu_percent: number;
+  memory_used_mb: number;
+  memory_total_mb: number;
+  disk_used_gb: number;
+  disk_total_gb: number;
+  uptime_seconds: number;
+  temperature_celsius: number | null;
+}
+
 // ROS2 Plugin Types
 
 export interface ROS2TopicStatus {

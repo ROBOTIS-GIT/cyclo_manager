@@ -37,6 +37,8 @@ import type {
   CycloManagerVersionResponse,
   ROS2TopicsListResponse,
   ROS2TopicDataResponse,
+  HostSystemStatsResponse,
+  RobotInfoResponse,
 } from "@/types/api";
 
 // Get API base URL from environment variable, default to frontend host:8081
@@ -443,4 +445,22 @@ export async function ros2Unsubscribe(
   await apiClient.post(
     `/${container}/ros2/topics/${encodeURIComponent(topic)}/unsubscribe`
   );
+}
+
+export async function getSystemStats(): Promise<HostSystemStatsResponse> {
+  try {
+    const response = await apiClient.get<HostSystemStatsResponse>("/system/status");
+    return response.data;
+  } catch (error) {
+    handleError(error);
+  }
+}
+
+export async function getRobotInfo(): Promise<RobotInfoResponse> {
+  try {
+    const response = await apiClient.get<RobotInfoResponse>("/system/info");
+    return response.data;
+  } catch (error) {
+    handleError(error);
+  }
 }

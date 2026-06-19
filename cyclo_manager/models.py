@@ -355,3 +355,23 @@ class ROS2SubscribeRequest(BaseModel):
     msg_type: Optional[str] = Field(
         None, description='Message type (e.g. sensor_msgs/msg/JointState)'
     )
+
+
+class RobotInfoResponse(BaseModel):
+    """Response for GET /system/info."""
+
+    hostname: str
+    os_info: Optional[str] = None
+    ip_address: Optional[str] = None
+
+
+class SystemStatsResponse(BaseModel):
+    """Response for GET /system/status."""
+
+    cpu_percent: float
+    memory_used_mb: int
+    memory_total_mb: int
+    disk_used_gb: float
+    disk_total_gb: float
+    uptime_seconds: int
+    temperature_celsius: Optional[float] = None

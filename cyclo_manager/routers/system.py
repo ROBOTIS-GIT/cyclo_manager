@@ -1,0 +1,121 @@
+#!/usr/bin/env python3
+#
+# Copyright 2026 ROBOTIS CO., LTD.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+#
+# Author: Hyungyu Kim
+
+"""System info and stats endpoints: reads directly from /proc inside the container."""
+
+import os
+import platform
+import socket
+import time
+from pathlib import Path
+from typing import Optional
+
+import psutil
+from cyclo_manager.models import RobotInfoResponse, SystemStatsResponse
+from fastapi import APIRouter
+
+router = APIRouter(prefix='/system', tags=['system'])
+
+# Host filesystem mounted read-only at this path in docker-compose.
+# Used to read host disk usage and host OS info.
+_HOST_ROOT = '/host_root'
+
+
+def _read_file(path: str) -> str | None:
+    """파일을 읽어 null 바이트를 제거한 문자열을 반환한다. 없으면 None."""
+    try:
+        return Path(path).read_text(encoding='utf-8', errors='replace').replace('\x00', '').strip()
+    except OSError:
+        return None
+
+
+def _os_info() -> str | None:
+    """/host_root/etc/os-release에서 호스트 OS 이름을 읽는다."""
+    content = _read_file(f'{_HOST_ROOT}/etc/os-release')
+    if content:
+        for line in content.splitlines():
+            if line.startswith('PRETTY_NAME='):
+                return line.split('=', 1)[1].strip('"')
+    return platform.platform()
+
+
+def _temperature() -> float | None:
+    try:
+        sensors = psutil.sensors_temperatures()
+        if not sensors:
+            return None
+        for readings in sensors.values():
+            if readings:
+                return round(readings[0].current, 1)
+    except (AttributeError, Exception):
+        pass
+    return None
+
+
+# ── Endpoints ─────────────────────────────────────────────────────────────────
+
+@router.get('/info', response_model=RobotInfoResponse)
+async def get_robot_info() -> RobotInfoResponse:
+    """hostname, OS, IP 주소를 반환한다.
+
+    hostname은 HOST_HOSTNAME 환경변수 우선, 없으면 컨테이너 hostname 사용.
+    """
+    hostname = os.environ.get('HOST_HOSTNAME') or socket.gethostname()
+
+    ip_address: Optional[str] = None
+    try:
+        for iface, addrs in psutil.net_if_addrs().items():
+            if iface == 'lo':
+                continue
+            for addr in addrs:
+                if addr.family == socket.AF_INET and not addr.address.startswith('127.'):
+                    ip_address = addr.address
+                    break
+            if ip_address:
+                break
+    except Exception:
+        pass
+
+    return RobotInfoResponse(
+        hostname=hostname,
+        os_info=_os_info(),
+        ip_address=ip_address,
+    )
+
+
+@router.get('/status', response_model=SystemStatsResponse)
+async def get_system_stats() -> SystemStatsResponse:
+    """CPU, 메모리, 디스크, 업타임을 반환한다.
+
+    CPU/메모리/업타임은 /proc을 통해 호스트 값을 읽는다.
+    디스크는 /host_root (호스트 / 마운트)를 우선 사용하고 없으면 / 사용.
+    """
+    cpu_percent = psutil.cpu_percent(interval=0.2)
+    mem = psutil.virtual_memory()
+    disk_path = _HOST_ROOT if Path(_HOST_ROOT).is_mount() else '/'
+    disk = psutil.disk_usage(disk_path)
+    uptime_seconds = int(time.time() - psutil.boot_time())
+    return SystemStatsResponse(
+        cpu_percent=round(cpu_percent, 1),
+        memory_used_mb=mem.used // (1024 * 1024),
+        memory_total_mb=mem.total // (1024 * 1024),
+        disk_used_gb=round(disk.used / (1024 ** 3), 1),
+        disk_total_gb=round(disk.total / (1024 ** 3), 1),
+        uptime_seconds=uptime_seconds,
+        temperature_celsius=_temperature(),
+    )

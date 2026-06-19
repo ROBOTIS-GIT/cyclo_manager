@@ -28,9 +28,12 @@ services:
       - ./cyclo_manager:/app/cyclo_manager
       # Exclude __pycache__ and .pyc files from host
       - /app/cyclo_manager/__pycache__
+      # Mount host root for disk usage and OS info
+      - /:/host_root:ro
     environment:
       - CONFIG_FILE=/app/config.yml
       - PYTHONUNBUFFERED=1
+      - HOST_HOSTNAME=${HOSTNAME}
     # Note: uvicorn --reload will automatically restart on code changes
 
   ui:
