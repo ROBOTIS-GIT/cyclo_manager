@@ -142,6 +142,24 @@ export interface DockerTopResponse {
   processes: string[][];
 }
 
+export interface RepoInfo {
+  name: string;
+  path: string;
+  branch: string | null;
+  remote: string | null;
+}
+
+export interface RepoListResponse {
+  repos: RepoInfo[];
+  workspace_path: string;
+}
+
+export interface RepoPullResponse {
+  name: string;
+  message: string;
+  output: string;
+}
+
 export interface RepoVersionResponse {
   container: string;
   current: string;

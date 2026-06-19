@@ -34,6 +34,8 @@ import type {
   ServiceRunScriptResponse,
   BashrcResponse,
   RepoVersionResponse,
+  RepoListResponse,
+  RepoPullResponse,
   CycloManagerVersionResponse,
   ROS2TopicsListResponse,
   ROS2TopicDataResponse,
@@ -459,6 +461,24 @@ export async function getSystemStats(): Promise<HostSystemStatsResponse> {
 export async function getRobotInfo(): Promise<RobotInfoResponse> {
   try {
     const response = await apiClient.get<RobotInfoResponse>("/system/info");
+    return response.data;
+  } catch (error) {
+    handleError(error);
+  }
+}
+
+export async function listRepos(): Promise<RepoListResponse> {
+  try {
+    const response = await apiClient.get<RepoListResponse>("/host/repos");
+    return response.data;
+  } catch (error) {
+    handleError(error);
+  }
+}
+
+export async function pullRepo(name: string): Promise<RepoPullResponse> {
+  try {
+    const response = await apiClient.post<RepoPullResponse>(`/host/repos/${name}/pull`);
     return response.data;
   } catch (error) {
     handleError(error);

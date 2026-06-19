@@ -27,8 +27,10 @@ import {
   getDockerContainerLogs,
   getBashrc,
   updateBashrc,
+  listRepos,
+  pullRepo,
 } from "@/lib/api";
-import type { HostSystemStatsResponse, RobotInfoResponse, DockerContainerInfo } from "@/types/api";
+import type { HostSystemStatsResponse, RobotInfoResponse, DockerContainerInfo, RepoInfo } from "@/types/api";
 import CycloManagerUpdateAnnouncement from "@/components/CycloManagerUpdateAnnouncement";
 import StatusBadge from "@/components/StatusBadge";
 import { useTheme } from "@/contexts/ThemeContext";
@@ -68,7 +70,7 @@ function Card({ children, title, className = "" }: { children: React.ReactNode; 
       }}
     >
       {title && (
-        <div className="px-4 pt-3 pb-1 text-xs font-bold uppercase tracking-widest"
+        <div className="px-5 pt-4 pb-1.5 text-sm font-bold uppercase tracking-widest"
           style={{ color: "var(--vscode-foreground)" }}>
           {title}
         </div>
@@ -79,8 +81,8 @@ function Card({ children, title, className = "" }: { children: React.ReactNode; 
 }
 
 const btnStyle = (primary: boolean, disabled: boolean): React.CSSProperties => ({
-  padding: "3px 10px",
-  fontSize: "12px",
+  padding: "4px 12px",
+  fontSize: "13px",
   border: "none",
   borderRadius: "2px",
   cursor: disabled ? "not-allowed" : "pointer",
@@ -98,7 +100,7 @@ const btnStyle = (primary: boolean, disabled: boolean): React.CSSProperties => (
 function CircleGauge({ fill, label, display, sub }: {
   fill: number; label: string; display?: string; sub?: string;
 }) {
-  const SIZE = 90, STROKE = 7;
+  const SIZE = 110, STROKE = 8;
   const r = (SIZE - STROKE) / 2;
   const circumference = 2 * Math.PI * r;
   const offset = circumference - (Math.min(fill, 100) / 100) * circumference;
@@ -115,17 +117,17 @@ function CircleGauge({ fill, label, display, sub }: {
           strokeDasharray={circumference} strokeDashoffset={offset}
           strokeLinecap="round" transform={`rotate(-90 ${cx} ${cy})`}
           style={{ transition: "stroke-dashoffset 0.5s ease" }} />
-        <text x={cx} y={cy - 9} textAnchor="middle" dominantBaseline="middle"
-          fontSize="10" fontWeight="500" fill="var(--vscode-descriptionForeground)">
+        <text x={cx} y={cy - 10} textAnchor="middle" dominantBaseline="middle"
+          fontSize="12" fontWeight="500" fill="var(--vscode-descriptionForeground)">
           {label}
         </text>
-        <text x={cx} y={cy + 8} textAnchor="middle" dominantBaseline="middle"
-          fontSize="13" fontWeight="700" fill={color}>
+        <text x={cx} y={cy + 10} textAnchor="middle" dominantBaseline="middle"
+          fontSize="15" fontWeight="700" fill={color}>
           {display ?? `${fill}%`}
         </text>
       </svg>
       {sub && (
-        <div className="text-xs text-center" style={{ color: "var(--vscode-descriptionForeground)" }}>
+        <div className="text-sm text-center" style={{ color: "var(--vscode-descriptionForeground)" }}>
           {sub}
         </div>
       )}
@@ -133,13 +135,49 @@ function CircleGauge({ fill, label, display, sub }: {
   );
 }
 
+function RepoRow({ repo, onPull, pulling, pullOutput }: {
+  repo: RepoInfo;
+  onPull: () => void;
+  pulling: boolean;
+  pullOutput: string | null;
+}) {
+  return (
+    <div className="px-5 py-3" style={{ borderTop: "1px solid var(--vscode-panel-border)" }}>
+      <div className="flex items-center gap-3">
+        <div className="flex-1 min-w-0">
+          <div className="text-base font-medium truncate" style={{ color: "var(--vscode-foreground)" }}>
+            {repo.name}
+          </div>
+          <div className="text-sm" style={{ color: "var(--vscode-descriptionForeground)" }}>
+            {repo.branch ?? "—"}
+          </div>
+        </div>
+        <button onClick={onPull} disabled={pulling} style={btnStyle(false, pulling)}>
+          {pulling ? "Pulling…" : "Pull"}
+        </button>
+        <button disabled style={btnStyle(true, true)}>
+          Update
+        </button>
+      </div>
+      {pullOutput && (
+        <pre
+          className="mt-2 text-xs p-2 rounded font-mono whitespace-pre-wrap break-words overflow-auto max-h-24"
+          style={{ backgroundColor: "var(--vscode-textCodeBlock-background)", color: "var(--vscode-foreground)" }}
+        >
+          {pullOutput}
+        </pre>
+      )}
+    </div>
+  );
+}
+
 function InfoRow({ label, value }: { label: string; value: string | null | undefined }) {
   return (
-    <div className="flex items-start justify-between gap-3 py-1.5">
-      <span className="shrink-0 text-xs" style={{ color: "var(--vscode-descriptionForeground)" }}>
+    <div className="flex items-start justify-between gap-3 py-2">
+      <span className="shrink-0 text-sm" style={{ color: "var(--vscode-descriptionForeground)" }}>
         {label}
       </span>
-      <span className="text-right font-bold break-all text-xs"
+      <span className="text-right font-bold break-all text-sm"
         style={{ color: value ? "var(--vscode-foreground)" : "var(--vscode-descriptionForeground)" }}>
         {value ?? "—"}
       </span>
@@ -149,7 +187,7 @@ function InfoRow({ label, value }: { label: string; value: string | null | undef
 
 const iconBtn: React.CSSProperties = {
   display: "flex", alignItems: "center", justifyContent: "center",
-  width: 26, height: 26, padding: 0, border: "none", borderRadius: "50%",
+  width: 30, height: 30, padding: 0, border: "none", borderRadius: "50%",
   cursor: "pointer",
   backgroundColor: "var(--vscode-button-secondaryBackground)",
   color: "var(--vscode-button-secondaryForeground)",
@@ -179,22 +217,22 @@ function ContainerRow({ container, onAction, onOpenLog, onOpenBashrc, busy, busy
   const running = container.status.toLowerCase() === "running";
 
   return (
-    <div className="flex items-center gap-3 px-4 py-2.5"
+    <div className="flex items-center gap-3 px-5 py-3"
       style={{ borderTop: "1px solid var(--vscode-panel-border)" }}>
       <div className="flex-1 min-w-0">
-        <div className="text-sm font-medium truncate" style={{ color: "var(--vscode-foreground)" }}>
+        <div className="text-base font-medium truncate" style={{ color: "var(--vscode-foreground)" }}>
           {container.name}
         </div>
-        <div className="text-xs truncate" style={{ color: "var(--vscode-descriptionForeground)" }}>
+        <div className="text-sm truncate" style={{ color: "var(--vscode-descriptionForeground)" }}>
           {container.image}
         </div>
       </div>
-      <div className="w-20 flex justify-start shrink-0">
+      <div className="w-24 flex justify-start shrink-0">
         <StatusBadge status={container.status} />
       </div>
-      <div className="flex items-center gap-1 shrink-0">
+      <div className="flex items-center gap-1.5 shrink-0">
         {/* control icons — always 2 slots to keep alignment */}
-        <div className="flex items-center gap-1" style={{ width: 58 }}>
+        <div className="flex items-center gap-1.5" style={{ width: 66 }}>
           {running ? (
             <>
               <IconButton onClick={() => onAction("stop")} disabled={busy}
@@ -220,7 +258,7 @@ function ContainerRow({ container, onAction, onOpenLog, onOpenBashrc, busy, busy
                   <polygon points="2,1 11,6 2,11" />
                 </svg>
               </IconButton>
-              <span style={{ width: 26 }} />
+              <span style={{ width: 30 }} />
             </>
           )}
         </div>
@@ -247,6 +285,9 @@ export default function HomePage() {
   const [robotInfo, setRobotInfo] = useState<RobotInfoResponse | null>(null);
   const [systemStats, setSystemStats] = useState<HostSystemStatsResponse | null>(null);
   const [containers, setContainers] = useState<DockerContainerInfo[]>([]);
+  const [repos, setRepos] = useState<RepoInfo[]>([]);
+  const [pullingRepo, setPullingRepo] = useState<string | null>(null);
+  const [pullOutputs, setPullOutputs] = useState<Record<string, string>>({});
   const [actionLoading, setActionLoading] = useState<{ container: string; action: string } | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
 
@@ -280,13 +321,34 @@ export default function HomePage() {
     } catch {}
   }, []);
 
+  const loadRepos = useCallback(async () => {
+    try {
+      const { repos } = await listRepos();
+      setRepos(repos);
+    } catch {}
+  }, []);
+
+  const handlePull = useCallback(async (name: string) => {
+    setPullingRepo(name);
+    setPullOutputs((p) => ({ ...p, [name]: "" }));
+    try {
+      const res = await pullRepo(name);
+      setPullOutputs((p) => ({ ...p, [name]: res.output || res.message }));
+    } catch (err) {
+      setPullOutputs((p) => ({ ...p, [name]: err instanceof Error ? err.message : "Failed" }));
+    } finally {
+      setPullingRepo(null);
+    }
+  }, []);
+
   const loadAll = useCallback(async () => {
     await Promise.allSettled([
       getRobotInfo().then(setRobotInfo).catch(() => {}),
       getSystemStats().then(setSystemStats).catch(() => {}),
       loadContainers(),
+      loadRepos(),
     ]);
-  }, [loadContainers]);
+  }, [loadContainers, loadRepos]);
 
   useEffect(() => {
     loadAll();
@@ -369,14 +431,14 @@ export default function HomePage() {
   return (
     <>
       <CycloManagerUpdateAnnouncement suppressed={false} onBannerVisibilityChange={setCmUpdateBanner} />
-      <div className={`flex flex-col gap-6 max-w-3xl ${cmUpdateBanner ? "pt-14" : ""}`}>
+      <div className={`flex flex-col gap-6 ${cmUpdateBanner ? "pt-14" : ""}`}>
 
-        <div className="flex gap-4 items-stretch">
+        <div className="grid gap-4 items-stretch" style={{ gridTemplateColumns: "1fr 1.5fr 1fr" }}>
 
           {/* Robot Information */}
-          <section className="w-56 shrink-0">
+          <section>
             <Card title="Robot Information" className="h-full">
-              <div className="px-4 pb-1">
+              <div className="px-5 pb-2">
                 <InfoRow label="Hostname" value={robotInfo?.hostname} />
                 <InfoRow label="OS" value={robotInfo?.os_info} />
                 <InfoRow label="IP Address" value={robotInfo?.ip_address} />
@@ -389,14 +451,14 @@ export default function HomePage() {
           </section>
 
           {/* System Status */}
-          <section className="flex-1 min-w-0">
+          <section>
             <Card title="System Status" className="h-full">
               {systemStats == null ? (
                 <div className="p-5 text-sm" style={{ color: "var(--vscode-descriptionForeground)" }}>
                   Unavailable
                 </div>
               ) : (
-                <div className="p-5 flex gap-4 justify-around">
+                <div className="p-6 flex gap-6 justify-around">
                   <CircleGauge fill={systemStats.cpu_percent} label="CPU" />
                   <CircleGauge
                     fill={memPct} label="Memory"
@@ -418,10 +480,21 @@ export default function HomePage() {
             </Card>
           </section>
 
+          {/* Robot Status */}
+          <section>
+            <Card title="Robot Status" className="h-full">
+              <div className="p-4 text-sm" style={{ color: "var(--vscode-descriptionForeground)" }}>
+                Coming soon
+              </div>
+            </Card>
+          </section>
+
         </div>
 
-        {/* ── Containers ── */}
-        <section className="max-w-xl">
+        {/* ── Bottom row: 3 columns ── */}
+        <div className="grid gap-4 items-start" style={{ gridTemplateColumns: "1.5fr 1fr 1fr" }}>
+
+        <section>
           {actionError && (
             <div className="mb-2 px-3 py-2 rounded text-xs"
               style={{ backgroundColor: "var(--vscode-inputValidation-errorBackground)", color: "var(--vscode-errorForeground)" }}>
@@ -452,6 +525,39 @@ export default function HomePage() {
             )}
           </Card>
         </section>
+
+        {/* Version Management */}
+        <section>
+          <Card title="Version Management">
+            {repos.length === 0 ? (
+              <div className="p-4 text-sm" style={{ color: "var(--vscode-descriptionForeground)" }}>
+                No repos found
+              </div>
+            ) : (
+              repos.map((repo, i) => (
+                <div key={repo.name} style={i === 0 ? { borderTop: "none" } : {}}>
+                  <RepoRow
+                    repo={repo}
+                    onPull={() => handlePull(repo.name)}
+                    pulling={pullingRepo === repo.name}
+                    pullOutput={pullOutputs[repo.name] ?? null}
+                  />
+                </div>
+              ))
+            )}
+          </Card>
+        </section>
+
+        {/* Quick Actions */}
+        <section>
+          <Card title="Quick Actions">
+            <div className="p-4 text-sm" style={{ color: "var(--vscode-descriptionForeground)" }}>
+              Coming soon
+            </div>
+          </Card>
+        </section>
+
+        </div>
 
       </div>
 
