@@ -24,7 +24,7 @@ from pathlib import Path
 import uvicorn
 from fastapi import FastAPI
 
-from cyclo_host_agent.routers import repos
+from cyclo_host_agent.routers import repos, update
 
 logging.basicConfig(
     level=logging.INFO,
@@ -41,6 +41,7 @@ app = FastAPI(
 )
 
 app.include_router(repos.router)
+app.include_router(update.router)
 
 
 def main() -> None:

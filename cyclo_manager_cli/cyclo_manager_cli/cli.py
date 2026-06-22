@@ -186,16 +186,6 @@ def cmd_down(args: argparse.Namespace) -> int:
         )
         return 1
 
-    service_file = f'/etc/systemd/system/{HOST_AGENT_SERVICE}.service'
-    try:
-        subprocess.run(['sudo', 'systemctl', 'disable', '--now', f'{HOST_AGENT_SERVICE}.service'], check=True)
-        subprocess.run(['sudo', 'rm', '-f', service_file], check=True)
-        subprocess.run(['sudo', 'systemctl', 'daemon-reload'], check=True)
-    except subprocess.CalledProcessError:
-        pass
-    except FileNotFoundError:
-        pass
-
     print('cyclo_manager server, cyclo_manager_ui, and zenoh daemon are down.')
     return 0
 

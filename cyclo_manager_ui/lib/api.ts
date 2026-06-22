@@ -358,11 +358,27 @@ export async function getCycloManagerVersion(): Promise<CycloManagerVersionRespo
   }
 }
 
-export async function updateCycloManager(): Promise<{ message: string }> {
+export async function updateCycloManager(): Promise<{ down_output: string }> {
   try {
-    const response = await apiClient.post<{ message: string }>(
-      "/version/update"
+    const response = await apiClient.post<{ down_output: string }>(
+      "/host/update",
+      null,
+      { timeout: 60000 }
     );
+    return response.data;
+  } catch (error) {
+    handleError(error);
+  }
+}
+
+export async function getUpdateStatus(): Promise<{
+  phase: string;
+  install_output: string;
+  up_output: string;
+  error: string;
+}> {
+  try {
+    const response = await apiClient.get("/host/update/status");
     return response.data;
   } catch (error) {
     handleError(error);

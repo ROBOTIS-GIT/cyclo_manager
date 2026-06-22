@@ -16,15 +16,83 @@
 
 "use client";
 
-import { useEffect, useState } from "react";
-import { getCycloManagerVersion } from "@/lib/api";
+import { useEffect, useState, useCallback, useRef } from "react";
+import { getCycloManagerVersion, updateCycloManager, getUpdateStatus } from "@/lib/api";
 import type { CycloManagerVersionResponse } from "@/types/api";
 import { useAppsHubBanner } from "@/contexts/AppsHubBannerContext";
 
+type Phase = "idle" | "stopping" | "restarting" | "installing" | "starting" | "done" | "error";
+
+const PHASE_LABELS: Record<Phase, string> = {
+  idle: "",
+  stopping: "Stopping server...",
+  restarting: "Server stopped. Waiting for install to complete...",
+  installing: "Installing package...",
+  starting: "Starting server...",
+  done: "Update complete. Reloading...",
+  error: "Update failed.",
+};
+
+const STEPS: { key: Phase; label: string }[] = [
+  { key: "stopping",   label: "Stop Server" },
+  { key: "installing", label: "Install Package" },
+  { key: "starting",   label: "Start Server" },
+];
+
+function StepBar({ phase }: { phase: Phase }) {
+  const order: Phase[] = ["stopping", "installing", "starting", "done"];
+  const idx = order.indexOf(phase === "restarting" ? "installing" : phase);
+  return (
+    <div className="flex items-center gap-0 px-5 py-3 text-xs"
+      style={{ borderBottom: "1px solid var(--vscode-panel-border)", flexShrink: 0 }}>
+      {STEPS.map((step, i) => {
+        const done = i < (idx === -1 ? 0 : idx) || phase === "done";
+        const active = order[idx] === step.key && phase !== "done";
+        return (
+          <div key={step.key} className="flex items-center">
+            <div className="flex items-center gap-1.5">
+              <span style={{
+                width: 20, height: 20, borderRadius: "50%",
+                display: "flex", alignItems: "center", justifyContent: "center",
+                fontSize: 11, fontWeight: 600, flexShrink: 0,
+                backgroundColor: done ? "#3fb950" : active ? "var(--vscode-button-background)" : "transparent",
+                color: done || active ? "#fff" : "var(--vscode-descriptionForeground)",
+                border: done || active ? "none" : "1px solid var(--vscode-panel-border)",
+              }}>
+                {done ? "✓" : i + 1}
+              </span>
+              <span style={{
+                color: active ? "var(--vscode-foreground)" : done ? "#3fb950" : "var(--vscode-descriptionForeground)",
+                fontWeight: active ? 600 : 400,
+              }}>{step.label}</span>
+            </div>
+            {i < STEPS.length - 1 && (
+              <span className="mx-2" style={{ color: "var(--vscode-panel-border)" }}>—</span>
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+function OutputBox({ output, error }: { output: string; error?: boolean }) {
+  if (!output) return null;
+  return (
+    <pre className="text-xs p-3 rounded font-mono whitespace-pre-wrap break-words overflow-auto"
+      style={{
+        maxHeight: 200,
+        backgroundColor: "var(--vscode-textCodeBlock-background)",
+        color: error ? "var(--vscode-errorForeground)" : "var(--vscode-foreground)",
+        border: "1px solid var(--vscode-panel-border)",
+      }}>
+      {output}
+    </pre>
+  );
+}
+
 export type CycloManagerUpdateAnnouncementProps = {
-  /** When true, banner and Apps hub offset are hidden even if an update exists. */
   suppressed?: boolean;
-  /** Fires when the top update strip is shown or hidden (for content `pt-14`, etc.). */
   onBannerVisibilityChange?: (visible: boolean) => void;
 };
 
@@ -33,7 +101,13 @@ export default function CycloManagerUpdateAnnouncement({
   onBannerVisibilityChange,
 }: CycloManagerUpdateAnnouncementProps) {
   const [info, setInfo] = useState<CycloManagerVersionResponse | null>(null);
-  const [showInstructions, setShowInstructions] = useState(false);
+  const [showModal, setShowModal] = useState(false);
+  const [phase, setPhase] = useState<Phase>("idle");
+  const [downOutput, setDownOutput] = useState("");
+  const [installOutput, setInstallOutput] = useState("");
+  const [upOutput, setUpOutput] = useState("");
+  const [errorMsg, setErrorMsg] = useState("");
+  const pollingRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const { setUpdateBannerVisible } = useAppsHubBanner();
 
   useEffect(() => {
@@ -43,19 +117,84 @@ export default function CycloManagerUpdateAnnouncement({
   }, []);
 
   const bannerVisible = !suppressed && !!info?.update_available;
-
   useEffect(() => {
     setUpdateBannerVisible(bannerVisible);
     return () => setUpdateBannerVisible(false);
   }, [bannerVisible, setUpdateBannerVisible]);
-
   useEffect(() => {
     onBannerVisibilityChange?.(bannerVisible);
   }, [bannerVisible, onBannerVisibilityChange]);
 
-  if (!info?.update_available) {
-    return null;
-  }
+  const stopPolling = useCallback(() => {
+    if (pollingRef.current) {
+      clearInterval(pollingRef.current);
+      pollingRef.current = null;
+    }
+  }, []);
+
+  // After server comes back up, poll status endpoint for install+up results
+  const pollStatus = useCallback(() => {
+    pollingRef.current = setInterval(async () => {
+      try {
+        const s = await getUpdateStatus();
+        if (s.phase === "installing" || s.phase === "starting") {
+          setPhase(s.phase);
+          if (s.install_output) setInstallOutput(s.install_output);
+        } else if (s.phase === "done") {
+          stopPolling();
+          if (s.install_output) setInstallOutput(s.install_output);
+          if (s.up_output) setUpOutput(s.up_output);
+          setPhase("done");
+          setTimeout(() => window.location.reload(), 1500);
+        } else if (s.phase === "error") {
+          stopPolling();
+          if (s.install_output) setInstallOutput(s.install_output);
+          if (s.up_output) setUpOutput(s.up_output);
+          setErrorMsg(s.error);
+          setPhase("error");
+        }
+      } catch {
+        // server still restarting, keep polling
+      }
+    }, 3000);
+  }, [stopPolling]);
+
+  // After cyclo down, wait for server to come back before polling status
+  const waitForServerThenPollStatus = useCallback(() => {
+    setPhase("restarting");
+    const serverPoll = setInterval(async () => {
+      try {
+        await getCycloManagerVersion();
+        clearInterval(serverPoll);
+        pollStatus();
+      } catch {
+        // still down
+      }
+    }, 3000);
+  }, [pollStatus]);
+
+  const handleUpdate = useCallback(async () => {
+    setPhase("stopping");
+    setDownOutput("");
+    setInstallOutput("");
+    setUpOutput("");
+    setErrorMsg("");
+    try {
+      const res = await updateCycloManager();
+      setDownOutput(res.down_output);
+      waitForServerThenPollStatus();
+    } catch (e) {
+      setPhase("error");
+      setErrorMsg(e instanceof Error ? e.message : "Failed to start update.");
+    }
+  }, [waitForServerThenPollStatus]);
+
+  useEffect(() => () => stopPolling(), [stopPolling]);
+
+  if (!info?.update_available) return null;
+
+  const isRunning = phase === "stopping" || phase === "restarting" || phase === "installing" || phase === "starting";
+  const canClose = !isRunning && phase !== "done";
 
   return (
     <>
@@ -72,7 +211,7 @@ export default function CycloManagerUpdateAnnouncement({
           </span>
           <button
             type="button"
-            onClick={() => setShowInstructions(true)}
+            onClick={() => setShowModal(true)}
             className="px-3 py-1.5 rounded text-sm font-medium border border-white/50 hover:bg-white/20"
           >
             Update available
@@ -80,106 +219,105 @@ export default function CycloManagerUpdateAnnouncement({
         </div>
       )}
 
-      {showInstructions && (
-        <div
-          className="fixed inset-0 flex items-center justify-center z-[70]"
-          style={{ backgroundColor: "rgba(0,0,0,0.5)" }}
-          onClick={() => setShowInstructions(false)}
-        >
-          <div
-            className="rounded-lg border shadow-xl w-[28rem] flex flex-col overflow-hidden"
+      {showModal && (
+        <div className="fixed inset-0 flex items-center justify-center z-[70]"
+          style={{ backgroundColor: "rgba(0,0,0,0.5)" }}>
+          <div className="rounded-lg border shadow-xl flex flex-col overflow-hidden"
             style={{
+              width: "min(560px, 95vw)",
+              maxHeight: "88vh",
               backgroundColor: "var(--vscode-editor-background)",
               borderColor: "var(--vscode-panel-border)",
-            }}
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div
-              className="px-4 py-3 border-b flex items-center justify-between"
-              style={{ borderColor: "var(--vscode-panel-border)" }}
-            >
-              <h2 className="font-semibold" style={{ color: "var(--vscode-foreground)" }}>
-                How to update cyclo_manager
-              </h2>
-              <button
-                type="button"
-                onClick={() => setShowInstructions(false)}
-                className="p-1 rounded hover:opacity-80"
-                style={{
-                  color: "var(--vscode-foreground)",
-                  background: "none",
-                  border: "none",
-                  cursor: "pointer",
-                }}
-                aria-label="Close"
-              >
-                <svg
-                  xmlns="http://www.w3.org/2000/svg"
-                  width="20"
-                  height="20"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="2"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                >
-                  <line x1="18" y1="6" x2="6" y2="18" />
-                  <line x1="6" y1="6" x2="18" y2="18" />
-                </svg>
-              </button>
-            </div>
-            <div
-              className="px-4 py-2 flex gap-4 text-sm"
-              style={{
-                borderBottom: "1px solid var(--vscode-panel-border)",
-                color: "var(--vscode-descriptionForeground)",
-              }}
-            >
-              <span>
-                Current:{" "}
-                <span className="font-mono font-medium" style={{ color: "var(--vscode-foreground)" }}>
-                  {info.current}
-                </span>
-              </span>
-              <span>
-                Latest:{" "}
-                <span className="font-mono font-medium" style={{ color: "var(--vscode-foreground)" }}>
-                  {info.latest}
-                </span>
-              </span>
-            </div>
-            <div className="p-4 space-y-4 text-sm" style={{ color: "var(--vscode-foreground)" }}>
+            }}>
+
+            {/* Header */}
+            <div className="px-5 pt-4 pb-3 flex items-start justify-between"
+              style={{ borderBottom: "1px solid var(--vscode-panel-border)", flexShrink: 0 }}>
               <div>
-                <p className="mb-1.5">1. Use below command in host</p>
-                <div
-                  className="rounded overflow-hidden border"
-                  style={{
-                    borderColor: "var(--vscode-panel-border)",
-                    backgroundColor: "var(--vscode-editor-background)",
-                  }}
-                >
-                  <div
-                    className="px-3 py-1.5 text-xs font-medium"
-                    style={{
-                      backgroundColor: "var(--vscode-sidebar-background)",
-                      borderBottom: "1px solid var(--vscode-panel-border)",
-                      color: "var(--vscode-descriptionForeground)",
-                    }}
-                  >
-                    bash
-                  </div>
-                  <pre
-                    className="p-3 text-xs font-mono overflow-x-auto m-0"
-                    style={{
-                      color: "var(--vscode-editor-foreground, var(--vscode-foreground))",
-                      fontFamily: "var(--vscode-editor-font-family, ui-monospace, monospace)",
-                    }}
-                  >
-                    cyclo_manager update
-                  </pre>
+                <div className="text-sm font-bold" style={{ color: "var(--vscode-foreground)" }}>
+                  Update cyclo_manager
                 </div>
+                {info.current && info.latest && (
+                  <div className="text-xs mt-0.5" style={{ color: "var(--vscode-descriptionForeground)" }}>
+                    {info.current} → {info.latest}
+                  </div>
+                )}
               </div>
+              {canClose && (
+                <button onClick={() => { setShowModal(false); setPhase("idle"); }}
+                  style={{ background: "none", border: "none", cursor: "pointer", padding: "0 0 0 8px", color: "var(--vscode-descriptionForeground)" }}>
+                  ✕
+                </button>
+              )}
+            </div>
+
+            {/* Step bar */}
+            {phase !== "idle" && <StepBar phase={phase} />}
+
+            {/* Body */}
+            <div style={{ flex: 1, overflowY: "auto", padding: "16px 20px" }} className="flex flex-col gap-3">
+              {phase === "idle" && (
+                <div className="flex flex-col gap-1.5 text-sm" style={{ color: "var(--vscode-descriptionForeground)" }}>
+                  <div>The following steps will be performed:</div>
+                  <ol className="flex flex-col gap-1 pl-4 list-decimal">
+                    <li><strong style={{ color: "var(--vscode-foreground)" }}>Stop Server</strong> — stop cyclo_manager stack</li>
+                    <li><strong style={{ color: "var(--vscode-foreground)" }}>Install Package</strong> — pip install -U cyclo-manager</li>
+                    <li><strong style={{ color: "var(--vscode-foreground)" }}>Start Server</strong> — restart cyclo_manager stack</li>
+                  </ol>
+                </div>
+              )}
+
+              {/* Status label */}
+              {phase !== "idle" && phase !== "error" && (
+                <div className="text-sm" style={{ color: phase === "done" ? "#3fb950" : "var(--vscode-descriptionForeground)" }}>
+                  {PHASE_LABELS[phase]}
+                </div>
+              )}
+              {phase === "error" && (
+                <div className="text-sm" style={{ color: "var(--vscode-errorForeground)" }}>
+                  {errorMsg}
+                </div>
+              )}
+
+              {/* Logs */}
+              {downOutput && <OutputBox output={downOutput} />}
+              {installOutput && <OutputBox output={installOutput} />}
+              {upOutput && <OutputBox output={upOutput} />}
+            </div>
+
+            {/* Footer */}
+            <div style={{
+              padding: "12px 20px", borderTop: "1px solid var(--vscode-panel-border)",
+              display: "flex", justifyContent: "flex-end", gap: 8, flexShrink: 0,
+            }}>
+              {phase === "idle" && (
+                <>
+                  <button onClick={() => setShowModal(false)}
+                    style={{ padding: "6px 18px", fontSize: 13, border: "none", borderRadius: 2, cursor: "pointer",
+                      backgroundColor: "var(--vscode-button-secondaryBackground)", color: "var(--vscode-button-secondaryForeground)" }}>
+                    Cancel
+                  </button>
+                  <button onClick={handleUpdate}
+                    style={{ padding: "6px 18px", fontSize: 13, border: "none", borderRadius: 2, cursor: "pointer",
+                      backgroundColor: "var(--vscode-button-background)", color: "var(--vscode-button-foreground)" }}>
+                    Update Now
+                  </button>
+                </>
+              )}
+              {phase === "error" && (
+                <>
+                  <button onClick={() => { setShowModal(false); setPhase("idle"); }}
+                    style={{ padding: "6px 18px", fontSize: 13, border: "none", borderRadius: 2, cursor: "pointer",
+                      backgroundColor: "var(--vscode-button-secondaryBackground)", color: "var(--vscode-button-secondaryForeground)" }}>
+                    Close
+                  </button>
+                  <button onClick={handleUpdate}
+                    style={{ padding: "6px 18px", fontSize: 13, border: "none", borderRadius: 2, cursor: "pointer",
+                      backgroundColor: "var(--vscode-button-background)", color: "var(--vscode-button-foreground)" }}>
+                    Retry
+                  </button>
+                </>
+              )}
             </div>
           </div>
         </div>

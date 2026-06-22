@@ -86,3 +86,15 @@ class HostAgentClient:
         response = await client.post(f'/repos/{name}/container/start', timeout=300.0)
         response.raise_for_status()
         return response.json()
+
+    async def update_cyclo_manager(self) -> dict:
+        client = await self._ensure_client()
+        response = await client.post('/system/update', timeout=60.0)
+        response.raise_for_status()
+        return response.json()
+
+    async def get_update_status(self) -> dict:
+        client = await self._ensure_client()
+        response = await client.get('/system/update/status', timeout=10.0)
+        response.raise_for_status()
+        return response.json()

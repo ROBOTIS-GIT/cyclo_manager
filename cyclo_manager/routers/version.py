@@ -16,15 +16,13 @@
 #
 # Author: Hyungyu Kim
 
-"""cyclo_manager version check and update (PyPI + pip + cyclo_manager up)."""
+"""cyclo_manager version check endpoint."""
 
 import logging
-import shutil
-import subprocess
 
 from cyclo_manager.models import CycloManagerVersionResponse
 from cyclo_manager.utils.versioning import is_newer
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter
 import httpx
 
 logger = logging.getLogger(__name__)
@@ -65,91 +63,3 @@ async def get_cyclo_manager_version() -> CycloManagerVersionResponse:
     )
 
 
-@router.post('/update')
-async def update_cyclo_manager() -> dict:
-    """
-    Run pip install -U cyclo-manager, then cyclo_manager down and cyclo_manager up.
-
-    Docker pull happens automatically when cyclo_manager up runs. Requires the API to run
-    in a context where pip and cyclo_manager commands are available (e.g. on the host).
-    """
-    # pip install -U cyclo-manager
-    pip_exe = shutil.which('pip3') or shutil.which('pip')
-    if not pip_exe:
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail='pip not found; cannot run update',
-        )
-    try:
-        subprocess.run(
-            [pip_exe, 'install', '-U', PYPI_PACKAGE],
-            check=True,
-            capture_output=True,
-            text=True,
-            timeout=120,
-        )
-    except subprocess.CalledProcessError as e:
-        logger.error('pip install -U %s failed: %s', PYPI_PACKAGE, e.stderr or e)
-        raise HTTPException(
-            status_code=status.HTTP_502_BAD_GATEWAY,
-            detail=f'pip install failed: {e.stderr or str(e)}',
-        ) from e
-    except FileNotFoundError:
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail='pip not found',
-        )
-    except subprocess.TimeoutExpired:
-        raise HTTPException(
-            status_code=status.HTTP_504_GATEWAY_TIMEOUT,
-            detail='pip install timed out',
-        )
-
-    # cyclo_manager down
-    cyclo_manager_exe = shutil.which('cyclo_manager')
-    if not cyclo_manager_exe:
-        logger.warning(
-            'cyclo_manager command not found; '
-            'skipping cyclo_manager down / cyclo_manager up'
-        )
-        return {
-            'message': (
-                "Package updated; run 'cyclo_manager down' "
-                "and 'cyclo_manager up' manually."
-            )
-        }
-    try:
-        subprocess.run(
-            [cyclo_manager_exe, 'down'],
-            check=False,
-            capture_output=True,
-            text=True,
-            timeout=30,
-        )
-    except subprocess.TimeoutExpired:
-        logger.warning('cyclo_manager down timed out')
-    except Exception as e:
-        logger.warning('cyclo_manager down failed: %s', e)
-
-    # cyclo_manager up (runs docker compose up -d internally)
-    try:
-        subprocess.run(
-            [cyclo_manager_exe, 'up'],
-            check=True,
-            capture_output=True,
-            text=True,
-            timeout=300,
-        )
-    except subprocess.CalledProcessError as e:
-        logger.error('cyclo_manager up failed: %s', e.stderr or e)
-        raise HTTPException(
-            status_code=status.HTTP_502_BAD_GATEWAY,
-            detail=f'cyclo_manager up failed: {e.stderr or str(e)}',
-        ) from e
-    except subprocess.TimeoutExpired:
-        raise HTTPException(
-            status_code=status.HTTP_504_GATEWAY_TIMEOUT,
-            detail='cyclo_manager up timed out',
-        )
-
-    return {'message': 'Update completed; cyclo_manager stack restarted.'}

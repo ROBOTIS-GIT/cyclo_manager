@@ -182,3 +182,23 @@ async def update_repo(
         return UpdateResponse(**data)
     except Exception as e:
         raise _proxy_error(e)
+
+
+@router.post('/update')
+async def update_cyclo_manager(
+    client: HostAgentClient = Depends(get_host_agent_client),
+) -> dict:
+    try:
+        return await client.update_cyclo_manager()
+    except Exception as e:
+        raise _proxy_error(e)
+
+
+@router.get('/update/status')
+async def get_update_status(
+    client: HostAgentClient = Depends(get_host_agent_client),
+) -> dict:
+    try:
+        return await client.get_update_status()
+    except Exception as e:
+        raise _proxy_error(e)
