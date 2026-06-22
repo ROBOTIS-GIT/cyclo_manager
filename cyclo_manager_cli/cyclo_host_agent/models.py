@@ -68,3 +68,19 @@ class DeleteResponse(BaseModel):
 
     name: str
     message: str
+
+
+class RepoUpdateStatus(BaseModel):
+    """단일 레포의 버전 업데이트 상태."""
+
+    name: str
+    current_version: Optional[str] = None
+    latest_version: Optional[str] = None
+    has_update: bool
+
+
+class RepoUpdatesResponse(BaseModel):
+    """GET /repos/updates 응답."""
+
+    repos: list[RepoUpdateStatus]
+    workspace_path: str

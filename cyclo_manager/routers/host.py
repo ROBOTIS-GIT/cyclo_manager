@@ -71,6 +71,18 @@ class DeleteResponse(BaseModel):
     message: str
 
 
+class RepoUpdateStatus(BaseModel):
+    name: str
+    current_version: Optional[str] = None
+    latest_version: Optional[str] = None
+    has_update: bool
+
+
+class RepoUpdatesResponse(BaseModel):
+    repos: list[RepoUpdateStatus]
+    workspace_path: str
+
+
 # ---------------------------------------------------------------------------
 # Helper
 # ---------------------------------------------------------------------------
@@ -108,6 +120,18 @@ async def list_repos(
     try:
         data = await client.list_repos()
         return RepoListResponse(**data)
+    except Exception as e:
+        raise _proxy_error(e)
+
+
+@router.get('/repos/updates', response_model=RepoUpdatesResponse)
+async def get_repo_updates(
+    client: HostAgentClient = Depends(get_host_agent_client),
+) -> RepoUpdatesResponse:
+    """워크스페이스 내 각 레포의 GitHub 릴리즈 기준 업데이트 가능 여부를 반환한다."""
+    try:
+        data = await client.get_repo_updates()
+        return RepoUpdatesResponse(**data)
     except Exception as e:
         raise _proxy_error(e)
 

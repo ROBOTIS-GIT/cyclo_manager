@@ -27,10 +27,10 @@ import {
   getDockerContainerLogs,
   getBashrc,
   updateBashrc,
-  listRepos,
+  getRepoUpdates,
   pullRepo,
 } from "@/lib/api";
-import type { HostSystemStatsResponse, RobotInfoResponse, DockerContainerInfo, RepoInfo } from "@/types/api";
+import type { HostSystemStatsResponse, RobotInfoResponse, DockerContainerInfo, RepoUpdateStatus } from "@/types/api";
 import CycloManagerUpdateAnnouncement from "@/components/CycloManagerUpdateAnnouncement";
 import StatusBadge from "@/components/StatusBadge";
 import { useTheme } from "@/contexts/ThemeContext";
@@ -135,11 +135,11 @@ function CircleGauge({ fill, label, display, sub }: {
   );
 }
 
-function RepoRow({ repo, onPull, pulling, pullOutput }: {
-  repo: RepoInfo;
-  onPull: () => void;
-  pulling: boolean;
-  pullOutput: string | null;
+function UpdatableRepoRow({ repo, onUpdate, updating, updateOutput }: {
+  repo: RepoUpdateStatus;
+  onUpdate: () => void;
+  updating: boolean;
+  updateOutput: string | null;
 }) {
   return (
     <div className="px-5 py-3" style={{ borderTop: "1px solid var(--vscode-panel-border)" }}>
@@ -148,23 +148,22 @@ function RepoRow({ repo, onPull, pulling, pullOutput }: {
           <div className="text-base font-medium truncate" style={{ color: "var(--vscode-foreground)" }}>
             {repo.name}
           </div>
-          <div className="text-sm" style={{ color: "var(--vscode-descriptionForeground)" }}>
-            {repo.branch ?? "—"}
-          </div>
+          {repo.current_version && repo.latest_version && (
+            <div className="text-xs" style={{ color: "var(--vscode-descriptionForeground)" }}>
+              {repo.current_version} → {repo.latest_version}
+            </div>
+          )}
         </div>
-        <button onClick={onPull} disabled={pulling} style={btnStyle(false, pulling)}>
-          {pulling ? "Pulling…" : "Pull"}
-        </button>
-        <button disabled style={btnStyle(true, true)}>
-          Update
+        <button onClick={onUpdate} disabled={updating} style={btnStyle(true, updating)}>
+          {updating ? "Updating…" : "Update"}
         </button>
       </div>
-      {pullOutput && (
+      {updateOutput && (
         <pre
           className="mt-2 text-xs p-2 rounded font-mono whitespace-pre-wrap break-words overflow-auto max-h-24"
           style={{ backgroundColor: "var(--vscode-textCodeBlock-background)", color: "var(--vscode-foreground)" }}
         >
-          {pullOutput}
+          {updateOutput}
         </pre>
       )}
     </div>
@@ -300,9 +299,10 @@ export default function HomePage() {
   const [robotInfo, setRobotInfo] = useState<RobotInfoResponse | null>(null);
   const [systemStats, setSystemStats] = useState<HostSystemStatsResponse | null>(null);
   const [containers, setContainers] = useState<DockerContainerInfo[]>([]);
-  const [repos, setRepos] = useState<RepoInfo[]>([]);
-  const [pullingRepo, setPullingRepo] = useState<string | null>(null);
-  const [pullOutputs, setPullOutputs] = useState<Record<string, string>>({});
+  const [updatableRepos, setUpdatableRepos] = useState<RepoUpdateStatus[]>([]);
+  const [repoCheckState, setRepoCheckState] = useState<"loading" | "error" | "done">("loading");
+  const [updatingRepo, setUpdatingRepo] = useState<string | null>(null);
+  const [updateOutputs, setUpdateOutputs] = useState<Record<string, string>>({});
   const [actionLoading, setActionLoading] = useState<{ container: string; action: string } | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
 
@@ -336,40 +336,45 @@ export default function HomePage() {
     } catch {}
   }, []);
 
-  const loadRepos = useCallback(async () => {
+  const loadRepoUpdates = useCallback(async () => {
+    setRepoCheckState("loading");
     try {
-      const { repos } = await listRepos();
-      setRepos(repos);
-    } catch {}
-  }, []);
-
-  const handlePull = useCallback(async (name: string) => {
-    setPullingRepo(name);
-    setPullOutputs((p) => ({ ...p, [name]: "" }));
-    try {
-      const res = await pullRepo(name);
-      setPullOutputs((p) => ({ ...p, [name]: res.output || res.message }));
-    } catch (err) {
-      setPullOutputs((p) => ({ ...p, [name]: err instanceof Error ? err.message : "Failed" }));
-    } finally {
-      setPullingRepo(null);
+      const { repos } = await getRepoUpdates();
+      setUpdatableRepos(repos.filter((r) => r.has_update));
+      setRepoCheckState("done");
+    } catch {
+      setRepoCheckState("error");
     }
   }, []);
+
+  const handleUpdate = useCallback(async (name: string) => {
+    setUpdatingRepo(name);
+    setUpdateOutputs((p) => ({ ...p, [name]: "" }));
+    try {
+      const res = await pullRepo(name);
+      setUpdateOutputs((p) => ({ ...p, [name]: res.output || res.message }));
+      await loadRepoUpdates();
+    } catch (err) {
+      setUpdateOutputs((p) => ({ ...p, [name]: err instanceof Error ? err.message : "Failed" }));
+    } finally {
+      setUpdatingRepo(null);
+    }
+  }, [loadRepoUpdates]);
 
   const loadAll = useCallback(async () => {
     await Promise.allSettled([
       getRobotInfo().then(setRobotInfo).catch(() => {}),
       getSystemStats().then(setSystemStats).catch(() => {}),
       loadContainers(),
-      loadRepos(),
     ]);
-  }, [loadContainers, loadRepos]);
+  }, [loadContainers]);
 
   useEffect(() => {
     loadAll();
+    loadRepoUpdates();
     const interval = setInterval(loadAll, POLL_INTERVAL);
     return () => clearInterval(interval);
-  }, [loadAll]);
+  }, [loadAll, loadRepoUpdates]);
 
   const handleAction = useCallback(async (name: string, action: "start" | "stop" | "restart") => {
     setActionLoading({ container: name, action });
@@ -545,21 +550,45 @@ export default function HomePage() {
         {/* Version Management */}
         <section>
           <Card title="Version Management">
-            {repos.length === 0 ? (
+            {!robotInfo?.internet_connected ? (
               <div className="p-4 text-sm" style={{ color: "var(--vscode-descriptionForeground)" }}>
-                No repos found
+                Internet connection required
+              </div>
+            ) : repoCheckState === "loading" ? (
+              <div className="p-4 text-sm" style={{ color: "var(--vscode-descriptionForeground)" }}>
+                Checking for updates…
+              </div>
+            ) : repoCheckState === "error" ? (
+              <div className="p-4 text-sm" style={{ color: "var(--vscode-descriptionForeground)" }}>
+                Host agent is not running
+              </div>
+            ) : updatableRepos.length === 0 ? (
+              <div className="p-4 flex items-center justify-between gap-2">
+                <span className="text-sm" style={{ color: "var(--vscode-descriptionForeground)" }}>
+                  All packages up to date
+                </span>
+                <button onClick={loadRepoUpdates} style={btnStyle(false, false)} title="Check for updates">
+                  Refresh
+                </button>
               </div>
             ) : (
-              repos.map((repo, i) => (
-                <div key={repo.name} style={i === 0 ? { borderTop: "none" } : {}}>
-                  <RepoRow
-                    repo={repo}
-                    onPull={() => handlePull(repo.name)}
-                    pulling={pullingRepo === repo.name}
-                    pullOutput={pullOutputs[repo.name] ?? null}
-                  />
+              <>
+                {updatableRepos.map((repo, i) => (
+                  <div key={repo.name} style={i === 0 ? { borderTop: "none" } : {}}>
+                    <UpdatableRepoRow
+                      repo={repo}
+                      onUpdate={() => handleUpdate(repo.name)}
+                      updating={updatingRepo === repo.name}
+                      updateOutput={updateOutputs[repo.name] ?? null}
+                    />
+                  </div>
+                ))}
+                <div className="px-5 py-2 flex justify-end" style={{ borderTop: "1px solid var(--vscode-panel-border)" }}>
+                  <button onClick={loadRepoUpdates} style={btnStyle(false, false)}>
+                    Refresh
+                  </button>
                 </div>
-              ))
+              </>
             )}
           </Card>
         </section>

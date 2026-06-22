@@ -93,3 +93,10 @@ class HostAgentClient:
         response = await client.delete(f'/repos/{name}')
         response.raise_for_status()
         return response.json()
+
+    async def get_repo_updates(self) -> dict:
+        """워크스페이스 내 각 레포의 GitHub 릴리즈 기준 업데이트 가능 여부를 반환한다."""
+        client = await self._ensure_client()
+        response = await client.get('/repos/updates')
+        response.raise_for_status()
+        return response.json()

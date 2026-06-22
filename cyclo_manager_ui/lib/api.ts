@@ -36,6 +36,7 @@ import type {
   RepoVersionResponse,
   RepoListResponse,
   RepoPullResponse,
+  RepoUpdatesResponse,
   CycloManagerVersionResponse,
   ROS2TopicsListResponse,
   ROS2TopicDataResponse,
@@ -470,6 +471,15 @@ export async function getRobotInfo(): Promise<RobotInfoResponse> {
 export async function listRepos(): Promise<RepoListResponse> {
   try {
     const response = await apiClient.get<RepoListResponse>("/host/repos");
+    return response.data;
+  } catch (error) {
+    handleError(error);
+  }
+}
+
+export async function getRepoUpdates(): Promise<RepoUpdatesResponse> {
+  try {
+    const response = await apiClient.get<RepoUpdatesResponse>("/host/repos/updates");
     return response.data;
   } catch (error) {
     handleError(error);

@@ -19,7 +19,10 @@
 """Repository management endpoints: git clone, pull, delete."""
 
 import asyncio
+import json
+import re
 import shutil
+import urllib.request
 from pathlib import Path
 from typing import Optional
 
@@ -32,6 +35,8 @@ from cyclo_host_agent.models import (
     PullResponse,
     RepoInfo,
     RepoListResponse,
+    RepoUpdateStatus,
+    RepoUpdatesResponse,
 )
 
 router = APIRouter(prefix='/repos', tags=['repos'])
@@ -79,6 +84,104 @@ async def _repo_info(repo_path: Path) -> RepoInfo:
     except Exception:
         pass
     return RepoInfo(name=repo_path.name, path=str(repo_path), branch=branch, remote=remote)
+
+
+def _parse_version(version_str: str) -> tuple[int, ...]:
+    parts = []
+    for p in (version_str or '').strip().lstrip('v').split('.'):
+        try:
+            parts.append(int(p))
+        except ValueError:
+            parts.append(0)
+    return tuple(parts) if parts else (0,)
+
+
+def _is_newer(latest: str, current: str) -> bool:
+    return _parse_version(latest) > _parse_version(current)
+
+
+def _parse_github_slug(remote_url: str) -> Optional[str]:
+    """git remote URL에서 'owner/repo' 슬러그를 파싱한다. GitHub URL이 아니면 None."""
+    https_match = re.match(r'https?://github\.com/([^/]+/[^/]+?)(?:\.git)?/?$', remote_url)
+    if https_match:
+        return https_match.group(1)
+    ssh_match = re.match(r'git@github\.com:([^/]+/[^/]+?)(?:\.git)?$', remote_url)
+    if ssh_match:
+        return ssh_match.group(1)
+    return None
+
+
+def _read_package_xml_version(repo_path: Path) -> Optional[str]:
+    """repo 디렉토리에서 package.xml을 찾아 <version> 값을 반환한다."""
+    candidates = [repo_path / 'package.xml'] + sorted(repo_path.glob('*/package.xml'))
+    for candidate in candidates:
+        if candidate.is_file():
+            try:
+                text = candidate.read_text(errors='replace')
+                m = re.search(r'<version>\s*([^<]+)\s*</version>', text)
+                if m:
+                    return m.group(1).strip()
+            except OSError:
+                continue
+    return None
+
+
+def _fetch_github_latest(slug: str) -> Optional[str]:
+    """GitHub Releases API에서 최신 tag_name을 가져온다. 실패 시 None."""
+    url = f'https://api.github.com/repos/{slug}/releases/latest'
+    req = urllib.request.Request(url, headers={'User-Agent': 'cyclo-manager/1.0'})
+    try:
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            data = json.loads(resp.read().decode())
+            return (data.get('tag_name') or '').strip() or None
+    except Exception:
+        return None
+
+
+async def _repo_update_status(repo_path: Path) -> RepoUpdateStatus:
+    """단일 레포의 버전 업데이트 상태를 반환한다."""
+    rc, remote_url, _ = await _git(['remote', 'get-url', 'origin'], cwd=repo_path)
+    remote_url = remote_url.strip() if rc == 0 else ''
+
+    slug = _parse_github_slug(remote_url) if remote_url else None
+    if not slug:
+        return RepoUpdateStatus(name=repo_path.name, has_update=False)
+
+    current = _read_package_xml_version(repo_path)
+    if not current:
+        return RepoUpdateStatus(name=repo_path.name, has_update=False)
+
+    latest = await asyncio.to_thread(_fetch_github_latest, slug)
+    if not latest:
+        return RepoUpdateStatus(
+            name=repo_path.name, current_version=current, has_update=False
+        )
+
+    has_update = _is_newer(latest, current)
+    return RepoUpdateStatus(
+        name=repo_path.name,
+        current_version=current,
+        latest_version=latest,
+        has_update=has_update,
+    )
+
+
+@router.get('/updates', response_model=RepoUpdatesResponse)
+async def get_repo_updates() -> RepoUpdatesResponse:
+    """
+    워크스페이스 내 각 레포의 GitHub 최신 릴리즈와 package.xml 버전을 비교해 반환한다.
+
+    GitHub URL이 아닌 remote이거나 package.xml이 없는 레포는 has_update=False로 포함된다.
+    """
+    if not WORKSPACE_PATH.exists():
+        return RepoUpdatesResponse(repos=[], workspace_path=str(WORKSPACE_PATH))
+
+    repo_paths = [
+        item for item in sorted(WORKSPACE_PATH.iterdir())
+        if item.is_dir() and (item / '.git').exists()
+    ]
+    statuses = await asyncio.gather(*(_repo_update_status(p) for p in repo_paths))
+    return RepoUpdatesResponse(repos=list(statuses), workspace_path=str(WORKSPACE_PATH))
 
 
 @router.get('', response_model=RepoListResponse)

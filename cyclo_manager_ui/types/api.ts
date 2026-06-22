@@ -160,6 +160,18 @@ export interface RepoPullResponse {
   output: string;
 }
 
+export interface RepoUpdateStatus {
+  name: string;
+  current_version: string | null;
+  latest_version: string | null;
+  has_update: boolean;
+}
+
+export interface RepoUpdatesResponse {
+  repos: RepoUpdateStatus[];
+  workspace_path: string;
+}
+
 export interface RepoVersionResponse {
   container: string;
   current: string;
