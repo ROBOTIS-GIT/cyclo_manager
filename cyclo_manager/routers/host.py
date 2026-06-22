@@ -33,7 +33,7 @@ router = APIRouter(prefix='/host', tags=['host'])
 
 
 # ---------------------------------------------------------------------------
-# Request / Response models (mirrors cyclo_host_agent models)
+# Models (mirrors cyclo_host_agent models)
 # ---------------------------------------------------------------------------
 
 class RepoInfo(BaseModel):
@@ -48,29 +48,6 @@ class RepoListResponse(BaseModel):
     workspace_path: str
 
 
-class CloneRequest(BaseModel):
-    url: str
-    name: Optional[str] = None
-    branch: Optional[str] = None
-
-
-class CloneResponse(BaseModel):
-    name: str
-    path: str
-    message: str
-
-
-class PullResponse(BaseModel):
-    name: str
-    message: str
-    output: str
-
-
-class DeleteResponse(BaseModel):
-    name: str
-    message: str
-
-
 class RepoUpdateStatus(BaseModel):
     name: str
     current_version: Optional[str] = None
@@ -83,18 +60,42 @@ class RepoUpdatesResponse(BaseModel):
     workspace_path: str
 
 
+class FileChange(BaseModel):
+    path: str
+    status: str
+
+
+class RepoStatusResponse(BaseModel):
+    name: str
+    changes: list[FileChange]
+    has_changes: bool
+
+
+class UpdateRequest(BaseModel):
+    strategy: str
+    preserve_files: list[str] = []
+
+
+class UpdateResponse(BaseModel):
+    name: str
+    success: bool
+    output: str
+    stash_conflict: bool = False
+    stash_conflict_files: list[str] = []
+
+
+class ContainerScriptResponse(BaseModel):
+    name: str
+    action: str
+    success: bool
+    output: str
+
+
 # ---------------------------------------------------------------------------
 # Helper
 # ---------------------------------------------------------------------------
 
 def _proxy_error(e: Exception) -> HTTPException:
-    """
-    host_agent_client에서 발생한 예외를 FastAPI HTTPException으로 변환한다.
-
-    - RequestError: 소켓 연결 실패 등 통신 문제 → 503
-    - HTTPStatusError: 호스트 에이전트가 반환한 오류 → 에이전트의 status code 그대로 전달
-    - 그 외: 500
-    """
     if isinstance(e, httpx.RequestError):
         return HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
@@ -112,23 +113,10 @@ def _proxy_error(e: Exception) -> HTTPException:
 # Endpoints
 # ---------------------------------------------------------------------------
 
-@router.get('/repos', response_model=RepoListResponse)
-async def list_repos(
-    client: HostAgentClient = Depends(get_host_agent_client),
-) -> RepoListResponse:
-    """호스트 워크스페이스의 git 레포 목록을 반환한다."""
-    try:
-        data = await client.list_repos()
-        return RepoListResponse(**data)
-    except Exception as e:
-        raise _proxy_error(e)
-
-
 @router.get('/repos/updates', response_model=RepoUpdatesResponse)
 async def get_repo_updates(
     client: HostAgentClient = Depends(get_host_agent_client),
 ) -> RepoUpdatesResponse:
-    """워크스페이스 내 각 레포의 GitHub 릴리즈 기준 업데이트 가능 여부를 반환한다."""
     try:
         data = await client.get_repo_updates()
         return RepoUpdatesResponse(**data)
@@ -136,40 +124,61 @@ async def get_repo_updates(
         raise _proxy_error(e)
 
 
-@router.post('/repos/clone', response_model=CloneResponse, status_code=status.HTTP_201_CREATED)
-async def clone_repo(
-    req: CloneRequest,
+@router.get('/repos', response_model=RepoListResponse)
+async def list_repos(
     client: HostAgentClient = Depends(get_host_agent_client),
-) -> CloneResponse:
-    """지정한 URL의 레포를 호스트 워크스페이스에 클론한다."""
+) -> RepoListResponse:
     try:
-        data = await client.clone_repo(url=req.url, name=req.name, branch=req.branch)
-        return CloneResponse(**data)
+        data = await client.list_repos()
+        return RepoListResponse(**data)
     except Exception as e:
         raise _proxy_error(e)
 
 
-@router.post('/repos/{name}/pull', response_model=PullResponse)
-async def pull_repo(
+@router.get('/repos/{name}/status', response_model=RepoStatusResponse)
+async def get_repo_status(
     name: str,
     client: HostAgentClient = Depends(get_host_agent_client),
-) -> PullResponse:
-    """호스트 워크스페이스의 특정 레포에서 git pull을 실행한다."""
+) -> RepoStatusResponse:
     try:
-        data = await client.pull_repo(name)
-        return PullResponse(**data)
+        data = await client.get_repo_status(name)
+        return RepoStatusResponse(**data)
     except Exception as e:
         raise _proxy_error(e)
 
 
-@router.delete('/repos/{name}', response_model=DeleteResponse)
-async def delete_repo(
+@router.post('/repos/{name}/container/stop', response_model=ContainerScriptResponse)
+async def stop_repo_container(
     name: str,
     client: HostAgentClient = Depends(get_host_agent_client),
-) -> DeleteResponse:
-    """호스트 워크스페이스의 특정 레포 디렉토리를 삭제한다."""
+) -> ContainerScriptResponse:
     try:
-        data = await client.delete_repo(name)
-        return DeleteResponse(**data)
+        data = await client.stop_repo_container(name)
+        return ContainerScriptResponse(**data)
+    except Exception as e:
+        raise _proxy_error(e)
+
+
+@router.post('/repos/{name}/container/start', response_model=ContainerScriptResponse)
+async def start_repo_container(
+    name: str,
+    client: HostAgentClient = Depends(get_host_agent_client),
+) -> ContainerScriptResponse:
+    try:
+        data = await client.start_repo_container(name)
+        return ContainerScriptResponse(**data)
+    except Exception as e:
+        raise _proxy_error(e)
+
+
+@router.post('/repos/{name}/update', response_model=UpdateResponse)
+async def update_repo(
+    name: str,
+    req: UpdateRequest,
+    client: HostAgentClient = Depends(get_host_agent_client),
+) -> UpdateResponse:
+    try:
+        data = await client.update_repo(name, req.strategy, req.preserve_files)
+        return UpdateResponse(**data)
     except Exception as e:
         raise _proxy_error(e)

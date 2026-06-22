@@ -142,24 +142,6 @@ export interface DockerTopResponse {
   processes: string[][];
 }
 
-export interface RepoInfo {
-  name: string;
-  path: string;
-  branch: string | null;
-  remote: string | null;
-}
-
-export interface RepoListResponse {
-  repos: RepoInfo[];
-  workspace_path: string;
-}
-
-export interface RepoPullResponse {
-  name: string;
-  message: string;
-  output: string;
-}
-
 export interface RepoUpdateStatus {
   name: string;
   current_version: string | null;
@@ -172,11 +154,35 @@ export interface RepoUpdatesResponse {
   workspace_path: string;
 }
 
-export interface RepoVersionResponse {
-  container: string;
-  current: string;
-  latest: string;
-  update_available: boolean;
+export interface FileChange {
+  path: string;
+  status: string;
+}
+
+export interface RepoStatusResponse {
+  name: string;
+  changes: FileChange[];
+  has_changes: boolean;
+}
+
+export interface UpdateRequest {
+  strategy: "stash" | "reset";
+  preserve_files: string[];
+}
+
+export interface UpdateResponse {
+  name: string;
+  success: boolean;
+  output: string;
+  stash_conflict: boolean;
+  stash_conflict_files: string[];
+}
+
+export interface ContainerScriptResponse {
+  name: string;
+  action: string;
+  success: boolean;
+  output: string;
 }
 
 export interface CycloManagerVersionResponse {

@@ -24,7 +24,7 @@ from pydantic import BaseModel
 
 
 class RepoInfo(BaseModel):
-    """단일 git 레포 정보."""
+    """Single git repository info."""
 
     name: str
     path: str
@@ -33,45 +33,14 @@ class RepoInfo(BaseModel):
 
 
 class RepoListResponse(BaseModel):
-    """GET /repos 응답."""
+    """Response for GET /repos."""
 
     repos: list[RepoInfo]
     workspace_path: str
 
 
-class CloneRequest(BaseModel):
-    """POST /repos/clone 요청."""
-
-    url: str
-    name: Optional[str] = None
-    branch: Optional[str] = None
-
-
-class CloneResponse(BaseModel):
-    """POST /repos/clone 응답."""
-
-    name: str
-    path: str
-    message: str
-
-
-class PullResponse(BaseModel):
-    """POST /repos/{name}/pull 응답."""
-
-    name: str
-    message: str
-    output: str
-
-
-class DeleteResponse(BaseModel):
-    """DELETE /repos/{name} 응답."""
-
-    name: str
-    message: str
-
-
 class RepoUpdateStatus(BaseModel):
-    """단일 레포의 버전 업데이트 상태."""
+    """Version update status for a single repository."""
 
     name: str
     current_version: Optional[str] = None
@@ -80,7 +49,48 @@ class RepoUpdateStatus(BaseModel):
 
 
 class RepoUpdatesResponse(BaseModel):
-    """GET /repos/updates 응답."""
+    """Response for GET /repos/updates."""
 
     repos: list[RepoUpdateStatus]
     workspace_path: str
+
+
+class FileChange(BaseModel):
+    """A single entry from git status --porcelain."""
+
+    path: str
+    status: str  # e.g. M, D, ??, etc.
+
+
+class RepoStatusResponse(BaseModel):
+    """Response for GET /repos/{name}/status."""
+
+    name: str
+    changes: list[FileChange]
+    has_changes: bool
+
+
+class UpdateRequest(BaseModel):
+    """Request body for POST /repos/{name}/update."""
+
+    strategy: str  # 'stash' | 'reset'
+    preserve_files: list[str] = []  # files to keep when using the reset strategy
+
+
+class UpdateResponse(BaseModel):
+    """Response for POST /repos/{name}/update."""
+
+    name: str
+    success: bool
+    output: str
+    stash_conflict: bool = False
+    stash_conflict_files: list[str] = []
+
+
+class ContainerScriptResponse(BaseModel):
+    """Response for POST /repos/{name}/container/{action}."""
+
+    name: str
+    action: str
+    success: bool
+    output: str

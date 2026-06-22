@@ -28,11 +28,11 @@ import {
   getBashrc,
   updateBashrc,
   getRepoUpdates,
-  pullRepo,
 } from "@/lib/api";
 import type { HostSystemStatsResponse, RobotInfoResponse, DockerContainerInfo, RepoUpdateStatus } from "@/types/api";
 import CycloManagerUpdateAnnouncement from "@/components/CycloManagerUpdateAnnouncement";
 import StatusBadge from "@/components/StatusBadge";
+import UpdateWizard from "@/components/UpdateWizard";
 import { useTheme } from "@/contexts/ThemeContext";
 
 const POLL_INTERVAL = 5000;
@@ -60,7 +60,7 @@ function gaugeColor(percent: number): string {
 
 // ─── primitives ─────────────────────────────────────────────────────────────
 
-function Card({ children, title, className = "" }: { children: React.ReactNode; title?: string; className?: string }) {
+function Card({ children, title, action, className = "" }: { children: React.ReactNode; title?: string; action?: React.ReactNode; className?: string }) {
   return (
     <div
       className={`rounded-lg border overflow-hidden ${className}`}
@@ -70,9 +70,12 @@ function Card({ children, title, className = "" }: { children: React.ReactNode; 
       }}
     >
       {title && (
-        <div className="px-5 pt-4 pb-1.5 text-sm font-bold uppercase tracking-widest"
-          style={{ color: "var(--vscode-foreground)" }}>
-          {title}
+        <div className="px-5 pt-4 pb-1.5 flex items-center justify-between">
+          <span className="text-sm font-bold uppercase tracking-widest"
+            style={{ color: "var(--vscode-foreground)" }}>
+            {title}
+          </span>
+          {action}
         </div>
       )}
       {children}
@@ -135,11 +138,9 @@ function CircleGauge({ fill, label, display, sub }: {
   );
 }
 
-function UpdatableRepoRow({ repo, onUpdate, updating, updateOutput }: {
+function UpdatableRepoRow({ repo, onUpdate }: {
   repo: RepoUpdateStatus;
   onUpdate: () => void;
-  updating: boolean;
-  updateOutput: string | null;
 }) {
   return (
     <div className="px-5 py-3" style={{ borderTop: "1px solid var(--vscode-panel-border)" }}>
@@ -148,24 +149,20 @@ function UpdatableRepoRow({ repo, onUpdate, updating, updateOutput }: {
           <div className="text-base font-medium truncate" style={{ color: "var(--vscode-foreground)" }}>
             {repo.name}
           </div>
-          {repo.current_version && repo.latest_version && (
+          {repo.current_version && (
             <div className="text-xs" style={{ color: "var(--vscode-descriptionForeground)" }}>
-              {repo.current_version} → {repo.latest_version}
+              {repo.has_update && repo.latest_version
+                ? `${repo.current_version} → ${repo.latest_version}`
+                : repo.current_version}
             </div>
           )}
         </div>
-        <button onClick={onUpdate} disabled={updating} style={btnStyle(true, updating)}>
-          {updating ? "Updating…" : "Update"}
-        </button>
+        {repo.has_update && (
+          <button onClick={onUpdate} style={btnStyle(true, false)}>
+            Update
+          </button>
+        )}
       </div>
-      {updateOutput && (
-        <pre
-          className="mt-2 text-xs p-2 rounded font-mono whitespace-pre-wrap break-words overflow-auto max-h-24"
-          style={{ backgroundColor: "var(--vscode-textCodeBlock-background)", color: "var(--vscode-foreground)" }}
-        >
-          {updateOutput}
-        </pre>
-      )}
     </div>
   );
 }
@@ -301,8 +298,7 @@ export default function HomePage() {
   const [containers, setContainers] = useState<DockerContainerInfo[]>([]);
   const [updatableRepos, setUpdatableRepos] = useState<RepoUpdateStatus[]>([]);
   const [repoCheckState, setRepoCheckState] = useState<"loading" | "error" | "done">("loading");
-  const [updatingRepo, setUpdatingRepo] = useState<string | null>(null);
-  const [updateOutputs, setUpdateOutputs] = useState<Record<string, string>>({});
+  const [wizardRepo, setWizardRepo] = useState<RepoUpdateStatus | null>(null);
   const [actionLoading, setActionLoading] = useState<{ container: string; action: string } | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
 
@@ -340,26 +336,13 @@ export default function HomePage() {
     setRepoCheckState("loading");
     try {
       const { repos } = await getRepoUpdates();
-      setUpdatableRepos(repos.filter((r) => r.has_update));
+      setUpdatableRepos(repos);
       setRepoCheckState("done");
     } catch {
       setRepoCheckState("error");
     }
   }, []);
 
-  const handleUpdate = useCallback(async (name: string) => {
-    setUpdatingRepo(name);
-    setUpdateOutputs((p) => ({ ...p, [name]: "" }));
-    try {
-      const res = await pullRepo(name);
-      setUpdateOutputs((p) => ({ ...p, [name]: res.output || res.message }));
-      await loadRepoUpdates();
-    } catch (err) {
-      setUpdateOutputs((p) => ({ ...p, [name]: err instanceof Error ? err.message : "Failed" }));
-    } finally {
-      setUpdatingRepo(null);
-    }
-  }, [loadRepoUpdates]);
 
   const loadAll = useCallback(async () => {
     await Promise.allSettled([
@@ -450,6 +433,13 @@ export default function HomePage() {
 
   return (
     <>
+      {wizardRepo && (
+        <UpdateWizard
+          repo={wizardRepo}
+          onClose={() => setWizardRepo(null)}
+          onDone={() => { setWizardRepo(null); loadRepoUpdates(); }}
+        />
+      )}
       <CycloManagerUpdateAnnouncement suppressed={false} onBannerVisibilityChange={setCmUpdateBanner} />
       <div className={`flex flex-col gap-6 ${cmUpdateBanner ? "pt-14" : ""}`}>
 
@@ -549,7 +539,18 @@ export default function HomePage() {
 
         {/* Version Management */}
         <section>
-          <Card title="Version Management">
+          <Card
+            title="Version Management"
+            action={
+              <button
+                onClick={loadRepoUpdates}
+                disabled={repoCheckState === "loading"}
+                style={{ ...btnStyle(false, repoCheckState === "loading"), padding: "2px 8px", fontSize: 11 }}
+              >
+                Refresh
+              </button>
+            }
+          >
             {!robotInfo?.internet_connected ? (
               <div className="p-4 text-sm" style={{ color: "var(--vscode-descriptionForeground)" }}>
                 Internet connection required
@@ -563,32 +564,18 @@ export default function HomePage() {
                 Host agent is not running
               </div>
             ) : updatableRepos.length === 0 ? (
-              <div className="p-4 flex items-center justify-between gap-2">
-                <span className="text-sm" style={{ color: "var(--vscode-descriptionForeground)" }}>
-                  All packages up to date
-                </span>
-                <button onClick={loadRepoUpdates} style={btnStyle(false, false)} title="Check for updates">
-                  Refresh
-                </button>
+              <div className="p-4 text-sm" style={{ color: "var(--vscode-descriptionForeground)" }}>
+                No managed repositories found
               </div>
             ) : (
-              <>
-                {updatableRepos.map((repo, i) => (
-                  <div key={repo.name} style={i === 0 ? { borderTop: "none" } : {}}>
-                    <UpdatableRepoRow
-                      repo={repo}
-                      onUpdate={() => handleUpdate(repo.name)}
-                      updating={updatingRepo === repo.name}
-                      updateOutput={updateOutputs[repo.name] ?? null}
-                    />
-                  </div>
-                ))}
-                <div className="px-5 py-2 flex justify-end" style={{ borderTop: "1px solid var(--vscode-panel-border)" }}>
-                  <button onClick={loadRepoUpdates} style={btnStyle(false, false)}>
-                    Refresh
-                  </button>
+              updatableRepos.map((repo, i) => (
+                <div key={repo.name} style={i === 0 ? { borderTop: "none" } : {}}>
+                  <UpdatableRepoRow
+                    repo={repo}
+                    onUpdate={() => setWizardRepo(repo)}
+                  />
                 </div>
-              </>
+              ))
             )}
           </Card>
         </section>

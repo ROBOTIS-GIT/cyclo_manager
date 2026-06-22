@@ -17,6 +17,9 @@
 import axios, { AxiosError } from "axios";
 import type {
   ConfiguredContainerListResponse,
+  ContainerScriptResponse,
+  RepoStatusResponse,
+  UpdateResponse,
   ServiceListResponse,
   ServiceStatusResponse,
   ServiceStatusListResponse,
@@ -33,9 +36,6 @@ import type {
   ErrorResponse,
   ServiceRunScriptResponse,
   BashrcResponse,
-  RepoVersionResponse,
-  RepoListResponse,
-  RepoPullResponse,
   RepoUpdatesResponse,
   CycloManagerVersionResponse,
   ROS2TopicsListResponse,
@@ -349,19 +349,6 @@ export async function getDockerContainerLogs(
   }
 }
 
-export async function getRepoVersion(
-  container: string
-): Promise<RepoVersionResponse> {
-  try {
-    const response = await apiClient.get<RepoVersionResponse>(
-      `/docker/${container}/version`
-    );
-    return response.data;
-  } catch (error) {
-    handleError(error);
-  }
-}
-
 export async function getCycloManagerVersion(): Promise<CycloManagerVersionResponse> {
   try {
     const response = await apiClient.get<CycloManagerVersionResponse>("/version");
@@ -468,15 +455,6 @@ export async function getRobotInfo(): Promise<RobotInfoResponse> {
   }
 }
 
-export async function listRepos(): Promise<RepoListResponse> {
-  try {
-    const response = await apiClient.get<RepoListResponse>("/host/repos");
-    return response.data;
-  } catch (error) {
-    handleError(error);
-  }
-}
-
 export async function getRepoUpdates(): Promise<RepoUpdatesResponse> {
   try {
     const response = await apiClient.get<RepoUpdatesResponse>("/host/repos/updates");
@@ -486,11 +464,46 @@ export async function getRepoUpdates(): Promise<RepoUpdatesResponse> {
   }
 }
 
-export async function pullRepo(name: string): Promise<RepoPullResponse> {
+export async function getRepoStatus(name: string): Promise<RepoStatusResponse> {
   try {
-    const response = await apiClient.post<RepoPullResponse>(`/host/repos/${name}/pull`);
+    const response = await apiClient.get<RepoStatusResponse>(`/host/repos/${name}/status`);
     return response.data;
   } catch (error) {
     handleError(error);
   }
 }
+
+export async function updateRepo(
+  name: string,
+  strategy: "stash" | "reset",
+  preserveFiles: string[] = []
+): Promise<UpdateResponse> {
+  try {
+    const response = await apiClient.post<UpdateResponse>(`/host/repos/${name}/update`, {
+      strategy,
+      preserve_files: preserveFiles,
+    });
+    return response.data;
+  } catch (error) {
+    handleError(error);
+  }
+}
+
+export async function stopRepoContainer(name: string): Promise<ContainerScriptResponse> {
+  try {
+    const response = await apiClient.post<ContainerScriptResponse>(`/host/repos/${name}/container/stop`);
+    return response.data;
+  } catch (error) {
+    handleError(error);
+  }
+}
+
+export async function startRepoContainer(name: string): Promise<ContainerScriptResponse> {
+  try {
+    const response = await apiClient.post<ContainerScriptResponse>(`/host/repos/${name}/container/start`);
+    return response.data;
+  } catch (error) {
+    handleError(error);
+  }
+}
+

@@ -45,7 +45,7 @@ def _check_internet() -> bool:
 
 
 def _read_file(path: str) -> str | None:
-    """파일을 읽어 null 바이트를 제거한 문자열을 반환한다. 없으면 None."""
+    """Read a file, strip null bytes, and return its content. Returns None if missing."""
     try:
         return Path(path).read_text(encoding='utf-8', errors='replace').replace('\x00', '').strip()
     except OSError:
@@ -53,7 +53,7 @@ def _read_file(path: str) -> str | None:
 
 
 def _os_info() -> str | None:
-    """/host_root/etc/os-release에서 호스트 OS 이름을 읽는다."""
+    """Read the host OS name from /host_root/etc/os-release."""
     content = _read_file(f'{_HOST_ROOT}/etc/os-release')
     if content:
         for line in content.splitlines():
@@ -79,9 +79,9 @@ def _temperature() -> float | None:
 
 @router.get('/info', response_model=RobotInfoResponse)
 async def get_robot_info() -> RobotInfoResponse:
-    """hostname, OS, IP 주소를 반환한다.
+    """Return hostname, OS name, and IP address.
 
-    hostname은 HOST_HOSTNAME 환경변수 우선, 없으면 컨테이너 hostname 사용.
+    Uses HOST_HOSTNAME env var for hostname if set, otherwise the container hostname.
     """
     hostname = os.environ.get('HOST_HOSTNAME') or socket.gethostname()
 
@@ -109,10 +109,10 @@ async def get_robot_info() -> RobotInfoResponse:
 
 @router.get('/status', response_model=SystemStatsResponse)
 async def get_system_stats() -> SystemStatsResponse:
-    """CPU, 메모리, 디스크, 업타임을 반환한다.
+    """Return CPU, memory, disk, and uptime stats.
 
-    CPU/메모리/업타임은 /proc을 통해 호스트 값을 읽는다.
-    디스크는 /host_root (호스트 / 마운트)를 우선 사용하고 없으면 / 사용.
+    CPU/memory/uptime are read from /proc (host values via bind mount).
+    Disk usage prefers /host_root (host root mount); falls back to /.
     """
     cpu_percent = psutil.cpu_percent(interval=0.2)
     mem = psutil.virtual_memory()

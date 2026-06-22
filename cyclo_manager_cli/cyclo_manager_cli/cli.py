@@ -54,7 +54,7 @@ def _packaged_config_path() -> Path:
 
 
 def _check_host_agent() -> bool:
-    """cyclo_host_agent 소켓 유닛이 이미 활성화되어 있는지 확인한다."""
+    """Return True if the cyclo_host_agent socket unit is already active."""
     result = subprocess.run(
         ['systemctl', 'is-active', f'{HOST_AGENT_SERVICE}.socket'],
         capture_output=True,
@@ -65,10 +65,10 @@ def _check_host_agent() -> bool:
 
 def _create_host_agent() -> int:
     """
-    cyclo_host_agent systemd socket/service 유닛 파일을 작성하고 소켓을 활성화한다.
+    Write cyclo_host_agent systemd socket/service unit files and activate the socket.
 
-    socket activation 방식이므로 소켓 유닛만 enable한다.
-    이후 소켓에 연결이 들어올 때 systemd가 서비스를 자동 기동한다.
+    Only the socket unit is enabled (socket activation); systemd starts the
+    service automatically when a connection arrives on the socket.
     """
     socket_unit = f'{HOST_AGENT_SERVICE}.socket'
 
@@ -95,6 +95,7 @@ SocketMode=0660
 WantedBy=sockets.target
 """
 
+    user_home = Path.home()
     service_content = f"""\
 [Unit]
 Description=Cyclo Host Agent
@@ -104,6 +105,7 @@ After={socket_unit}
 [Service]
 Type=simple
 ExecStart={agent_exe}
+Environment=HOME={user_home}
 Restart=no
 
 [Install]
