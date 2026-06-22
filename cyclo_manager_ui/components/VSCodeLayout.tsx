@@ -31,7 +31,7 @@ export default function VSCodeLayout({
   const pathname = usePathname();
 
   const navItems = [
-    { href: "/home", label: "Home", icon: "🏠", isHome: true },
+    { href: "/dashboard", label: "Dashboard", icon: "📊", isHome: true },
     { href: "/containers", label: "System", icon: "🤖", isSystem: true },
     { href: "/topics", label: "Topics", icon: "📡", isTopics: true },
     { href: "/terminal", label: "Terminal", icon: "🖥️", isTerminal: true },
@@ -78,7 +78,7 @@ export default function VSCodeLayout({
             const isSystemPage = pathname?.match(/^\/[^/]+\/system\/?$/);
             const isTopicsPage = pathname === "/topics" || pathname?.startsWith("/topics/");
             const isTerminalPage = pathname === "/terminal" || pathname?.startsWith("/terminal/");
-            const isHomePage = pathname === "/home";
+            const isHomePage = pathname === "/dashboard";
             const isActive =
               "isHome" in item && item.isHome
                 ? !!isHomePage
@@ -97,7 +97,7 @@ export default function VSCodeLayout({
 
             return (
               <Link
-                key={item.label === "Home" ? "home" : item.label === "System" ? `system-${item.href}` : item.label === "Topics" ? `topics-${item.href}` : item.href}
+                key={item.label === "Dashboard" ? "dashboard" : item.label === "System" ? `system-${item.href}` : item.label === "Topics" ? `topics-${item.href}` : item.href}
                 href={item.href}
                 className="flex flex-col items-center justify-center gap-0.5 rounded-md w-full aspect-square shrink-0 px-1 py-1 text-center no-underline transition-colors box-border"
                 style={linkStyle}
