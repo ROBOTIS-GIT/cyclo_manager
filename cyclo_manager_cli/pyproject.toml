@@ -23,6 +23,7 @@ dev = [
 
 [project.scripts]
 cyclo_manager = "cyclo_manager_cli.cli:main"
+cyclo-manager = "cyclo_manager_cli.cli:main"
 cyclo_host_agent = "cyclo_host_agent.main:main"
 
 [tool.setuptools.packages.find]
