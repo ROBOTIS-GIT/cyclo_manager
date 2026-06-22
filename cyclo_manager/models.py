@@ -320,9 +320,8 @@ class BashrcUpdateRequest(BaseModel):
 
 
 class ROS2TopicDataResponse(BaseModel):
-    """Response for GET /containers/{container}/ros2/topics/{topic}."""
+    """Response for GET /ros2/topics/{topic}."""
 
-    container: str = Field(..., description='Container name')
     topic: str = Field(..., description='ROS2 topic name', examples=['/robot_description'])
     msg_type: str = Field(..., description='Message type', examples=['std_msgs/msg/String'])
     data: Optional[Any] = Field(
@@ -342,15 +341,14 @@ class ROS2TopicStatus(BaseModel):
 
 
 class ROS2TopicsListResponse(BaseModel):
-    """Response for GET /containers/{container}/ros2/topics."""
+    """Response for GET /ros2/topics."""
 
-    container: str = Field(..., description='Container name')
     domain_id: int = Field(..., description='ROS2 domain ID')
     topics: list[ROS2TopicStatus] = Field(..., description='List of topic statuses')
 
 
 class ROS2SubscribeRequest(BaseModel):
-    """Request body for POST /containers/{container}/ros2/topics/{topic}/subscribe."""
+    """Request body for POST /ros2/topics/{topic}/subscribe."""
 
     msg_type: Optional[str] = Field(
         None, description='Message type (e.g. sensor_msgs/msg/JointState)'

@@ -26,9 +26,9 @@ from typing import Any, Optional, Tuple
 from cyclo_manager.models import ROS2TopicDataResponse
 from cyclo_manager.routers import ros2 as ros2_router
 from cyclo_manager.state import (
+    get_any_ros2_node,
     get_client_pool_or_none,
     get_config_or_none,
-    get_ros2_node,
 )
 from fastapi import APIRouter, HTTPException, WebSocket, WebSocketDisconnect
 from websockets.exceptions import ConnectionClosedError, ConnectionClosedOK
@@ -299,7 +299,6 @@ def _get_topic_msg_type(node: Any, topic: str) -> str:
 
 async def _poll_and_send_single_topic_data(
     websocket: WebSocket,
-    container: str,
     node: Any,
     topic: str,
     last_send_time: float,
@@ -314,7 +313,6 @@ async def _poll_and_send_single_topic_data(
     Args
     ----
     websocket: WebSocket connection.
-    container: Container name.
     node: CycloManagerTopicSubscriber instance.
     topic: Topic name.
     last_send_time: Last send time for this topic.
@@ -345,7 +343,6 @@ async def _poll_and_send_single_topic_data(
             # Data changed or became unavailable, send update
             msg_type = _get_topic_msg_type(node, topic)
             response = ROS2TopicDataResponse(
-                container=container,
                 topic=topic,
                 msg_type=msg_type,
                 data=data,
@@ -363,7 +360,6 @@ async def _poll_and_send_single_topic_data(
             # First time checking - send initial unavailable status
             msg_type = _get_topic_msg_type(node, topic)
             response = ROS2TopicDataResponse(
-                container=container,
                 topic=topic,
                 msg_type=msg_type,
                 data=None,
@@ -378,7 +374,6 @@ async def _poll_and_send_single_topic_data(
             # We had data before, now it's unavailable - send notification
             msg_type = _get_topic_msg_type(node, topic)
             response = ROS2TopicDataResponse(
-                container=container,
                 topic=topic,
                 msg_type=msg_type,
                 data=None,
@@ -496,40 +491,26 @@ async def websocket_service_logs(websocket: WebSocket, container: str, service: 
         await _close_websocket_ignoring_error(websocket)
 
 
-@router.websocket('/ws/{container}/ros2/topics/{topic:path}')
-async def websocket_ros2_topic_data(websocket: WebSocket, container: str, topic: str):
-    """
-    Stream single ROS2 topic data in real-time over a WebSocket connection.
-
-    This endpoint uses one WebSocket connection per topic. Each connection
-    streams data for only the specified topic.
-
-    """
+@router.websocket('/ws/ros2/topics/{topic:path}')
+async def websocket_ros2_topic_data(websocket: WebSocket, topic: str):
+    """Stream single ROS2 topic data in real-time over a WebSocket connection."""
     await websocket.accept()
-    logger.info(f'WebSocket connection established for {container}/ros2/{topic}')
+    logger.info(f'WebSocket connection established for ros2/{topic}')
 
     try:
-        node = get_ros2_node(container)
+        node = get_any_ros2_node()
         if node is None:
-            config = get_config_or_none()
-            error_msg = (
-                f"Container '{container}' not found"
-                if config is None or container not in config.containers
-                else f"ROS2 node for container '{container}' is not available."
-            )
-            await _send_websocket_error(websocket, error_msg)
+            await _send_websocket_error(websocket, 'No ROS2 node available.')
             await _close_websocket_ignoring_error(websocket)
             return
         if topic not in node.list_topics():
-            await _send_websocket_error(
-                websocket, f"Topic '{topic}' not found for container '{container}'"
-            )
+            await _send_websocket_error(websocket, f"Topic '{topic}' not found")
             await _close_websocket_ignoring_error(websocket)
             return
 
         msg_type = node.get_topic_msg_type(topic)
         if msg_type:
-            qos_profile = ros2_router.resolve_qos_profile_for_topic(container, topic, node)
+            qos_profile = ros2_router.resolve_qos_profile_for_topic(topic, node)
             node.add_topic_subscription(topic, msg_type, qos_profile=qos_profile)
             # Give TRANSIENT_LOCAL callback time to receive the last message (DDS is async)
             if node.is_topic_transient_local_subscription(topic):
@@ -551,12 +532,8 @@ async def websocket_ros2_topic_data(websocket: WebSocket, container: str, topic:
                 data_hash = hash(str(data)) if data is not None else None
                 msg_type = _get_topic_msg_type(node, topic)
                 response = ROS2TopicDataResponse(
-                    container=container,
-                    topic=topic,
-                    msg_type=msg_type,
-                    data=data,
-                    available=available,
-                    domain_id=node.domain_id,
+                    topic=topic, msg_type=msg_type,
+                    data=data, available=available, domain_id=node.domain_id,
                 )
                 if await _send_websocket_data(websocket, response.model_dump()):
                     last_send_time = time.time()
@@ -564,12 +541,8 @@ async def websocket_ros2_topic_data(websocket: WebSocket, container: str, topic:
             elif not available:
                 msg_type = _get_topic_msg_type(node, topic)
                 response = ROS2TopicDataResponse(
-                    container=container,
-                    topic=topic,
-                    msg_type=msg_type,
-                    data=None,
-                    available=False,
-                    domain_id=node.domain_id,
+                    topic=topic, msg_type=msg_type,
+                    data=None, available=False, domain_id=node.domain_id,
                 )
                 if await _send_websocket_data(websocket, response.model_dump()):
                     last_send_time = time.time()
@@ -580,29 +553,28 @@ async def websocket_ros2_topic_data(websocket: WebSocket, container: str, topic:
 
                 connection_alive, new_last_send_time, new_last_sent_data_hash = (
                     await _poll_and_send_single_topic_data(
-                        websocket, container, node, topic,
+                        websocket, node, topic,
                         last_send_time, last_sent_data_hash, min_interval
                     )
                 )
 
                 if not connection_alive:
-                    logger.info(f'WebSocket disconnected for {container}/ros2/{topic}')
+                    logger.info(f'WebSocket disconnected for ros2/{topic}')
                     return
 
-                # Update state
                 last_send_time = new_last_send_time
                 last_sent_data_hash = new_last_sent_data_hash
 
         except WebSocketDisconnect:
-            logger.info(f'WebSocket disconnected for {container}/ros2/{topic}')
+            logger.info(f'WebSocket disconnected for ros2/{topic}')
         except Exception as e:
-            logger.error(f'Error in WebSocket loop for {container}/ros2/{topic}: {e}')
+            logger.error(f'Error in WebSocket loop for ros2/{topic}: {e}')
 
     except HTTPException as e:
         await _send_websocket_error(websocket, e.detail or 'Unknown error')
         await _close_websocket_ignoring_error(websocket)
     except WebSocketDisconnect:
-        logger.info(f'WebSocket disconnected for {container}/ros2/{topic}')
+        logger.info(f'WebSocket disconnected for ros2/{topic}')
     except Exception as e:
-        logger.error(f'WebSocket error for {container}/ros2/{topic}: {e}', exc_info=True)
+        logger.error(f'WebSocket error for ros2/{topic}: {e}', exc_info=True)
         await _close_websocket_ignoring_error(websocket)

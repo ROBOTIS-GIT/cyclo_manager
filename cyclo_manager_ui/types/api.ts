@@ -223,13 +223,11 @@ export interface ROS2TopicStatus {
 }
 
 export interface ROS2TopicsListResponse {
-  container: string;
   domain_id: number;
   topics: ROS2TopicStatus[];
 }
 
 export interface ROS2TopicDataResponse {
-  container: string;
   topic: string;
   msg_type: string;
   data: any;

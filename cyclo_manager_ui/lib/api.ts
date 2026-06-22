@@ -371,26 +371,19 @@ export async function updateCycloManager(): Promise<{ message: string }> {
 
 // ROS2 Topic Management
 
-export async function getROS2Topics(
-  container: string
-): Promise<ROS2TopicsListResponse> {
+export async function getROS2Topics(): Promise<ROS2TopicsListResponse> {
   try {
-    const response = await apiClient.get<ROS2TopicsListResponse>(
-      `/${container}/ros2/topics`
-    );
+    const response = await apiClient.get<ROS2TopicsListResponse>("/ros2/topics");
     return response.data;
   } catch (error) {
     handleError(error);
   }
 }
 
-export async function getROS2TopicData(
-  container: string,
-  topic: string
-): Promise<ROS2TopicDataResponse> {
+export async function getROS2TopicData(topic: string): Promise<ROS2TopicDataResponse> {
   try {
     const response = await apiClient.get<ROS2TopicDataResponse>(
-      `/${container}/ros2/topics/${encodeURIComponent(topic)}`
+      `/ros2/topics/${encodeURIComponent(topic)}`
     );
     return response.data;
   } catch (error) {
@@ -403,13 +396,10 @@ export interface ROS2TopicInfoResponse {
   info: string;
 }
 
-export async function getROS2TopicInfo(
-  container: string,
-  topic: string
-): Promise<ROS2TopicInfoResponse> {
+export async function getROS2TopicInfo(topic: string): Promise<ROS2TopicInfoResponse> {
   try {
     const response = await apiClient.get<ROS2TopicInfoResponse>(
-      `/${container}/ros2/topics/${encodeURIComponent(topic)}/info`
+      `/ros2/topics/${encodeURIComponent(topic)}/info`
     );
     return response.data;
   } catch (error) {
@@ -417,24 +407,15 @@ export async function getROS2TopicInfo(
   }
 }
 
-export async function ros2Subscribe(
-  container: string,
-  topic: string,
-  msgType?: string
-): Promise<void> {
+export async function ros2Subscribe(topic: string, msgType?: string): Promise<void> {
   await apiClient.post(
-    `/${container}/ros2/topics/${encodeURIComponent(topic)}/subscribe`,
+    `/ros2/topics/${encodeURIComponent(topic)}/subscribe`,
     msgType ? { msg_type: msgType } : {}
   );
 }
 
-export async function ros2Unsubscribe(
-  container: string,
-  topic: string
-): Promise<void> {
-  await apiClient.post(
-    `/${container}/ros2/topics/${encodeURIComponent(topic)}/unsubscribe`
-  );
+export async function ros2Unsubscribe(topic: string): Promise<void> {
+  await apiClient.post(`/ros2/topics/${encodeURIComponent(topic)}/unsubscribe`);
 }
 
 export async function getSystemStats(): Promise<HostSystemStatsResponse> {

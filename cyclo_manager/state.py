@@ -93,10 +93,6 @@ class AppState:
     def get_docker_client_or_none(self) -> Optional[DockerClient]:
         return self._docker_client
 
-    def get_ros2_node(self, container_name: str) -> Optional[CycloManagerTopicSubscriber]:
-        if self._config is None or container_name not in self._config.containers:
-            return None
-        return self._ros2_nodes.get(container_name)
 
 
 # Public singleton.  lifespan.py owns its lifecycle; routers use the
@@ -192,5 +188,8 @@ def get_client_pool_or_none() -> Optional[AgentClientPool]:
     return app_state.get_client_pool_or_none()
 
 
-def get_ros2_node(container_name: str) -> Optional[CycloManagerTopicSubscriber]:
-    return app_state.get_ros2_node(container_name)
+def get_any_ros2_node() -> Optional[CycloManagerTopicSubscriber]:
+    """Return the first available ROS2 node. All nodes share the same domain_id."""
+    for node in app_state.get_ros2_nodes().values():
+        return node
+    return None

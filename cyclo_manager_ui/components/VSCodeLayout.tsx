@@ -33,7 +33,7 @@ export default function VSCodeLayout({
   const navItems = [
     { href: "/home", label: "Home", icon: "🏠", isHome: true },
     { href: "/containers", label: "System", icon: "🤖", isSystem: true },
-    { href: "/containers?to=topics", label: "Topics", icon: "📡", isTopics: true },
+    { href: "/topics", label: "Topics", icon: "📡", isTopics: true },
     { href: "/terminal", label: "Terminal", icon: "🖥️", isTerminal: true },
     { href: "/novnc", label: "noVNC", icon: "📺" },
   ];
@@ -76,7 +76,7 @@ export default function VSCodeLayout({
         >
           {navItems.map((item) => {
             const isSystemPage = pathname?.match(/^\/[^/]+\/system\/?$/);
-            const isTopicsPage = pathname?.match(/^\/[^/]+\/topics\/?$/);
+            const isTopicsPage = pathname === "/topics" || pathname?.startsWith("/topics/");
             const isTerminalPage = pathname === "/terminal" || pathname?.startsWith("/terminal/");
             const isHomePage = pathname === "/home";
             const isActive =

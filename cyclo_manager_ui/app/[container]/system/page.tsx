@@ -202,11 +202,11 @@ export default function SystemPage() {
   useEffect(() => {
     if (!container) return;
     for (const { topic, msgType } of CONTROL_TOPICS) {
-      ros2Subscribe(container, topic, msgType).catch(() => {});
+      ros2Subscribe(topic, msgType).catch(() => {});
     }
     return () => {
       for (const { topic } of CONTROL_TOPICS) {
-        ros2Unsubscribe(container, topic).catch(() => {});
+        ros2Unsubscribe(topic).catch(() => {});
       }
     };
   }, [container]);
@@ -377,7 +377,7 @@ export default function SystemPage() {
         }}
       />
       <div className="flex gap-4 items-stretch mt-4 flex-1 min-h-0">
-        <Robot3DViewer container={container} />
+        <Robot3DViewer />
         {showLogs && !showLeaderLogs && (
           <div style={PANEL_STYLES}>
             <FixedLogPanel container={container} service={FOLLOWER_SERVICE_NAME} onClose={() => setShowLogs(false)} />

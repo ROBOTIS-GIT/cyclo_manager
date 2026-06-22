@@ -184,12 +184,11 @@ const parseROS2TopicMessage = (
  * Create WebSocket connection for ROS2 topic data
  */
 export function createROS2TopicWebSocket(
-  container: string,
   topic: string,
   options: UseWebSocketOptions = {}
 ): WebSocket {
   const baseUrl = getWebSocketBaseUrl();
-  const wsUrl = `${baseUrl}/ws/${container}/ros2/topics/${encodeURIComponent(topic)}`;
+  const wsUrl = `${baseUrl}/ws/ros2/topics/${encodeURIComponent(topic)}`;
 
   const ws = new WebSocket(wsUrl);
 
@@ -203,7 +202,6 @@ export function createROS2TopicWebSocket(
  * React hook for ROS2 topic WebSocket
  */
 export function useROS2TopicWebSocket(
-  container: string | null,
   topic: string | null,
   options: UseWebSocketOptions = {}
 ) {
@@ -212,14 +210,14 @@ export function useROS2TopicWebSocket(
   const [topicData, setTopicData] = useState<any>(null);
 
   useEffect(() => {
-    if (!container || !topic) {
+    if (!topic) {
       return;
     }
 
     let isMounted = true;
     setStatus("connecting");
 
-    const websocket = createROS2TopicWebSocket(container, topic, {
+    const websocket = createROS2TopicWebSocket(topic, {
       ...options,
       onOpen: () => {
         if (isMounted) {
@@ -231,7 +229,7 @@ export function useROS2TopicWebSocket(
         if (!isMounted) return;
         try {
           const parsed = JSON.parse(data);
-          // parsed is the ROS2TopicDataResponse object: {container, topic, msg_type, data, available, domain_id}
+          // parsed is the ROS2TopicDataResponse object: {topic, msg_type, data, available, domain_id}
           setTopicData(parsed);
           options.onMessage?.(data);
         } catch (e) {
@@ -264,7 +262,7 @@ export function useROS2TopicWebSocket(
       setStatus("disconnected");
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [container, topic]);
+  }, [topic]);
 
   return { ws, status, topicData } as { ws: WebSocket | null; status: WebSocketStatus; topicData: any };
 }
