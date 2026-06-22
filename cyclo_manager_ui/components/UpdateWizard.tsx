@@ -20,7 +20,7 @@ import { useEffect, useState, useCallback } from "react";
 import { getRepoStatus, updateRepo, stopRepoContainer, startRepoContainer } from "@/lib/api";
 import type { FileChange, RepoUpdateStatus } from "@/types/api";
 
-type Phase = "stop" | "choose" | "update" | "start";
+type Phase = "intro" | "stop" | "choose" | "update" | "start";
 type RunStatus = "idle" | "running" | "done" | "error";
 type Strategy = "stash" | "reset";
 
@@ -36,6 +36,7 @@ interface Props {
 }
 
 const PHASES: { key: Phase; label: string }[] = [
+  { key: "intro",  label: "Overview" },
   { key: "stop",   label: "Stop Container" },
   { key: "choose", label: "Choose Strategy" },
   { key: "update", label: "Update Repository" },
@@ -141,7 +142,7 @@ function RunningLabel({ label }: { label: string }) {
 // ── main component ────────────────────────────────────────────────────────────
 
 export default function UpdateWizard({ repo, onClose, onDone }: Props) {
-  const [phase, setPhase] = useState<Phase>("stop");
+  const [phase, setPhase] = useState<Phase>("intro");
   const [stop, setStop] = useState<PhaseState>({ status: "idle", output: "" });
   const [changes, setChanges] = useState<FileChange[]>([]);
   const [chooseLoading, setChooseLoading] = useState(false);
@@ -163,7 +164,7 @@ export default function UpdateWizard({ repo, onClose, onDone }: Props) {
     }
   }, [repo.name]);
 
-  useEffect(() => { runStop(); }, [runStop]);
+  useEffect(() => { if (phase === "stop" && stop.status === "idle") runStop(); }, [phase, runStop]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Phase: choose (load git status) ─────────────────────────────────────────
   const loadChanges = useCallback(async () => {
@@ -234,6 +235,32 @@ export default function UpdateWizard({ repo, onClose, onDone }: Props) {
 
   // ── render body per phase ────────────────────────────────────────────────────
   const renderBody = () => {
+    // INTRO
+    if (phase === "intro") {
+      return (
+        <div className="flex flex-col gap-4">
+          <div className="text-sm" style={{ color: "var(--vscode-foreground)" }}>
+            This wizard will update <strong>{repo.name}</strong> to the latest version.
+          </div>
+          {repo.current_version && repo.latest_version && (
+            <div className="px-3 py-2 rounded text-sm font-mono"
+              style={{ backgroundColor: "var(--vscode-textCodeBlock-background)", color: "var(--vscode-foreground)" }}>
+              {repo.current_version} → {repo.latest_version}
+            </div>
+          )}
+          <div className="flex flex-col gap-1.5 text-sm" style={{ color: "var(--vscode-descriptionForeground)" }}>
+            <div>The following steps will be performed:</div>
+            <ol className="flex flex-col gap-1 pl-4 list-decimal">
+              <li><strong style={{ color: "var(--vscode-foreground)" }}>Stop Container</strong> — stop the running container before updating</li>
+              <li><strong style={{ color: "var(--vscode-foreground)" }}>Choose Strategy</strong> — decide how to handle local changes</li>
+              <li><strong style={{ color: "var(--vscode-foreground)" }}>Update Repository</strong> — pull the latest code from remote</li>
+              <li><strong style={{ color: "var(--vscode-foreground)" }}>Start Container</strong> — restart the container with the new version</li>
+            </ol>
+          </div>
+        </div>
+      );
+    }
+
     // STOP
     if (phase === "stop") {
       return (
@@ -386,9 +413,15 @@ export default function UpdateWizard({ repo, onClose, onDone }: Props) {
 
   // ── render footer per phase ───────────────────────────────────────────────────
   const renderFooter = () => {
+    if (phase === "intro") return (
+      <>
+        <button style={btnSecondary()} onClick={onClose}>Cancel</button>
+        <button style={btnPrimary()} onClick={() => setPhase("stop")}>Stop Container</button>
+      </>
+    );
+
     if (phase === "stop") return (
       <>
-        <button style={btnSecondary(isRunning)} disabled={isRunning} onClick={onClose}>Cancel</button>
         <button style={btnPrimary(isRunning || stop.status === "idle")}
           disabled={isRunning || stop.status === "idle"}
           onClick={() => setPhase("choose")}>
@@ -431,16 +464,25 @@ export default function UpdateWizard({ repo, onClose, onDone }: Props) {
   };
 
   return (
-    <div style={overlay} onClick={e => { if (e.target === e.currentTarget && !isRunning) onClose(); }}>
+    <div style={overlay}>
       <div style={modal}>
         {/* Header */}
-        <div className="px-5 pt-4 pb-3" style={{ borderBottom: "1px solid var(--vscode-panel-border)", flexShrink: 0 }}>
-          <div className="text-sm font-bold" style={{ color: "var(--vscode-foreground)" }}>{repo.name}</div>
-          {repo.current_version && repo.latest_version && (
-            <div className="text-xs mt-0.5" style={{ color: "var(--vscode-descriptionForeground)" }}>
-              {repo.current_version} → {repo.latest_version}
-            </div>
-          )}
+        <div className="px-5 pt-4 pb-3 flex items-start justify-between" style={{ borderBottom: "1px solid var(--vscode-panel-border)", flexShrink: 0 }}>
+          <div>
+            <div className="text-sm font-bold" style={{ color: "var(--vscode-foreground)" }}>{repo.name}</div>
+            {repo.current_version && repo.latest_version && (
+              <div className="text-xs mt-0.5" style={{ color: "var(--vscode-descriptionForeground)" }}>
+                {repo.current_version} → {repo.latest_version}
+              </div>
+            )}
+          </div>
+          <button
+            onClick={onClose}
+            style={{ background: "none", border: "none", cursor: "pointer", padding: "0 0 0 8px", lineHeight: 1, color: "var(--vscode-descriptionForeground)" }}
+            title="Close"
+          >
+            ✕
+          </button>
         </div>
 
         {/* Step bar */}
