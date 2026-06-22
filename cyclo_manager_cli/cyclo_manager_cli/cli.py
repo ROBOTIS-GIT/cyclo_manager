@@ -54,25 +54,23 @@ def _packaged_config_path() -> Path:
 
 
 def _check_host_agent() -> bool:
-    """Return True if the cyclo_host_agent socket unit is already active."""
+    """Return True if the cyclo_host_agent service is already active."""
     result = subprocess.run(
-        ['systemctl', 'is-active', f'{HOST_AGENT_SERVICE}.socket'],
+        ['systemctl', 'is-active', f'{HOST_AGENT_SERVICE}.service'],
         capture_output=True,
         text=True,
     )
     return result.returncode == 0
 
 
+
 def _create_host_agent() -> int:
     """
-    Write cyclo_host_agent systemd socket/service unit files and activate the socket.
+    Write cyclo_host_agent systemd service unit file and enable it.
 
-    Only the socket unit is enabled (socket activation); systemd starts the
-    service automatically when a connection arrives on the socket.
+    Runs as a persistent service (Restart=always); systemd starts it at boot
+    and restarts it automatically if it exits unexpectedly.
     """
-    socket_unit = f'{HOST_AGENT_SERVICE}.socket'
-
-    # Check cyclo_host_agent main executable
     agent_exe = shutil.which('cyclo_host_agent')
     if not agent_exe:
         print(
@@ -82,47 +80,27 @@ def _create_host_agent() -> int:
         )
         return 1
 
-    socket_content = f"""\
-[Unit]
-Description=Cyclo Host Agent Socket
-
-[Socket]
-ListenStream={HOST_AGENT_SOCKET}
-DirectoryMode=0755
-SocketMode=0660
-
-[Install]
-WantedBy=sockets.target
-"""
-
     user_home = Path.home()
     service_content = f"""\
 [Unit]
 Description=Cyclo Host Agent
-Requires={socket_unit}
-After={socket_unit}
+After=network.target
 
 [Service]
 Type=simple
 ExecStart={agent_exe}
 Environment=HOME={user_home}
-Restart=no
+Restart=always
+RestartSec=3
 
 [Install]
 WantedBy=multi-user.target
 """
 
-    socket_file = f'/etc/systemd/system/{socket_unit}'
     service_file = f'/etc/systemd/system/{HOST_AGENT_SERVICE}.service'
 
-    print(f'Installing {HOST_AGENT_SERVICE} systemd units (requires sudo)...')
+    print(f'Installing {HOST_AGENT_SERVICE} systemd service (requires sudo)...')
     try:
-        subprocess.run(
-            ['sudo', 'tee', socket_file],
-            input=socket_content.encode(),
-            capture_output=True,
-            check=True,
-        )
         subprocess.run(
             ['sudo', 'tee', service_file],
             input=service_content.encode(),
@@ -130,14 +108,14 @@ WantedBy=multi-user.target
             check=True,
         )
         subprocess.run(['sudo', 'systemctl', 'daemon-reload'], check=True)
-        subprocess.run(['sudo', 'systemctl', 'enable', '--now', socket_unit], check=True)
-        print('Host agent socket installed and activated.')
+        subprocess.run(['sudo', 'systemctl', 'enable', '--now', f'{HOST_AGENT_SERVICE}.service'], check=True)
+        print('Host agent service installed and started.')
         return 0
     except subprocess.CalledProcessError as e:
-        print(f'Failed to install host agent units: {e}', file=sys.stderr)
+        print(f'Failed to install host agent service: {e}', file=sys.stderr)
         return 1
     except FileNotFoundError:
-        print('sudo not found. Install the host agent units manually.', file=sys.stderr)
+        print('sudo not found. Install the host agent service manually.', file=sys.stderr)
         return 1
 
 
@@ -145,9 +123,7 @@ def cmd_up(args: argparse.Namespace) -> int:
     """Start API + UI; create zenoh and noVNC containers without starting them."""
     if not _check_host_agent():
         if _create_host_agent() != 0:
-            print(
-                'Warning: Failed to install host agent units.'
-            )
+            print('Warning: Failed to install host agent service.')
 
     config_path = _packaged_config_path()
     if not config_path.is_file():
@@ -209,6 +185,17 @@ def cmd_down(args: argparse.Namespace) -> int:
             file=sys.stderr,
         )
         return 1
+
+    service_file = f'/etc/systemd/system/{HOST_AGENT_SERVICE}.service'
+    try:
+        subprocess.run(['sudo', 'systemctl', 'disable', '--now', f'{HOST_AGENT_SERVICE}.service'], check=True)
+        subprocess.run(['sudo', 'rm', '-f', service_file], check=True)
+        subprocess.run(['sudo', 'systemctl', 'daemon-reload'], check=True)
+    except subprocess.CalledProcessError:
+        pass
+    except FileNotFoundError:
+        pass
+
     print('cyclo_manager server, cyclo_manager_ui, and zenoh daemon are down.')
     return 0
 
