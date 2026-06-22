@@ -242,8 +242,8 @@ function ContainerRow({ container, onAction, onOpenLog, onOpenBashrc, busy, busy
         <StatusBadge status={container.status} />
       </div>
       <div className="flex items-center gap-1.5 shrink-0">
-        {/* control icons — always 2 slots to keep alignment */}
-        <div className="flex items-center gap-1.5" style={{ width: 66 }}>
+        {/* control icons — 3 fixed slots */}
+        <div className="flex items-center gap-1.5" style={{ width: 100 }}>
           {running ? (
             <>
               <IconButton onClick={() => onAction("stop")} disabled={busy}
@@ -272,17 +272,29 @@ function ContainerRow({ container, onAction, onOpenLog, onOpenBashrc, busy, busy
               <span style={{ width: 30 }} />
             </>
           )}
+          <IconButton onClick={onOpenLog} title="Log">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none"
+              stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <line x1="3" y1="6" x2="21" y2="6" />
+              <line x1="3" y1="12" x2="21" y2="12" />
+              <line x1="3" y1="18" x2="15" y2="18" />
+            </svg>
+          </IconButton>
         </div>
 
         {/* divider */}
         <div className="mx-1.5 h-4 w-px" style={{ backgroundColor: "var(--vscode-panel-border)" }} />
 
-        {/* utility buttons */}
-        <Link href={`/${container.name}/terminal`} style={btnStyle(false, false)} className="no-underline text-xs">
+        {/* utility buttons — always visible, disabled when not running */}
+        <Link
+          href={running ? `/terminal?container=${encodeURIComponent(container.name)}` : "#"}
+          style={btnStyle(false, !running)}
+          className="no-underline text-xs"
+          onClick={!running ? (e) => e.preventDefault() : undefined}
+        >
           Terminal
         </Link>
-        <button onClick={onOpenLog} style={btnStyle(false, false)}>Log</button>
-        <button onClick={onOpenBashrc} style={btnStyle(false, false)}>bashrc</button>
+        <button onClick={onOpenBashrc} disabled={!running} style={btnStyle(false, !running)}>bashrc</button>
       </div>
     </div>
   );

@@ -16,7 +16,8 @@
 
 "use client";
 
-import { useEffect, useState, useCallback, useRef } from "react";
+import { useEffect, useState, useCallback, useRef, Suspense } from "react";
+import { useSearchParams } from "next/navigation";
 import {
   getDockerContainers,
   getDockerContainerTop,
@@ -78,7 +79,10 @@ function saveTabsForContainer(name: string, tabs: Tab[]) {
   }
 }
 
-export default function TerminalPage() {
+function TerminalContent() {
+  const searchParams = useSearchParams();
+  const initialContainer = searchParams.get("container");
+
   const [containers, setContainers] = useState<DockerContainerInfo[]>([]);
   const [selectedContainer, setSelectedContainer] = useState<string | null>(null);
 
@@ -102,9 +106,10 @@ export default function TerminalPage() {
         setContainers(docker.containers);
 
         if (docker.containers.length > 0) {
-          const first = docker.containers[0].name;
-          setSelectedContainer(first);
-          ensureTabsLoaded(first);
+          const match = initialContainer && docker.containers.find((c) => c.name === initialContainer);
+          const pick = match ? match.name : docker.containers[0].name;
+          setSelectedContainer(pick);
+          ensureTabsLoaded(pick);
         }
       } catch {
         // ignore
@@ -418,5 +423,13 @@ export default function TerminalPage() {
         )}
       </div>
     </div>
+  );
+}
+
+export default function TerminalPage() {
+  return (
+    <Suspense>
+      <TerminalContent />
+    </Suspense>
   );
 }
