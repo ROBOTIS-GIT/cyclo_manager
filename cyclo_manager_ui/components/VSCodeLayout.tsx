@@ -34,8 +34,8 @@ export default function VSCodeLayout({
     { href: "/home", label: "Home", icon: "🏠", isHome: true },
     { href: "/containers", label: "System", icon: "🤖", isSystem: true },
     { href: "/containers?to=topics", label: "Topics", icon: "📡", isTopics: true },
-    { href: "/docker", label: "Docker", icon: "🐳", isDocker: true },
-    { href: "/novnc", label: "noVNC", icon: "🖥️" },
+    { href: "/terminal", label: "Terminal", icon: "🖥️", isTerminal: true },
+    { href: "/novnc", label: "noVNC", icon: "📺" },
   ];
 
   return (
@@ -77,7 +77,7 @@ export default function VSCodeLayout({
           {navItems.map((item) => {
             const isSystemPage = pathname?.match(/^\/[^/]+\/system\/?$/);
             const isTopicsPage = pathname?.match(/^\/[^/]+\/topics\/?$/);
-            const isDockerPage = pathname === "/docker" || (pathname?.startsWith("/docker/") ?? false);
+            const isTerminalPage = pathname === "/terminal" || pathname?.startsWith("/terminal/");
             const isHomePage = pathname === "/home";
             const isActive =
               "isHome" in item && item.isHome
@@ -86,8 +86,8 @@ export default function VSCodeLayout({
                 ? !!isSystemPage
                 : "isTopics" in item && item.isTopics
                   ? !!isTopicsPage
-                  : "isDocker" in item && item.isDocker
-                    ? !!isDockerPage
+                  : "isTerminal" in item && item.isTerminal
+                    ? !!isTerminalPage
                     : pathname === item.href || (item.href !== "/" && pathname?.startsWith(item.href));
 
             const linkStyle: React.CSSProperties = {

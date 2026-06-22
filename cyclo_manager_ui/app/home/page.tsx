@@ -281,7 +281,7 @@ function ContainerRow({ container, onAction, onOpenLog, onOpenBashrc, busy, busy
         <div className="mx-1.5 h-4 w-px" style={{ backgroundColor: "var(--vscode-panel-border)" }} />
 
         {/* utility buttons */}
-        <Link href={`/docker/${container.name}`} style={btnStyle(false, false)} className="no-underline text-xs">
+        <Link href={`/${container.name}/terminal`} style={btnStyle(false, false)} className="no-underline text-xs">
           Terminal
         </Link>
         <button onClick={onOpenLog} style={btnStyle(false, false)}>Log</button>
