@@ -16,12 +16,14 @@
 
 "use client";
 
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import Link from "next/link";
+import { useState } from "react";
 import { SIDEBAR_WIDTH_PX } from "@/lib/layout";
 import { AppsHubButton } from "@/components/AppsHubLink";
 import ManagerPhysicalShortcuts from "@/components/ManagerPhysicalShortcuts";
 import ThemeToggle from "./ThemeToggle";
+import { getConfiguredContainers, getDockerContainers } from "@/lib/api";
 
 export default function VSCodeLayout({
   children,
@@ -29,14 +31,46 @@ export default function VSCodeLayout({
   children: React.ReactNode;
 }) {
   const pathname = usePathname();
+  const router = useRouter();
+  const [navError, setNavError] = useState<string | null>(null);
+  const [containerPicker, setContainerPicker] = useState<string[] | null>(null);
 
   const navItems = [
     { href: "/dashboard", label: "Dashboard", icon: "📊", isHome: true },
-    { href: "/containers", label: "System", icon: "🤖", isSystem: true },
+    { label: "System", icon: "🤖", isSystem: true },
     { href: "/topics", label: "Topics", icon: "📡", isTopics: true },
     { href: "/terminal", label: "Terminal", icon: "🖥️", isTerminal: true },
     { href: "/novnc", label: "noVNC", icon: "📺" },
   ];
+
+  async function handleSystemClick() {
+    setNavError(null);
+    try {
+      const [{ containers: configured }, docker] = await Promise.all([
+        getConfiguredContainers(),
+        getDockerContainers(true),
+      ]);
+      if (configured.length === 0) {
+        setNavError("No containers configured.");
+        return;
+      }
+      const configuredNames = new Set(configured.map((c) => c.name));
+      const running = docker.containers.filter(
+        (c) => configuredNames.has(c.name) && c.status.toLowerCase() === "running"
+      );
+      if (running.length === 0) {
+        setNavError("No robot container is running.");
+        return;
+      }
+      if (running.length === 1) {
+        router.push(`/${running[0].name}/system`);
+        return;
+      }
+      setContainerPicker(running.map((c) => c.name));
+    } catch {
+      setNavError("Failed to connect to the manager.");
+    }
+  }
 
   return (
     <div style={{ height: "100vh", display: "flex", overflow: "hidden" }}>
@@ -69,7 +103,7 @@ export default function VSCodeLayout({
           </div>
         </div>
 
-        {/* Sidebar Navigation — narrow rail (~120px), Gi-style */}
+        {/* Sidebar Navigation */}
         <nav
           className="flex-1 min-h-0 w-full flex flex-col items-center gap-1.5 py-2 px-1 overflow-y-auto"
           style={{ scrollbarGutter: "stable" }}
@@ -88,33 +122,49 @@ export default function VSCodeLayout({
                   ? !!isTopicsPage
                   : "isTerminal" in item && item.isTerminal
                     ? !!isTerminalPage
-                    : pathname === item.href || (item.href !== "/" && pathname?.startsWith(item.href));
+                    : "href" in item && (pathname === item.href || (item.href !== "/" && pathname?.startsWith(item.href)));
 
-            const linkStyle: React.CSSProperties = {
+            const baseStyle: React.CSSProperties = {
               backgroundColor: isActive ? "var(--vscode-list-activeSelectionBackground)" : "transparent",
               color: isActive ? "var(--vscode-foreground)" : "var(--vscode-descriptionForeground)",
             };
 
+            const sharedClass = "flex flex-col items-center justify-center gap-0.5 rounded-md w-full aspect-square shrink-0 px-1 py-1 text-center transition-colors box-border";
+
+            if ("isSystem" in item && item.isSystem) {
+              return (
+                <button
+                  key="system"
+                  onClick={handleSystemClick}
+                  className={sharedClass}
+                  style={{ ...baseStyle, border: "none", cursor: "pointer" }}
+                  onMouseEnter={(e) => {
+                    if (!isActive) e.currentTarget.style.backgroundColor = "var(--vscode-list-hoverBackground)";
+                  }}
+                  onMouseLeave={(e) => {
+                    if (!isActive) e.currentTarget.style.backgroundColor = "transparent";
+                  }}
+                >
+                  <span className="text-[1.125rem] leading-none select-none" aria-hidden>{item.icon}</span>
+                  <span className="text-[10px] font-semibold leading-tight">{item.label}</span>
+                </button>
+              );
+            }
+
             return (
               <Link
-                key={item.label === "Dashboard" ? "dashboard" : item.label === "System" ? `system-${item.href}` : item.label === "Topics" ? `topics-${item.href}` : item.href}
-                href={item.href}
-                className="flex flex-col items-center justify-center gap-0.5 rounded-md w-full aspect-square shrink-0 px-1 py-1 text-center no-underline transition-colors box-border"
-                style={linkStyle}
+                key={"href" in item ? item.href : item.label}
+                href={"href" in item ? item.href : "/"}
+                className={`${sharedClass} no-underline`}
+                style={baseStyle}
                 onMouseEnter={(e) => {
-                  if (!isActive) {
-                    e.currentTarget.style.backgroundColor = "var(--vscode-list-hoverBackground)";
-                  }
+                  if (!isActive) e.currentTarget.style.backgroundColor = "var(--vscode-list-hoverBackground)";
                 }}
                 onMouseLeave={(e) => {
-                  if (!isActive) {
-                    e.currentTarget.style.backgroundColor = "transparent";
-                  }
+                  if (!isActive) e.currentTarget.style.backgroundColor = "transparent";
                 }}
               >
-                <span className="text-[1.125rem] leading-none select-none" aria-hidden>
-                  {item.icon}
-                </span>
+                <span className="text-[1.125rem] leading-none select-none" aria-hidden>{item.icon}</span>
                 <span className="text-[10px] font-semibold leading-tight">{item.label}</span>
               </Link>
             );
@@ -127,11 +177,81 @@ export default function VSCodeLayout({
         className="flex-1 flex flex-col overflow-hidden"
         style={{ backgroundColor: "var(--vscode-editor-background)" }}
       >
-        {/* Content */}
         <div className="flex-1 overflow-auto p-6">
           {children}
         </div>
       </main>
+
+      {/* Container picker modal */}
+      {containerPicker && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center"
+          style={{ backgroundColor: "rgba(0,0,0,0.5)" }}
+          onClick={() => setContainerPicker(null)}
+        >
+          <div
+            className="rounded-lg p-4 flex flex-col gap-2 min-w-[200px]"
+            style={{
+              backgroundColor: "var(--vscode-editor-background)",
+              border: "1px solid var(--vscode-panel-border)",
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="text-sm font-semibold mb-1" style={{ color: "var(--vscode-foreground)" }}>
+              Select container
+            </div>
+            {containerPicker.map((name) => (
+              <button
+                key={name}
+                className="text-left px-3 py-2 rounded text-sm transition-colors"
+                style={{ color: "var(--vscode-foreground)", border: "1px solid var(--vscode-panel-border)" }}
+                onMouseEnter={(e) => { e.currentTarget.style.backgroundColor = "var(--vscode-list-hoverBackground)"; }}
+                onMouseLeave={(e) => { e.currentTarget.style.backgroundColor = "transparent"; }}
+                onClick={() => { setContainerPicker(null); router.push(`/${name}/system`); }}
+              >
+                {name}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Nav error alert */}
+      {navError && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center"
+          style={{ backgroundColor: "rgba(0,0,0,0.4)" }}
+          onClick={() => setNavError(null)}
+        >
+          <div
+            className="rounded-lg p-5 flex flex-col gap-3 max-w-sm w-full mx-4"
+            style={{
+              backgroundColor: "var(--vscode-editor-background)",
+              border: "1px solid var(--vscode-inputValidation-errorBorder)",
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center gap-2">
+              <span style={{ color: "var(--vscode-inputValidation-errorBorder)", fontSize: "1.1rem" }}>⚠</span>
+              <span className="font-semibold text-sm" style={{ color: "var(--vscode-foreground)" }}>
+                {navError}
+              </span>
+            </div>
+            <button
+              className="self-end px-3 py-1 rounded text-xs font-semibold transition-colors"
+              style={{
+                backgroundColor: "var(--vscode-button-background)",
+                color: "var(--vscode-button-foreground)",
+                border: "none",
+                cursor: "pointer",
+              }}
+              onClick={() => setNavError(null)}
+            >
+              OK
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
