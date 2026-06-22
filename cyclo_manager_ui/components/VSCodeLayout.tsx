@@ -16,7 +16,6 @@
 
 "use client";
 
-import { useState, useEffect } from "react";
 import { usePathname } from "next/navigation";
 import Link from "next/link";
 import { SIDEBAR_WIDTH_PX } from "@/lib/layout";
@@ -24,29 +23,17 @@ import { AppsHubButton } from "@/components/AppsHubLink";
 import ManagerPhysicalShortcuts from "@/components/ManagerPhysicalShortcuts";
 import ThemeToggle from "./ThemeToggle";
 
-const LAST_CONTAINER_KEY = "last_system_container";
-
 export default function VSCodeLayout({
   children,
 }: {
   children: React.ReactNode;
 }) {
   const pathname = usePathname();
-  const [systemHref, setSystemHref] = useState("/containers");
-  const [topicsHref, setTopicsHref] = useState("/containers");
-
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-    const last =
-      localStorage.getItem(LAST_CONTAINER_KEY) ?? localStorage.getItem("last_control_container");
-    setSystemHref(last ? `/${last}/system` : "/containers");
-    setTopicsHref(last ? `/${last}/topics` : "/containers");
-  }, [pathname]);
 
   const navItems = [
     { href: "/home", label: "Home", icon: "🏠", isHome: true },
-    { href: systemHref, label: "System", icon: "🤖", isSystem: true },
-    { href: topicsHref, label: "Topics", icon: "📡", isTopics: true },
+    { href: "/containers", label: "System", icon: "🤖", isSystem: true },
+    { href: "/containers?to=topics", label: "Topics", icon: "📡", isTopics: true },
     { href: "/docker", label: "Docker", icon: "🐳", isDocker: true },
     { href: "/novnc", label: "noVNC", icon: "🖥️" },
   ];

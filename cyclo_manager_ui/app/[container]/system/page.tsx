@@ -42,7 +42,6 @@ const LEADER_SERVICE_NAME = "avatar_bringup";
 const STATUS_POLL_INTERVAL = 2000;
 const ERROR_DISPLAY_DURATION = 5000;
 const STATUS_RELOAD_DELAY = 1000;
-const LAST_CONTAINER_KEY = "last_system_container";
 
 const CONTROL_TOPICS = [
   { topic: "/joint_states", msgType: "sensor_msgs/msg/JointState" },
@@ -254,7 +253,6 @@ export default function SystemPage() {
 
   useEffect(() => {
     if (container) {
-      localStorage.setItem(LAST_CONTAINER_KEY, container);
       setRobotType(getStoredFollowerRobotModel(container));
       setLeaderBringupArgs(getStoredBringupArgs(LG2_LEADER_AI_CONFIG, container));
     }
