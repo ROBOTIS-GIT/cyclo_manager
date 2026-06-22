@@ -152,3 +152,24 @@ async def start_update() -> dict:
 async def get_update_status() -> dict:
     """Return the current update phase and stored outputs."""
     return _update_status
+
+
+def _delayed_exec(cmd: list[str], delay: float = 2.0) -> None:
+    time.sleep(delay)
+    subprocess.run(cmd, check=False)
+
+
+@router.post('/reboot')
+async def reboot_host() -> dict:
+    """Reboot the host machine after returning a response."""
+    loop = asyncio.get_event_loop()
+    loop.run_in_executor(None, _delayed_exec, ['sudo', 'reboot'])
+    return {'status': 'rebooting'}
+
+
+@router.post('/shutdown')
+async def shutdown_host() -> dict:
+    """Shut down the host machine after returning a response."""
+    loop = asyncio.get_event_loop()
+    loop.run_in_executor(None, _delayed_exec, ['sudo', 'poweroff'])
+    return {'status': 'shutting_down'}

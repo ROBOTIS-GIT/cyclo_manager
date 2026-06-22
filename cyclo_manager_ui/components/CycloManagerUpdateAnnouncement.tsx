@@ -200,7 +200,7 @@ export default function CycloManagerUpdateAnnouncement({
     <>
       {!suppressed && (
         <div
-          className="fixed top-0 left-0 right-0 z-50 p-3 flex flex-wrap items-center justify-center gap-3 shadow-md"
+          className="w-full z-50 p-3 flex flex-wrap items-center justify-center gap-3 shadow-md"
           style={{
             backgroundColor: "var(--vscode-badge-background, #4dabf7)",
             color: "var(--vscode-badge-foreground, #fff)",

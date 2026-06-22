@@ -24,6 +24,7 @@ import { AppsHubButton } from "@/components/AppsHubLink";
 import ManagerPhysicalShortcuts from "@/components/ManagerPhysicalShortcuts";
 import ThemeToggle from "./ThemeToggle";
 import { getConfiguredContainers, getDockerContainers } from "@/lib/api";
+import CycloManagerUpdateAnnouncement from "@/components/CycloManagerUpdateAnnouncement";
 
 export default function VSCodeLayout({
   children,
@@ -73,7 +74,9 @@ export default function VSCodeLayout({
   }
 
   return (
-    <div style={{ height: "100vh", display: "flex", overflow: "hidden" }}>
+    <div style={{ height: "100vh", display: "flex", flexDirection: "column", overflow: "hidden" }}>
+      <CycloManagerUpdateAnnouncement />
+      <div style={{ display: "flex", flex: 1, overflow: "hidden" }}>
       {/* Sidebar */}
       <div
         className="flex flex-col"
@@ -215,6 +218,8 @@ export default function VSCodeLayout({
           </div>
         </div>
       )}
+
+      </div>
 
       {/* Nav error alert */}
       {navError && (

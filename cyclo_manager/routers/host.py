@@ -202,3 +202,23 @@ async def get_update_status(
         return await client.get_update_status()
     except Exception as e:
         raise _proxy_error(e)
+
+
+@router.post('/reboot')
+async def reboot_host(
+    client: HostAgentClient = Depends(get_host_agent_client),
+) -> dict:
+    try:
+        return await client.reboot_host()
+    except Exception as e:
+        raise _proxy_error(e)
+
+
+@router.post('/shutdown')
+async def shutdown_host(
+    client: HostAgentClient = Depends(get_host_agent_client),
+) -> dict:
+    try:
+        return await client.shutdown_host()
+    except Exception as e:
+        raise _proxy_error(e)
