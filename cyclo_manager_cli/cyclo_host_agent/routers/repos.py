@@ -19,10 +19,8 @@
 """Repository management endpoints."""
 
 import asyncio
-import json
 import os
 import re
-import urllib.request
 from pathlib import Path
 from typing import Optional
 
@@ -133,21 +131,14 @@ def _is_newer(latest: str, current: str) -> bool:
     return _parse_version(latest) > _parse_version(current)
 
 
-def _parse_github_slug(remote_url: str) -> Optional[str]:
-    https_match = re.match(r'https?://github\.com/([^/]+/[^/]+?)(?:\.git)?/?$', remote_url)
-    if https_match:
-        return https_match.group(1)
-    ssh_match = re.match(r'git@github\.com:([^/]+/[^/]+?)(?:\.git)?$', remote_url)
-    if ssh_match:
-        return ssh_match.group(1)
-    return None
-
-
 def _is_managed_remote(remote_url: str) -> bool:
-    slug = _parse_github_slug(remote_url)
-    if not slug:
-        return False
-    return slug.split('/')[0].lower() == MANAGED_GITHUB_ORG.lower()
+    https_match = re.match(r'https?://github\.com/([^/]+)/', remote_url)
+    if https_match:
+        return https_match.group(1).lower() == MANAGED_GITHUB_ORG.lower()
+    ssh_match = re.match(r'git@github\.com:([^/]+)/', remote_url)
+    if ssh_match:
+        return ssh_match.group(1).lower() == MANAGED_GITHUB_ORG.lower()
+    return False
 
 
 def _read_package_xml_version(repo_path: Path) -> Optional[str]:
@@ -164,15 +155,18 @@ def _read_package_xml_version(repo_path: Path) -> Optional[str]:
     return None
 
 
-def _fetch_github_latest(slug: str) -> Optional[str]:
-    url = f'https://api.github.com/repos/{slug}/releases/latest'
-    req = urllib.request.Request(url, headers={'User-Agent': 'cyclo-manager/1.0'})
-    try:
-        with urllib.request.urlopen(req, timeout=10) as resp:
-            data = json.loads(resp.read().decode())
-            return (data.get('tag_name') or '').strip() or None
-    except Exception:
+async def _fetch_latest_tag(remote_url: str) -> Optional[str]:
+    rc, out, _ = await _git(['ls-remote', '--tags', remote_url])
+    if rc != 0:
         return None
+    tags = []
+    for line in out.splitlines():
+        if 'refs/tags/' not in line or '^{}' in line:
+            continue
+        tags.append(line.split('refs/tags/')[-1].strip())
+    if not tags:
+        return None
+    return max(tags, key=_parse_version)
 
 
 async def _repo_update_status(repo_path: Path) -> Optional[RepoUpdateStatus]:
@@ -182,12 +176,11 @@ async def _repo_update_status(repo_path: Path) -> Optional[RepoUpdateStatus]:
     if not remote_url or not _is_managed_remote(remote_url):
         return None
 
-    slug = _parse_github_slug(remote_url)
     current = _read_package_xml_version(repo_path)
     if not current:
         return RepoUpdateStatus(name=repo_path.name, has_update=False)
 
-    latest = await asyncio.to_thread(_fetch_github_latest, slug)
+    latest = await _fetch_latest_tag(remote_url)
     if not latest:
         return RepoUpdateStatus(name=repo_path.name, current_version=current, has_update=False)
 

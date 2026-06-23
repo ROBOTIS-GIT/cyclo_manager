@@ -33,6 +33,7 @@ import sys
 PYPI_PACKAGE = 'cyclo-manager'
 HOST_AGENT_SERVICE = 'cyclo_host_agent'
 HOST_AGENT_SOCKET = '/var/run/robotis/agent_sockets/host/host_agent.sock'
+HOST_AGENT_SOCKET_DIR = '/var/run/robotis/agent_sockets/host'
 
 # `cyclo_manager up` starts these immediately.
 COMPOSE_SERVICES_UP = ('cyclo_manager', 'ui')
@@ -53,24 +54,67 @@ def _packaged_config_path() -> Path:
     return _config_dir() / 'config.yml'
 
 
-def _check_host_agent() -> bool:
-    """Return True if the cyclo_host_agent service is already active."""
-    result = subprocess.run(
-        ['systemctl', 'is-active', f'{HOST_AGENT_SERVICE}.service'],
-        capture_output=True,
-        text=True,
-    )
-    return result.returncode == 0
-
-
-
-def _create_host_agent() -> int:
+def _resolve_service_user() -> tuple[str, Path] | None:
     """
-    Write cyclo_host_agent systemd service unit file and enable it.
+    Return (username, home) for the host agent systemd service.
 
-    Runs as a persistent service (Restart=always); systemd starts it at boot
-    and restarts it automatically if it exits unexpectedly.
+    Uses SUDO_USER when cyclo_manager up is invoked via sudo so the agent runs
+    as the login user (required for git repo scans under ~/...).
     """
+    sudo_user = os.environ.get('SUDO_USER')
+    if sudo_user:
+        return sudo_user, Path(f'/home/{sudo_user}')
+    user = os.environ.get('USER') or os.getlogin()
+    if user == 'root':
+        print(
+            'Error: cyclo_manager up must run as a normal user (e.g. robotis), not root.',
+            file=sys.stderr,
+        )
+        return None
+    return user, Path.home()
+
+
+def _setup_socket_dir(user: str) -> bool:
+    """
+    Ensure the host agent UDS directory exists and is owned by the service user.
+
+    Only host/ is chowned so other agent sockets under agent_sockets/ are untouched.
+    Removes a stale socket file (e.g. left by a previous root-owned service).
+    """
+    try:
+        subprocess.run(
+            ['sudo', 'mkdir', '-p', HOST_AGENT_SOCKET_DIR],
+            check=True,
+            capture_output=True,
+        )
+        subprocess.run(
+            ['sudo', 'chown', f'{user}:{user}', HOST_AGENT_SOCKET_DIR],
+            check=True,
+            capture_output=True,
+        )
+        subprocess.run(
+            ['sudo', 'rm', '-f', HOST_AGENT_SOCKET],
+            check=True,
+            capture_output=True,
+        )
+        return True
+    except subprocess.CalledProcessError as e:
+        print(f'Failed to set up host agent socket directory: {e}', file=sys.stderr)
+        return False
+
+
+def _ensure_host_agent() -> int:
+    """
+    Install or refresh cyclo_host_agent: systemd unit, socket dir, and service start.
+
+    Idempotent — safe to run on every `cyclo_manager up` (fixes upgraded units and
+    socket ownership after switching away from a root-owned service).
+    """
+    account = _resolve_service_user()
+    if account is None:
+        return 1
+
+    user, user_home = account
     agent_exe = shutil.which('cyclo_host_agent')
     if not agent_exe:
         print(
@@ -80,7 +124,9 @@ def _create_host_agent() -> int:
         )
         return 1
 
-    user_home = Path.home()
+    if not _setup_socket_dir(user):
+        return 1
+
     service_content = f"""\
 [Unit]
 Description=Cyclo Host Agent
@@ -88,6 +134,8 @@ After=network.target
 
 [Service]
 Type=simple
+User={user}
+Group={user}
 ExecStart={agent_exe}
 Environment=HOME={user_home}
 Restart=always
@@ -108,7 +156,8 @@ WantedBy=multi-user.target
             check=True,
         )
         subprocess.run(['sudo', 'systemctl', 'daemon-reload'], check=True)
-        subprocess.run(['sudo', 'systemctl', 'enable', '--now', f'{HOST_AGENT_SERVICE}.service'], check=True)
+        subprocess.run(['sudo', 'systemctl', 'enable', f'{HOST_AGENT_SERVICE}.service'], check=True)
+        subprocess.run(['sudo', 'systemctl', 'restart', f'{HOST_AGENT_SERVICE}.service'], check=True)
         print('Host agent service installed and started.')
         return 0
     except subprocess.CalledProcessError as e:
@@ -121,9 +170,8 @@ WantedBy=multi-user.target
 
 def cmd_up(args: argparse.Namespace) -> int:
     """Start API + UI; create zenoh and noVNC containers without starting them."""
-    if not _check_host_agent():
-        if _create_host_agent() != 0:
-            print('Warning: Failed to install host agent service.')
+    if _ensure_host_agent() != 0:
+        print('Warning: Failed to install host agent service.', file=sys.stderr)
 
     config_path = _packaged_config_path()
     if not config_path.is_file():
