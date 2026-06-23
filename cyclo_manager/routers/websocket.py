@@ -174,7 +174,7 @@ async def _setup_log_stream_client(websocket: WebSocket, container: str):
         await _close_websocket_ignoring_error(websocket)
         return None
 
-    if container not in config.containers:
+    if container not in config.container_sockets:
         await _send_websocket_error(websocket, f"Container '{container}' not found")
         await _close_websocket_ignoring_error(websocket)
         return None

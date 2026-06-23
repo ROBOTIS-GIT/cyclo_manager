@@ -52,6 +52,7 @@ async def list_containers(config=Depends(get_config)) -> ConfiguredContainerList
     ----------------
         ```json
         {
+          "robot_container": "ai_worker",
           "containers": [
             {
               "name": "ai_worker",
@@ -63,7 +64,10 @@ async def list_containers(config=Depends(get_config)) -> ConfiguredContainerList
 
     """
     containers = [
-        ConfiguredContainerInfo(name=name, socket_path=container_config.socket_path)
-        for name, container_config in config.containers.items()
+        ConfiguredContainerInfo(name=name, socket_path=socket_path)
+        for name, socket_path in config.container_sockets.items()
     ]
-    return ConfiguredContainerListResponse(containers=containers)
+    return ConfiguredContainerListResponse(
+        containers=containers,
+        robot_container=config.robot_container,
+    )

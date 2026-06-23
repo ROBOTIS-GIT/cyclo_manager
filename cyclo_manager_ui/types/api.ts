@@ -28,6 +28,7 @@ export interface ConfiguredContainerInfo {
 
 export interface ConfiguredContainerListResponse {
   containers: ConfiguredContainerInfo[];
+  robot_container: string;
 }
 
 export interface ServiceListResponse {

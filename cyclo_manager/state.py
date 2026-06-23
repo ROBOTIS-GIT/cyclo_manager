@@ -150,7 +150,7 @@ def get_host_agent_client() -> HostAgentClient:
 
 def get_validated_container(container: str, config: SystemConfig = Depends(get_config)) -> str:
     """Dependency: validate that *container* exists in config or raise 404."""
-    if container not in config.containers:
+    if container not in config.container_sockets:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Container '{container}' not found",
@@ -161,7 +161,7 @@ def get_validated_container(container: str, config: SystemConfig = Depends(get_c
 def get_agent_client(container_name: str) -> AgentClient:
     """Return an AgentClient for *container_name* or raise an appropriate HTTPException."""
     config = get_config()
-    if container_name not in config.containers:
+    if container_name not in config.container_sockets:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Container '{container_name}' not found",

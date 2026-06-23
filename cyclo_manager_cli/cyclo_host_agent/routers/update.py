@@ -21,9 +21,8 @@
 import asyncio
 import logging
 import shutil
-import subprocess
 import time
-from typing import Optional
+import subprocess
 
 from fastapi import APIRouter, HTTPException, status
 
@@ -31,121 +30,43 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix='/system', tags=['system'])
 
-PYPI_PACKAGE = 'cyclo-manager'
-HOST_AGENT_SERVICE = 'cyclo_host_agent'
-
-# Stored result of the last update (survives across the server restart window)
-_update_status: dict = {'phase': 'idle', 'install_output': '', 'up_output': '', 'error': ''}
+_update_status: dict = {'phase': 'idle', 'output': '', 'error': ''}
 
 
-def _fmt(cmd: str, out: str) -> str:
-    return f'$ {cmd}\n{out.strip()}' if out.strip() else f'$ {cmd}'
-
-
-def _restart_self() -> None:
-    """Restart the host agent after a short delay so new binary takes effect."""
-    time.sleep(2)
-    try:
-        subprocess.run(
-            ['sudo', 'systemctl', 'restart', f'{HOST_AGENT_SERVICE}.service'],
-            check=True,
-        )
-    except Exception as e:
-        logger.error('Failed to restart host agent: %s', e)
-
-
-async def _run_install_and_up(cyclo_exe: str, pip_exe: str) -> None:
-    """Run pip install -U and cyclo up in background; store results in _update_status."""
+async def _run_update(cyclo_exe: str) -> None:
     global _update_status
-
-    # pip install -U
-    _update_status['phase'] = 'installing'
     try:
         proc = await asyncio.create_subprocess_exec(
-            pip_exe, 'install', '-U', PYPI_PACKAGE,
+            cyclo_exe, 'update',
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
         )
-        stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=120)
+        stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=600)
         out = (stdout.decode() + stderr.decode()).strip()
-        _update_status['install_output'] = _fmt(f'pip install -U {PYPI_PACKAGE}', out)
+        _update_status['output'] = out
         if proc.returncode != 0:
             _update_status['phase'] = 'error'
-            _update_status['error'] = f'pip install failed (exit {proc.returncode})'
-            return
+            _update_status['error'] = f'cyclo_manager update failed (exit {proc.returncode})'
+        else:
+            _update_status['phase'] = 'done'
     except asyncio.TimeoutError:
         _update_status['phase'] = 'error'
-        _update_status['error'] = 'pip install timed out'
-        return
-
-    # cyclo up
-    _update_status['phase'] = 'starting'
-    try:
-        proc = await asyncio.create_subprocess_exec(
-            cyclo_exe, 'up',
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-        )
-        stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=300)
-        out = (stdout.decode() + stderr.decode()).strip()
-        _update_status['up_output'] = _fmt('cyclo_manager up', out)
-        if proc.returncode != 0:
-            _update_status['phase'] = 'error'
-            _update_status['error'] = f'cyclo_manager up failed (exit {proc.returncode})'
-            return
-    except asyncio.TimeoutError:
-        _update_status['phase'] = 'error'
-        _update_status['error'] = 'cyclo_manager up timed out'
-        return
-
-    _update_status['phase'] = 'done'
-
-    # Restart self so new binary takes effect
-    loop = asyncio.get_event_loop()
-    await loop.run_in_executor(None, _restart_self)
+        _update_status['error'] = 'cyclo_manager update timed out'
 
 
 @router.post('/update')
 async def start_update() -> dict:
-    """
-    Run cyclo down synchronously, then pip install + cyclo up in background.
-
-    Returns cyclo down output immediately. The server goes down during this call;
-    the host agent continues the remaining steps and stores results for /system/update/status.
-    """
+    """Delegate update to cyclo_manager update, which handles containers and host agent restart."""
     global _update_status
 
     cyclo_exe = shutil.which('cyclo_manager')
-    pip_exe = shutil.which('pip3') or shutil.which('pip')
-
     if not cyclo_exe:
         raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
                             detail='cyclo_manager command not found')
-    if not pip_exe:
-        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                            detail='pip not found')
 
-    _update_status = {'phase': 'stopping', 'install_output': '', 'up_output': '', 'error': ''}
-
-    # cyclo down (synchronous — server goes down here)
-    down_output = ''
-    try:
-        proc = await asyncio.create_subprocess_exec(
-            cyclo_exe, 'down',
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-        )
-        stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=30)
-        down_output = _fmt('cyclo_manager down', (stdout.decode() + stderr.decode()))
-    except asyncio.TimeoutError:
-        down_output = '$ cyclo_manager down\n(timed out)'
-    except Exception as e:
-        down_output = f'$ cyclo_manager down\n(error: {e})'
-
-    # Continue install + up in background
-    asyncio.create_task(_run_install_and_up(cyclo_exe, pip_exe))
-
-    return {'down_output': down_output}
+    _update_status = {'phase': 'updating', 'output': '', 'error': ''}
+    asyncio.create_task(_run_update(cyclo_exe))
+    return {'status': 'update started'}
 
 
 @router.get('/update/status')

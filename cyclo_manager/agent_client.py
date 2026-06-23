@@ -400,8 +400,8 @@ class AgentClientPool:
     def __init__(self, config: 'SystemConfig') -> None:
         """Initialize client pool from configuration."""
         self._clients: dict[str, AgentClient] = {}
-        for container_name, container_config in config.containers.items():
-            self._clients[container_name] = AgentClient(container_config.socket_path)
+        for container_name, socket_path in config.container_sockets.items():
+            self._clients[container_name] = AgentClient(socket_path)
 
     def get_client(self, container_name: str) -> Optional[AgentClient]:
         """

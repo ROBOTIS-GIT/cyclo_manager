@@ -21,7 +21,6 @@
 import logging
 
 from cyclo_manager.models import CycloManagerVersionResponse
-from cyclo_manager.utils.versioning import is_newer
 from fastapi import APIRouter
 import httpx
 
@@ -47,6 +46,24 @@ async def _fetch_latest_from_pypi(package_name: str) -> str:
 PYPI_PACKAGE = 'cyclo-manager'
 
 
+def _is_newer(latest: str, current: str) -> bool:
+    parts = []
+    for p in (latest or '').strip().lstrip('v').split('.'):
+        try:
+            parts.append(int(p))
+        except ValueError:
+            parts.append(0)
+    latest_t = tuple(parts) if parts else (0,)
+    parts = []
+    for p in (current or '').strip().lstrip('v').split('.'):
+        try:
+            parts.append(int(p))
+        except ValueError:
+            parts.append(0)
+    current_t = tuple(parts) if parts else (0,)
+    return latest_t > current_t
+
+
 @router.get('', response_model=CycloManagerVersionResponse)
 async def get_cyclo_manager_version() -> CycloManagerVersionResponse:
     """Get current cyclo_manager version and latest from PyPI; report if update is available."""
@@ -54,7 +71,7 @@ async def get_cyclo_manager_version() -> CycloManagerVersionResponse:
 
     latest_ver = await _fetch_latest_from_pypi(PYPI_PACKAGE)
     update_available = bool(
-        latest_ver and current_ver != 'unknown' and is_newer(latest_ver, current_ver)
+        latest_ver and current_ver != 'unknown' and _is_newer(latest_ver, current_ver)
     )
     return CycloManagerVersionResponse(
         current=current_ver,

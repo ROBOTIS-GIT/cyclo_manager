@@ -19,8 +19,6 @@
 """Docker endpoints router."""
 
 import logging
-import re
-import subprocess
 
 from cyclo_manager.models import (
     DockerContainerActionRequest,
@@ -30,11 +28,8 @@ from cyclo_manager.models import (
     DockerContainerLogsResponse,
     DockerContainerStatus,
     DockerTopResponse,
-    RepoVersionConfig,
-    RepoVersionResponse,
 )
-from cyclo_manager.state import get_config, get_docker_client
-from cyclo_manager.utils.versioning import is_newer
+from cyclo_manager.state import get_docker_client
 import docker
 from fastapi import (
     APIRouter,
@@ -42,7 +37,6 @@ from fastapi import (
     HTTPException,
     status,
 )
-import httpx
 
 logger = logging.getLogger(__name__)
 
@@ -191,69 +185,3 @@ async def kill_container_process(
         raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(e))
 
 
-# Robot metapackage version check (ai_worker only)
-VERSION_RE = re.compile(r'<version>([^<]+)</version>')
-
-DEFAULT_REPO_VERSION_CONFIG = RepoVersionConfig()
-
-
-@router.get('/{name}/version', response_model=RepoVersionResponse)
-async def get_repo_version(
-    name: str,
-    docker_client=Depends(get_docker_client),
-    config=Depends(get_config),
-) -> RepoVersionResponse:
-    """Get robot metapackage version and compare with GitHub latest (ai_worker only)."""
-    normalized = name.replace('-', '_')
-    if normalized != 'ai_worker':
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f'Version check is only supported for ai_worker, got: {name}',
-        )
-
-    container_config = config.containers.get('ai_worker')
-    version_config = (
-        container_config.repo_version
-        if container_config and container_config.repo_version
-        else DEFAULT_REPO_VERSION_CONFIG
-    )
-    github_api = version_config.github_releases_api
-    package_xml_path = version_config.package_xml_path
-
-    current_ver = 'unknown'
-    latest_ver = ''
-    update_available = False
-
-    # Get current version from package.xml inside container (must be running for exec)
-    try:
-        container = docker_client.get_container(name)
-        if container.status == 'running':
-            content = docker_client.get_container_file_content(name, package_xml_path)
-            match = VERSION_RE.search(content)
-            if match:
-                current_ver = match.group(1).strip()
-    except docker.errors.NotFound:
-        current_ver = 'unknown'
-    except Exception as e:
-        logger.warning("Failed to get current version from container '%s': %s", name, e)
-
-    # Get latest version from GitHub
-    try:
-        async with httpx.AsyncClient() as client:
-            resp = await client.get(github_api, timeout=5.0)
-            resp.raise_for_status()
-            data = resp.json()
-            tag = data.get('tag_name', '')
-            latest_ver = tag.lstrip('v').strip() if tag else ''
-    except Exception as e:
-        logger.warning('Failed to fetch GitHub latest release: %s', e)
-
-    if latest_ver and current_ver != 'unknown':
-        update_available = is_newer(latest_ver, current_ver)
-
-    return RepoVersionResponse(
-        container=name,
-        current=current_ver,
-        latest=latest_ver or 'unknown',
-        update_available=update_available,
-    )

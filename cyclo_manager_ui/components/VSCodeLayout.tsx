@@ -34,7 +34,6 @@ export default function VSCodeLayout({
   const pathname = usePathname();
   const router = useRouter();
   const [navError, setNavError] = useState<string | null>(null);
-  const [containerPicker, setContainerPicker] = useState<string[] | null>(null);
 
   type NavItemWithHref = { href: string; label: string; icon: string; isHome?: boolean; isTopics?: boolean; isTerminal?: boolean };
   type NavItemWithoutHref = { label: string; icon: string; isSystem: true };
@@ -51,27 +50,18 @@ export default function VSCodeLayout({
   async function handleSystemClick() {
     setNavError(null);
     try {
-      const [{ containers: configured }, docker] = await Promise.all([
+      const [{ robot_container }, docker] = await Promise.all([
         getConfiguredContainers(),
         getDockerContainers(true),
       ]);
-      if (configured.length === 0) {
-        setNavError("No containers configured.");
-        return;
-      }
-      const configuredNames = new Set(configured.map((c) => c.name));
-      const running = docker.containers.filter(
-        (c) => configuredNames.has(c.name) && c.status.toLowerCase() === "running"
+      const isRunning = docker.containers.some(
+        (c) => c.name === robot_container && c.status.toLowerCase() === "running"
       );
-      if (running.length === 0) {
+      if (!isRunning) {
         setNavError("No robot container is running.");
         return;
       }
-      if (running.length === 1) {
-        router.push(`/${running[0].name}/system`);
-        return;
-      }
-      setContainerPicker(running.map((c) => c.name));
+      router.push(`/${robot_container}/system`);
     } catch {
       setNavError("Failed to connect to the manager.");
     }
@@ -188,40 +178,6 @@ export default function VSCodeLayout({
           {children}
         </div>
       </main>
-
-      {/* Container picker modal */}
-      {containerPicker && (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center"
-          style={{ backgroundColor: "rgba(0,0,0,0.5)" }}
-          onClick={() => setContainerPicker(null)}
-        >
-          <div
-            className="rounded-lg p-4 flex flex-col gap-2 min-w-[200px]"
-            style={{
-              backgroundColor: "var(--vscode-editor-background)",
-              border: "1px solid var(--vscode-panel-border)",
-            }}
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div className="text-sm font-semibold mb-1" style={{ color: "var(--vscode-foreground)" }}>
-              Select container
-            </div>
-            {containerPicker.map((name) => (
-              <button
-                key={name}
-                className="text-left px-3 py-2 rounded text-sm transition-colors"
-                style={{ color: "var(--vscode-foreground)", border: "1px solid var(--vscode-panel-border)" }}
-                onMouseEnter={(e) => { e.currentTarget.style.backgroundColor = "var(--vscode-list-hoverBackground)"; }}
-                onMouseLeave={(e) => { e.currentTarget.style.backgroundColor = "transparent"; }}
-                onClick={() => { setContainerPicker(null); router.push(`/${name}/system`); }}
-              >
-                {name}
-              </button>
-            ))}
-          </div>
-        </div>
-      )}
 
       </div>
 

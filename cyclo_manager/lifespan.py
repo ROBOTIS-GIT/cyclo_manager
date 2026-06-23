@@ -64,10 +64,10 @@ async def lifespan(app: FastAPI):
 
         # Host agent client is optional — may not be running in dev or first boot.
         try:
-            host_agent_client = HostAgentClient(config.host_agent.socket_path)
+            host_agent_client = HostAgentClient(config.host_agent_socket)
             app_state.set_host_agent_client(host_agent_client)
             logger.info(
-                'Host agent client initialized (socket: %s)', config.host_agent.socket_path
+                'Host agent client initialized (socket: %s)', config.host_agent_socket
             )
         except Exception as e:
             logger.warning(
@@ -79,7 +79,7 @@ async def lifespan(app: FastAPI):
 
         # Initialize ROS2 nodes for all containers (no subscriptions yet).
         domain_id = int(os.getenv('ROS_DOMAIN_ID', '30'))
-        for container_name in config.containers:
+        for container_name in config.container_sockets:
             try:
                 node = CycloManagerTopicSubscriber(
                     container_name=container_name, domain_id=domain_id
