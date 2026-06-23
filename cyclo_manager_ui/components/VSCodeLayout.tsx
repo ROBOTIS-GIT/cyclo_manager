@@ -36,7 +36,11 @@ export default function VSCodeLayout({
   const [navError, setNavError] = useState<string | null>(null);
   const [containerPicker, setContainerPicker] = useState<string[] | null>(null);
 
-  const navItems = [
+  type NavItemWithHref = { href: string; label: string; icon: string; isHome?: boolean; isTopics?: boolean; isTerminal?: boolean };
+  type NavItemWithoutHref = { label: string; icon: string; isSystem: true };
+  type NavItem = NavItemWithHref | NavItemWithoutHref;
+
+  const navItems: NavItem[] = [
     { href: "/dashboard", label: "Dashboard", icon: "📊", isHome: true },
     { label: "System", icon: "🤖", isSystem: true },
     { href: "/topics", label: "Topics", icon: "📡", isTopics: true },
