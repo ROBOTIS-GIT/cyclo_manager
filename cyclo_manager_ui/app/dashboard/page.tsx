@@ -503,19 +503,47 @@ export default function HomePage() {
             </Card>
           </section>
 
-          {/* Robot Status */}
+          {/* Quick Actions */}
           <section>
-            <Card title="Robot Status" className="h-full">
-              <div className="p-4 text-sm" style={{ color: "var(--vscode-descriptionForeground)" }}>
-                Coming soon
+            <Card title="Quick Actions" className="h-full">
+              <div className="p-4 flex flex-row gap-3">
+                <button
+                  onClick={() => setConfirmAction("reboot")}
+                  className="flex-1 flex flex-col items-center justify-center gap-2 py-5 rounded font-semibold"
+                  style={{
+                    backgroundColor: "var(--vscode-button-secondaryBackground)",
+                    color: "var(--vscode-button-secondaryForeground)",
+                    border: "1px solid var(--vscode-panel-border)",
+                    cursor: "pointer",
+                  }}
+                >
+                  <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8" />
+                    <path d="M3 3v5h5" />
+                  </svg>
+                  <span style={{ fontSize: 13 }}>Reboot</span>
+                </button>
+                <button
+                  onClick={() => setConfirmAction("shutdown")}
+                  className="flex-1 flex flex-col items-center justify-center gap-2 py-5 rounded font-semibold"
+                  style={{
+                    backgroundColor: "var(--vscode-button-secondaryBackground)",
+                    color: "var(--vscode-button-secondaryForeground)",
+                    border: "1px solid var(--vscode-panel-border)",
+                    cursor: "pointer",
+                  }}
+                >
+                  <span style={{ fontSize: 28 }}>🛑</span>
+                  <span style={{ fontSize: 13 }}>Shutdown</span>
+                </button>
               </div>
             </Card>
           </section>
 
         </div>
 
-        {/* ── Bottom row: 3 columns ── */}
-        <div className="grid gap-4 items-start" style={{ gridTemplateColumns: "1.5fr 1fr 1fr" }}>
+        {/* ── Bottom row: 2 columns ── */}
+        <div className="grid gap-4 items-start" style={{ gridTemplateColumns: "1.5fr 1fr" }}>
 
         <section>
           {actionError && (
@@ -589,43 +617,6 @@ export default function HomePage() {
                 </div>
               ))
             )}
-          </Card>
-        </section>
-
-        {/* Quick Actions */}
-        <section>
-          <Card title="Quick Actions">
-            <div className="p-4 flex flex-row gap-3">
-              <button
-                onClick={() => setConfirmAction("reboot")}
-                className="flex-1 flex flex-col items-center justify-center gap-2 py-5 rounded font-semibold"
-                style={{
-                  backgroundColor: "var(--vscode-button-secondaryBackground)",
-                  color: "var(--vscode-button-secondaryForeground)",
-                  border: "1px solid var(--vscode-panel-border)",
-                  cursor: "pointer",
-                }}
-              >
-                <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                  <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8" />
-                  <path d="M3 3v5h5" />
-                </svg>
-                <span style={{ fontSize: 13 }}>Reboot</span>
-              </button>
-              <button
-                onClick={() => setConfirmAction("shutdown")}
-                className="flex-1 flex flex-col items-center justify-center gap-2 py-5 rounded font-semibold"
-                style={{
-                  backgroundColor: "var(--vscode-button-secondaryBackground)",
-                  color: "var(--vscode-button-secondaryForeground)",
-                  border: "1px solid var(--vscode-panel-border)",
-                  cursor: "pointer",
-                }}
-              >
-                <span style={{ fontSize: 28 }}>🛑</span>
-                <span style={{ fontSize: 13 }}>Shutdown</span>
-              </button>
-            </div>
           </Card>
         </section>
 
