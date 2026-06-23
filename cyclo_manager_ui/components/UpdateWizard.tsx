@@ -20,6 +20,8 @@ import { useEffect, useState, useCallback } from "react";
 import { getRepoStatus, updateRepo, stopRepoContainer, startRepoContainer } from "@/lib/api";
 import type { FileChange, RepoUpdateStatus } from "@/types/api";
 
+const ALLOWED_BRANCHES = ["main", "jazzy"];
+
 type Phase = "intro" | "stop" | "choose" | "update" | "start";
 type RunStatus = "idle" | "running" | "done" | "error";
 type Strategy = "stash" | "reset";
@@ -237,6 +239,7 @@ export default function UpdateWizard({ repo, onClose, onDone }: Props) {
   const renderBody = () => {
     // INTRO
     if (phase === "intro") {
+      const branchAllowed = !repo.branch || ALLOWED_BRANCHES.includes(repo.branch);
       return (
         <div className="flex flex-col gap-4">
           <div className="text-sm" style={{ color: "var(--vscode-foreground)" }}>
@@ -246,6 +249,12 @@ export default function UpdateWizard({ repo, onClose, onDone }: Props) {
             <div className="px-3 py-2 rounded text-sm font-mono"
               style={{ backgroundColor: "var(--vscode-textCodeBlock-background)", color: "var(--vscode-foreground)" }}>
               {repo.current_version} → {repo.latest_version}
+            </div>
+          )}
+          {!branchAllowed && (
+            <div className="px-3 py-2 rounded text-sm"
+              style={{ backgroundColor: "rgba(241,76,76,0.12)", color: "var(--vscode-errorForeground)", border: "1px solid rgba(241,76,76,0.3)" }}>
+              Current branch is <strong>{repo.branch}</strong>. Only <strong>main</strong> or <strong>jazzy</strong> branches can be updated.
             </div>
           )}
           <div className="flex flex-col gap-1.5 text-sm" style={{ color: "var(--vscode-descriptionForeground)" }}>
@@ -413,12 +422,17 @@ export default function UpdateWizard({ repo, onClose, onDone }: Props) {
 
   // ── render footer per phase ───────────────────────────────────────────────────
   const renderFooter = () => {
-    if (phase === "intro") return (
-      <>
-        <button style={btnSecondary()} onClick={onClose}>Cancel</button>
-        <button style={btnPrimary()} onClick={() => setPhase("stop")}>Stop Container</button>
-      </>
-    );
+    if (phase === "intro") {
+      const branchAllowed = !repo.branch || ALLOWED_BRANCHES.includes(repo.branch);
+      return (
+        <>
+          <button style={btnSecondary()} onClick={onClose}>Cancel</button>
+          <button style={btnPrimary(!branchAllowed)} disabled={!branchAllowed} onClick={() => setPhase("stop")}>
+            Stop Container
+          </button>
+        </>
+      );
+    }
 
     if (phase === "stop") return (
       <>

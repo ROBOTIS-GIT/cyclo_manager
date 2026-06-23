@@ -145,6 +145,7 @@ export interface DockerTopResponse {
 
 export interface RepoUpdateStatus {
   name: string;
+  branch: string | null;
   current_version: string | null;
   latest_version: string | null;
   has_update: boolean;

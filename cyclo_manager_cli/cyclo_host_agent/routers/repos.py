@@ -176,16 +176,20 @@ async def _repo_update_status(repo_path: Path) -> Optional[RepoUpdateStatus]:
     if not remote_url or not _is_managed_remote(remote_url):
         return None
 
+    rc, branch_out, _ = await _git(['rev-parse', '--abbrev-ref', 'HEAD'], cwd=repo_path)
+    branch = branch_out.strip() if rc == 0 else None
+
     current = _read_package_xml_version(repo_path)
     if not current:
-        return RepoUpdateStatus(name=repo_path.name, has_update=False)
+        return RepoUpdateStatus(name=repo_path.name, branch=branch, has_update=False)
 
     latest = await _fetch_latest_tag(remote_url)
     if not latest:
-        return RepoUpdateStatus(name=repo_path.name, current_version=current, has_update=False)
+        return RepoUpdateStatus(name=repo_path.name, branch=branch, current_version=current, has_update=False)
 
     return RepoUpdateStatus(
         name=repo_path.name,
+        branch=branch,
         current_version=current,
         latest_version=latest,
         has_update=_is_newer(latest, current),

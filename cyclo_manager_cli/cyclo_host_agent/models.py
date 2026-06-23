@@ -43,6 +43,7 @@ class RepoUpdateStatus(BaseModel):
     """Version update status for a single repository."""
 
     name: str
+    branch: Optional[str] = None
     current_version: Optional[str] = None
     latest_version: Optional[str] = None
     has_update: bool
