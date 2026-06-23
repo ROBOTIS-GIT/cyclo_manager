@@ -40,7 +40,7 @@ app = FastAPI(
     This agent provides endpoints to list, check status, and control
     s6-overlay services running in the container.
     """,
-    version='0.1.1',
+    version='0.2.0',
     docs_url=None,
     redoc_url=None,
     openapi_url=None,
@@ -59,7 +59,7 @@ async def http_exception_handler(request, exc: HTTPException):
 @app.get('/', tags=['root'])
 async def root():
     """Root endpoint."""
-    return {'message': 's6 Agent API', 'version': '0.1.1'}
+    return {'message': 's6 Agent API', 'version': '0.2.0'}
 
 # Include routers
 app.include_router(services.router)

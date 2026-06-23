@@ -37,7 +37,7 @@ SOCKET_PATH = '/var/run/robotis/agent_sockets/host/host_agent.sock'
 app = FastAPI(
     title='cyclo_host_agent',
     description='Host agent for Cyclo Manager: repo management.',
-    version='0.1.1',
+    version='0.2.0',
 )
 
 app.include_router(repos.router)

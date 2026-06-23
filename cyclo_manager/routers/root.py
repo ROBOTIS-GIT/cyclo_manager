@@ -40,7 +40,7 @@ async def root():
     """
     return {
         'message': 'cyclo_manager API',
-        'version': '0.1.1',
+        'version': '0.2.0',
         'docs': {
             'swagger_ui': '/docs',
             'redoc': '/redoc',
