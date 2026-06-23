@@ -186,7 +186,6 @@ export default function VSCodeLayout({
         <div
           className="fixed inset-0 z-50 flex items-center justify-center"
           style={{ backgroundColor: "rgba(0,0,0,0.4)" }}
-          onClick={() => setNavError(null)}
         >
           <div
             className="rounded-lg p-5 flex flex-col gap-3 max-w-sm w-full mx-4"
@@ -194,7 +193,6 @@ export default function VSCodeLayout({
               backgroundColor: "var(--vscode-editor-background)",
               border: "1px solid var(--vscode-inputValidation-errorBorder)",
             }}
-            onClick={(e) => e.stopPropagation()}
           >
             <div className="flex items-center gap-2">
               <span style={{ color: "var(--vscode-inputValidation-errorBorder)", fontSize: "1.1rem" }}>⚠</span>

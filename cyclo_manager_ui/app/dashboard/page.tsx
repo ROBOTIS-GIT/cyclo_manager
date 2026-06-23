@@ -677,12 +677,10 @@ export default function HomePage() {
         <div
           className="fixed inset-0 flex items-center justify-center z-50"
           style={{ backgroundColor: "rgba(0,0,0,0.5)" }}
-          onClick={() => setSettingsContainer(null)}
         >
           <div
             className="rounded-lg border shadow-xl w-[42rem] h-[28rem] flex flex-col overflow-hidden"
             style={{ backgroundColor: "var(--vscode-editor-background)", borderColor: "var(--vscode-panel-border)" }}
-            onClick={(e) => e.stopPropagation()}
           >
             {/* header */}
             <div className="px-4 py-3 border-b flex items-center justify-between"

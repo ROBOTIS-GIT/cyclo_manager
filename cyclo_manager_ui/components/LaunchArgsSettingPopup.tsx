@@ -120,7 +120,6 @@ export default function LaunchArgsSettingPopup({
     <div
       className="fixed inset-0 flex items-center justify-center z-50"
       style={{ backgroundColor: "rgba(0,0,0,0.5)" }}
-      onClick={onClose}
     >
       <div
         className="rounded-lg overflow-hidden shadow-xl max-h-[80vh] overflow-y-auto"
@@ -130,7 +129,6 @@ export default function LaunchArgsSettingPopup({
           minWidth: "420px",
           maxWidth: "90vw",
         }}
-        onClick={(e) => e.stopPropagation()}
       >
         <div
           className="px-4 py-3 border-b flex items-center justify-between"

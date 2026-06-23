@@ -84,7 +84,7 @@ def _delayed_exec(cmd: list[str], delay: float = 2.0) -> None:
 async def reboot_host() -> dict:
     """Reboot the host machine after returning a response."""
     loop = asyncio.get_event_loop()
-    loop.run_in_executor(None, _delayed_exec, ['sudo', 'reboot'])
+    loop.run_in_executor(None, _delayed_exec, ['sudo', '/usr/sbin/reboot'])
     return {'status': 'rebooting'}
 
 
@@ -92,5 +92,5 @@ async def reboot_host() -> dict:
 async def shutdown_host() -> dict:
     """Shut down the host machine after returning a response."""
     loop = asyncio.get_event_loop()
-    loop.run_in_executor(None, _delayed_exec, ['sudo', 'poweroff'])
+    loop.run_in_executor(None, _delayed_exec, ['sudo', '/usr/sbin/poweroff'])
     return {'status': 'shutting_down'}

@@ -27,6 +27,7 @@ import argparse
 import os
 from pathlib import Path
 import shutil
+import socket
 import subprocess
 import sys
 
@@ -81,17 +82,20 @@ def _setup_socket_dir(user: str) -> bool:
     Only host/ is chowned so other agent sockets under agent_sockets/ are untouched.
     Removes a stale socket file (e.g. left by a previous root-owned service).
     """
+    print(f'  [1/3] Creating socket directory {HOST_AGENT_SOCKET_DIR}...')
     try:
         subprocess.run(
             ['sudo', 'mkdir', '-p', HOST_AGENT_SOCKET_DIR],
             check=True,
             capture_output=True,
         )
+        print(f'  [2/3] Setting ownership to {user}:{user}...')
         subprocess.run(
             ['sudo', 'chown', f'{user}:{user}', HOST_AGENT_SOCKET_DIR],
             check=True,
             capture_output=True,
         )
+        print(f'  [3/3] Removing stale socket file (if any)...')
         subprocess.run(
             ['sudo', 'rm', '-f', HOST_AGENT_SOCKET],
             check=True,
@@ -108,10 +112,13 @@ def _install_sudoers(user: str) -> bool:
     Write /etc/sudoers.d/cyclo_manager granting NOPASSWD for udev operations
     needed by container.sh (cp to /etc/udev/rules.d/, udevadm control/trigger).
     """
+    print('  Installing sudoers rules (cp, udevadm, reboot, poweroff)...')
     sudoers_content = (
         f'{user} ALL=(ALL) NOPASSWD: /usr/bin/cp, '
         f'/usr/bin/udevadm control --reload-rules, '
-        f'/usr/bin/udevadm trigger\n'
+        f'/usr/bin/udevadm trigger, '
+        f'/usr/sbin/reboot, '
+        f'/usr/sbin/poweroff\n'
     )
     sudoers_file = '/etc/sudoers.d/cyclo_manager'
     try:
@@ -179,18 +186,30 @@ WantedBy=multi-user.target
 
     service_file = f'/etc/systemd/system/{HOST_AGENT_SERVICE}.service'
 
-    print(f'Installing {HOST_AGENT_SERVICE} systemd service (requires sudo)...')
+    print(f'Setting up {HOST_AGENT_SERVICE} systemd service (user={user})...')
     try:
+        print(f'  Writing unit file to {service_file}...')
         subprocess.run(
             ['sudo', 'tee', service_file],
             input=service_content.encode(),
             capture_output=True,
             check=True,
         )
-        subprocess.run(['sudo', 'systemctl', 'daemon-reload'], check=True)
-        subprocess.run(['sudo', 'systemctl', 'enable', f'{HOST_AGENT_SERVICE}.service'], check=True)
-        subprocess.run(['sudo', 'systemctl', 'restart', f'{HOST_AGENT_SERVICE}.service'], check=True)
-        print('Host agent service installed and started.')
+        print('  Running systemctl daemon-reload...')
+        subprocess.run(['sudo', 'systemctl', 'daemon-reload'], check=True, capture_output=True)
+        print(f'  Enabling {HOST_AGENT_SERVICE}...')
+        subprocess.run(
+            ['sudo', 'systemctl', 'enable', f'{HOST_AGENT_SERVICE}.service'],
+            check=True,
+            capture_output=True,
+        )
+        print(f'  Starting {HOST_AGENT_SERVICE}...')
+        subprocess.run(
+            ['sudo', 'systemctl', 'restart', f'{HOST_AGENT_SERVICE}.service'],
+            check=True,
+            capture_output=True,
+        )
+        print(f'  {HOST_AGENT_SERVICE} is running.')
         return 0
     except subprocess.CalledProcessError as e:
         print(f'Failed to install host agent service: {e}', file=sys.stderr)
@@ -202,6 +221,9 @@ WantedBy=multi-user.target
 
 def cmd_up(args: argparse.Namespace) -> int:
     """Start API + UI; create zenoh and noVNC containers without starting them."""
+    print('--- cyclo_manager up ---')
+
+    print('[1/3] Setting up host agent...')
     if _ensure_host_agent() != 0:
         print('Warning: Failed to install host agent service.', file=sys.stderr)
 
@@ -215,11 +237,15 @@ def cmd_up(args: argparse.Namespace) -> int:
         return 1
     env = os.environ.copy()
     env['CYCLO_MANAGER_CONFIG_FILE'] = str(config_path)
+    env.setdefault('HOSTNAME', socket.gethostname())
     base = ['docker', 'compose', '-f', str(compose_path)]
     try:
         if args.pull:
+            print('[2/3] Pulling latest images...')
             subprocess.run([*base, 'pull'], env=env, check=True)
+        print(f'[2/3] Starting containers: {", ".join(COMPOSE_SERVICES_UP)}...')
         subprocess.run([*base, 'up', '-d', *COMPOSE_SERVICES_UP], env=env, check=True)
+        print(f'[3/3] Creating (not starting): {", ".join(COMPOSE_SERVICES_CREATE_ONLY)}...')
         subprocess.run(
             [*base, 'create', '--no-recreate', *COMPOSE_SERVICES_CREATE_ONLY],
             env=env,
@@ -242,23 +268,27 @@ def cmd_up(args: argparse.Namespace) -> int:
 
 def _teardown_host_agent() -> None:
     """Stop and remove the host agent service, unit file, sudoers, and socket dir."""
+    print(f'Tearing down {HOST_AGENT_SERVICE}...')
     steps = [
         (['sudo', 'systemctl', 'stop', f'{HOST_AGENT_SERVICE}.service'], 'stop service'),
         (['sudo', 'systemctl', 'disable', f'{HOST_AGENT_SERVICE}.service'], 'disable service'),
         (['sudo', 'rm', '-f', f'/etc/systemd/system/{HOST_AGENT_SERVICE}.service'], 'remove unit file'),
-        (['sudo', 'systemctl', 'daemon-reload'], 'reload systemd'),
+        (['sudo', 'systemctl', 'daemon-reload'], 'daemon-reload'),
         (['sudo', 'rm', '-f', '/etc/sudoers.d/cyclo_manager'], 'remove sudoers'),
         (['sudo', 'rm', '-rf', HOST_AGENT_SOCKET_DIR], 'remove socket dir'),
     ]
     for cmd, desc in steps:
+        print(f'  {desc}...')
         try:
             subprocess.run(cmd, check=True, capture_output=True)
         except subprocess.CalledProcessError:
-            print(f'Warning: failed to {desc}.', file=sys.stderr)
+            print(f'  Warning: failed to {desc}.', file=sys.stderr)
 
 
 def cmd_down(args: argparse.Namespace) -> int:
     """Stop cyclo_manager server, cyclo_manager_ui, and zenoh daemon (docker compose down)."""
+    print('--- cyclo_manager down ---')
+
     _teardown_host_agent()
 
     compose_path = _docker_dir() / 'docker-compose.yml'
@@ -267,6 +297,7 @@ def cmd_down(args: argparse.Namespace) -> int:
         return 1
     env = os.environ.copy()
     env['CYCLO_MANAGER_CONFIG_FILE'] = str(_packaged_config_path())
+    env.setdefault('HOSTNAME', socket.gethostname())
     cmd = [
         'docker',
         'compose',
@@ -274,6 +305,7 @@ def cmd_down(args: argparse.Namespace) -> int:
         str(compose_path),
         'down',
     ]
+    print('Stopping Docker containers (docker compose down)...')
     try:
         subprocess.run(cmd, env=env, check=True)
     except subprocess.CalledProcessError as e:
@@ -285,7 +317,7 @@ def cmd_down(args: argparse.Namespace) -> int:
         )
         return 1
 
-    print('cyclo_manager server, cyclo_manager_ui, and zenoh daemon are down.')
+    print('cyclo_manager is down.')
     return 0
 
 
@@ -302,6 +334,7 @@ def cmd_update(args: argparse.Namespace) -> int:
         return 1
     env = os.environ.copy()
     env['CYCLO_MANAGER_CONFIG_FILE'] = str(_packaged_config_path())
+    env.setdefault('HOSTNAME', socket.gethostname())
     base = ['docker', 'compose', '-f', str(compose_path)]
 
     print('Stopping containers...')
