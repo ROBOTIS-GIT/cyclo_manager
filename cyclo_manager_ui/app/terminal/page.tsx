@@ -25,6 +25,7 @@ import {
   getDockerTerminalWsUrl,
   stopDockerTerminal,
 } from "@/lib/api";
+import { closeAllTerminalConnections, closeTerminalConnection } from "@/lib/terminalConnection";
 import { XTerminal } from "@/components/XTerminal";
 import type { DockerContainerInfo, DockerTopResponse } from "@/types/api";
 
@@ -100,6 +101,12 @@ function TerminalContent() {
   const topIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   useEffect(() => {
+    return () => {
+      closeAllTerminalConnections();
+    };
+  }, []);
+
+  useEffect(() => {
     async function load() {
       try {
         const docker = await getDockerContainers();
@@ -145,6 +152,7 @@ function TerminalContent() {
     const tabs = loadTabsForContainer(name);
     tabsMapRef.current[name] = tabs;
     activeIdMapRef.current[name] = tabs[0]?.sessionId ?? null;
+    saveTabsForContainer(name, tabs);
   }
 
   function handleSelectContainer(name: string) {
@@ -179,6 +187,8 @@ function TerminalContent() {
 
   function closeTab(sessionId: string) {
     if (!selectedContainer) return;
+    const tab = (tabsMapRef.current[selectedContainer] ?? []).find((t) => t.sessionId === sessionId);
+    if (tab) closeTerminalConnection(tab.wsUrl);
     stopDockerTerminal(selectedContainer, sessionId);
     const prev = tabsMapRef.current[selectedContainer] ?? [];
     const remaining = prev.filter((t) => t.sessionId !== sessionId);

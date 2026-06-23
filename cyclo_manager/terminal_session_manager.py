@@ -17,32 +17,35 @@
 # Author: Hyungyu Kim
 
 """
-Manage persistent bash sessions via tmux in cyclo_manager.
+Manage persistent bash sessions for the web terminal.
 
 Architecture:
-  WebSocket → PTY → tmux attach (in cyclo_manager)
-                      ↕  tmux socket
-                    tmux session → docker exec -it <container> bash
+  WebSocket → PTY → docker exec -it <container> bash
 
-Navigating away: only the WebSocket/PTY/attach dies.
-                 tmux session + docker exec + bash keep running.
-Closing a tab:   bash is killed via its container-namespace PID,
-                 then the tmux session is killed.
+Navigating away: WebSocket closes, PTY + bash keep running (background drain thread).
+Closing a tab:   bash is killed via its container-namespace PID, PTY is closed.
 """
 
+import fcntl
 import glob
 import logging
 import os
+import pty
 import re
+import select
+import struct
 import subprocess
+import termios
+import threading
+from dataclasses import dataclass, field
+from typing import Dict, Optional
 
 logger = logging.getLogger(__name__)
 
-_TMUX_PREFIX = 'cm_'
 _META_DIR = '/tmp'
 
 # container and session_id are interpolated into a shell command in
-# get_or_create(); restrict them to a safe character set to block injection.
+# attach_pty(); restrict them to a safe character set to block injection.
 _NAME_RE = re.compile(r'^[A-Za-z0-9][A-Za-z0-9_.-]*$')
 _SESSION_ID_RE = re.compile(r'^[A-Za-z0-9]+$')
 
@@ -63,15 +66,130 @@ def _pid_file_in_container(session_id: str) -> str:
     return f'/tmp/.cm_{session_id}'
 
 
+def _set_winsize(master_fd: int, rows: int, cols: int) -> None:
+    fcntl.ioctl(master_fd, termios.TIOCSWINSZ, struct.pack('HHHH', rows, cols, 0, 0))
+
+
+_MAX_BUFFER_BYTES = 512 * 1024
+
+
+@dataclass
+class _LiveSession:
+    container: str
+    session_id: str
+    master_fd: int
+    proc: subprocess.Popen
+    lock: threading.Lock = field(default_factory=threading.Lock)
+    draining: bool = False
+    drain_thread: Optional[threading.Thread] = None
+    output_buffer: bytearray = field(default_factory=bytearray)
+
+    def record_output(self, data: bytes) -> None:
+        if not data:
+            return
+        with self.lock:
+            self.output_buffer.extend(data)
+            if len(self.output_buffer) > _MAX_BUFFER_BYTES:
+                del self.output_buffer[:-_MAX_BUFFER_BYTES]
+
+    def replay_output(self) -> bytes:
+        with self.lock:
+            return bytes(self.output_buffer)
+
+    def start_drain(self) -> None:
+        with self.lock:
+            if self.draining or self.proc.poll() is not None:
+                return
+            self.draining = True
+
+            def _drain() -> None:
+                while True:
+                    with self.lock:
+                        if not self.draining or self.proc.poll() is not None:
+                            break
+                        fd = self.master_fd
+                    try:
+                        ready, _, _ = select.select([fd], [], [], 0.5)
+                        if not ready:
+                            continue
+                        data = os.read(fd, 4096)
+                        if not data:
+                            break
+                        with self.lock:
+                            if self.draining:
+                                self.output_buffer.extend(data)
+                                if len(self.output_buffer) > _MAX_BUFFER_BYTES:
+                                    del self.output_buffer[:-_MAX_BUFFER_BYTES]
+                    except OSError:
+                        break
+                with self.lock:
+                    self.draining = False
+
+            self.drain_thread = threading.Thread(target=_drain, daemon=True)
+            self.drain_thread.start()
+
+    def read_and_record(self, size: int = 4096) -> bytes:
+        try:
+            data = os.read(self.master_fd, size)
+        except OSError:
+            return b''
+        if data:
+            self.record_output(data)
+        return data
+
+    def stop_drain(self) -> None:
+        with self.lock:
+            self.draining = False
+        if self.drain_thread and self.drain_thread.is_alive():
+            self.drain_thread.join(timeout=1.0)
+        self.drain_thread = None
+
+    def close(self) -> None:
+        self.stop_drain()
+        if self.proc.poll() is None:
+            try:
+                self.proc.terminate()
+                self.proc.wait(timeout=2)
+            except Exception:
+                try:
+                    self.proc.kill()
+                except Exception:
+                    pass
+        try:
+            os.close(self.master_fd)
+        except OSError:
+            pass
+
+
 class TerminalSessionManager:
     """Keeps docker exec bash sessions alive across WebSocket disconnects."""
 
-    def get_or_create(self, container: str, session_id: str) -> str:
-        """Return tmux session name, creating it if not alive."""
+    def __init__(self) -> None:
+        self._sessions: Dict[str, _LiveSession] = {}
+        self._lock = threading.Lock()
+
+    def replay(self, session_id: str) -> bytes:
+        with self._lock:
+            session = self._sessions.get(session_id)
+        if session and session.proc.poll() is None:
+            return session.replay_output()
+        return b''
+
+    def attach_pty(self, container: str, session_id: str, rows: int, cols: int) -> int:
+        """Return PTY master fd connected to bash in the container."""
         _validate(container, session_id)
-        tmux_name = _TMUX_PREFIX + session_id
-        if self._is_alive(tmux_name):
-            return tmux_name
+
+        with self._lock:
+            existing = self._sessions.pop(session_id, None)
+
+        if existing:
+            if existing.proc.poll() is None:
+                existing.stop_drain()
+                _set_winsize(existing.master_fd, rows, cols)
+                with self._lock:
+                    self._sessions[session_id] = existing
+                return existing.master_fd
+            existing.close()
 
         try:
             with open(_meta_file(session_id), 'w') as f:
@@ -79,32 +197,61 @@ class TerminalSessionManager:
         except IOError as e:
             logger.warning('Could not write meta file: %s', e)
 
-        # bash writes its container-namespace PID on startup so close() can kill it later.
-        # 'exec /bin/bash' replaces the -c subshell while keeping the same PID.
+        master_fd, slave_fd = pty.openpty()
+        _set_winsize(master_fd, rows, cols)
+
         pid_path = _pid_file_in_container(session_id)
         inner_cmd = f'echo $$ > {pid_path}; exec /bin/bash'
-        start_cmd = (
-            f'/usr/bin/docker exec -it {container} /bin/bash '
-            "-c '" + inner_cmd + "'"
+        proc = subprocess.Popen(
+            ['/usr/bin/docker', 'exec', '-it', container, '/bin/bash', '-c', inner_cmd],
+            stdin=slave_fd,
+            stdout=slave_fd,
+            stderr=slave_fd,
+            preexec_fn=os.setsid,
+            close_fds=True,
+            env={**os.environ, 'TERM': 'xterm-256color'},
         )
-        result = subprocess.run(
-            ['tmux', 'new-session', '-d', '-s', tmux_name, '/bin/sh', '-c', start_cmd],
-            capture_output=True,
-            text=True,
+        os.close(slave_fd)
+
+        session = _LiveSession(
+            container=container,
+            session_id=session_id,
+            master_fd=master_fd,
+            proc=proc,
         )
-        if result.returncode != 0 and not self._is_alive(tmux_name):
-            raise RuntimeError(
-                f'tmux session creation failed: {result.stderr.strip()}'
-            )
-        logger.info("Created tmux session '%s' for container '%s'", tmux_name, container)
-        return tmux_name
+        with self._lock:
+            self._sessions[session_id] = session
+        logger.info(
+            "Started terminal session '%s' for container '%s' (pid %s)",
+            session_id, container, proc.pid,
+        )
+        return master_fd
+
+    def read_pty(self, session_id: str, size: int = 4096) -> bytes:
+        with self._lock:
+            session = self._sessions.get(session_id)
+        if not session or session.proc.poll() is not None:
+            return b''
+        return session.read_and_record(size)
+
+    def detach_websocket(self, session_id: str) -> None:
+        """Keep bash running after the browser disconnects."""
+        with self._lock:
+            session = self._sessions.get(session_id)
+        if session and session.proc.poll() is None:
+            session.start_drain()
+
+    def resize(self, session_id: str, rows: int, cols: int) -> None:
+        with self._lock:
+            session = self._sessions.get(session_id)
+        if session and session.proc.poll() is None:
+            _set_winsize(session.master_fd, rows, cols)
 
     def close(self, session_id: str) -> None:
-        """Kill bash in the container, then kill the tmux session."""
+        """Kill bash in the container, then close the local PTY session."""
         if not _SESSION_ID_RE.match(session_id or ''):
             logger.warning('Ignoring close() for invalid session id: %r', session_id)
             return
-        tmux_name = _TMUX_PREFIX + session_id
 
         container = None
         try:
@@ -131,11 +278,11 @@ class TerminalSessionManager:
                 )
                 logger.info("Killed bash (PID %s) in container '%s'", bash_pid, container)
 
-        if self._is_alive(tmux_name):
-            subprocess.run(
-                ['tmux', 'kill-session', '-t', tmux_name], capture_output=True
-            )
-            logger.info("Killed tmux session '%s'", tmux_name)
+        with self._lock:
+            session = self._sessions.pop(session_id, None)
+        if session:
+            session.close()
+            logger.info("Closed terminal session '%s'", session_id)
 
         try:
             os.unlink(_meta_file(session_id))
@@ -143,13 +290,10 @@ class TerminalSessionManager:
             pass
 
     def close_all(self) -> None:
-        """Kill all sessions tracked by meta files."""
+        """Kill all known sessions (in-memory and any orphaned meta files)."""
+        with self._lock:
+            session_ids = set(self._sessions.keys())
         for path in glob.glob(f'{_META_DIR}/.cm_meta_*'):
-            session_id = os.path.basename(path).removeprefix('.cm_meta_')
+            session_ids.add(os.path.basename(path).removeprefix('.cm_meta_'))
+        for session_id in session_ids:
             self.close(session_id)
-
-    @staticmethod
-    def _is_alive(tmux_name: str) -> bool:
-        return subprocess.run(
-            ['tmux', 'has-session', '-t', tmux_name], capture_output=True
-        ).returncode == 0

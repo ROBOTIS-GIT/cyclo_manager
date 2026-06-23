@@ -67,7 +67,7 @@ const API_BASE_URL = getApiBaseUrl();
 
 export function getDockerTerminalWsUrl(containerName: string, sessionId: string): string {
   const wsBase = API_BASE_URL.replace(/^http/, "ws");
-  return `${wsBase}/docker/${containerName}/terminal/ws?session_id=${encodeURIComponent(sessionId)}`;
+  return `${wsBase}/terminal/${containerName}/ws?session_id=${encodeURIComponent(sessionId)}`;
 }
 
 // Create axios instance with default config
@@ -326,7 +326,7 @@ export async function stopDockerTerminal(
   sessionId: string
 ): Promise<void> {
   try {
-    await apiClient.delete(`/docker/${name}/terminal/${sessionId}`);
+    await apiClient.delete(`/terminal/${name}/${sessionId}`);
   } catch {
     // best-effort cleanup
   }

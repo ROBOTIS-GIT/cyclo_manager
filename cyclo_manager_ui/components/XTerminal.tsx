@@ -18,6 +18,11 @@
 
 import "@xterm/xterm/css/xterm.css";
 import { useEffect, useRef } from "react";
+import {
+  sendTerminalJson,
+  sendTerminalText,
+  subscribeTerminal,
+} from "@/lib/terminalConnection";
 
 interface Props {
   wsUrl: string;
@@ -40,6 +45,7 @@ export function XTerminal({ wsUrl, isActive }: Props) {
       if (disposed || !containerRef.current) return;
 
       const term = new Terminal({
+        scrollback: 10000,
         cursorBlink: true,
         fontFamily: '"Cascadia Code", "Fira Code", Consolas, monospace',
         fontSize: 13,
@@ -51,25 +57,31 @@ export function XTerminal({ wsUrl, isActive }: Props) {
       fit.fit();
       fitRef.current = fit;
 
-      const ws = new WebSocket(wsUrl);
-      ws.binaryType = "arraybuffer";
+      const sendResize = () => {
+        sendTerminalJson(wsUrl, { type: "resize", cols: term.cols, rows: term.rows });
+      };
 
-      ws.onopen = () => {
-        ws.send(JSON.stringify({ type: "resize", cols: term.cols, rows: term.rows }));
-      };
-      ws.onmessage = (e) => {
-        if (e.data instanceof ArrayBuffer) term.write(new Uint8Array(e.data));
-      };
-      ws.onclose = () => {
-        if (!disposed) term.write("\r\n\x1b[2mConnection closed\x1b[0m\r\n");
-      };
+      const unsubscribe = subscribeTerminal(
+        wsUrl,
+        (data) => {
+          if (!disposed) term.write(data);
+        },
+        () => {
+          if (!disposed) term.write("\r\n\x1b[2mConnection closed\x1b[0m\r\n");
+        },
+        () => {
+          if (!disposed) {
+            term.clear();
+            sendResize();
+          }
+        }
+      );
 
       term.onData((data) => {
-        if (ws.readyState === WebSocket.OPEN) ws.send(new TextEncoder().encode(data));
+        sendTerminalText(wsUrl, data);
       });
       term.onResize(({ cols, rows }) => {
-        if (ws.readyState === WebSocket.OPEN)
-          ws.send(JSON.stringify({ type: "resize", cols, rows }));
+        sendTerminalJson(wsUrl, { type: "resize", cols, rows });
       });
 
       const observer = new ResizeObserver(() => { if (!disposed) fit.fit(); });
@@ -77,7 +89,7 @@ export function XTerminal({ wsUrl, isActive }: Props) {
 
       cleanupFn = () => {
         observer.disconnect();
-        ws.close();
+        unsubscribe();
         term.dispose();
         fitRef.current = null;
       };
