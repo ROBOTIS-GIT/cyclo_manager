@@ -434,8 +434,10 @@ export default function JogPage() {
       <div className="flex-1 min-h-0 flex flex-col items-center justify-center gap-5 p-4">
         <JogDesktopControls {...controlsProps} />
         <JogMobileControls {...controlsProps} />
-        <div className="w-full max-w-md min-h-9 border px-3 py-2 text-sm overflow-hidden" style={{ color: robotReady && error ? "var(--vscode-errorForeground)" : "var(--vscode-descriptionForeground)", backgroundColor: "var(--vscode-sidebar-background)", borderColor: "var(--vscode-panel-border)" }}>
-          {statusMessage}
+        <div className="w-full max-w-md h-[3.25rem] sm:h-9 border px-3 text-sm flex items-center overflow-hidden" style={{ color: robotReady && error ? "var(--vscode-errorForeground)" : "var(--vscode-descriptionForeground)", backgroundColor: "var(--vscode-sidebar-background)", borderColor: "var(--vscode-panel-border)" }}>
+          <span className="line-clamp-2 min-w-0 sm:line-clamp-1 sm:truncate">
+            {statusMessage}
+          </span>
         </div>
         <div className="w-full max-w-md border p-3 grid gap-3" style={{ backgroundColor: "var(--vscode-sidebar-background)", borderColor: "var(--vscode-panel-border)" }}>
           <SpeedSlider label="Linear" value={linearSpeed} min={0.1} max={0.5} onChange={setLinearSpeed} />
