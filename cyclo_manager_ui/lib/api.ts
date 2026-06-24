@@ -40,6 +40,7 @@ import type {
   CycloManagerVersionResponse,
   ROS2TopicsListResponse,
   ROS2TopicDataResponse,
+  ROS2TwistPublishRequest,
   HostSystemStatsResponse,
   RobotInfoResponse,
 } from "@/types/api";
@@ -147,7 +148,7 @@ export async function controlService(
   service: string,
   action: "up" | "down" | "restart",
   launchArgs?: Record<string, string>,
-  robotType?: "sg2" | "bg2" | "sh5" | "bh5"
+  robotType?: "sg2" | "bg2" | "sh5" | "bh5" | "mobile"
 ): Promise<ServiceControlResponse> {
   try {
     const request: ServiceActionRequest = {
@@ -434,6 +435,16 @@ export async function ros2Unsubscribe(topic: string): Promise<void> {
   await apiClient.post(`/ros2/topics/${encodeURIComponent(topic)}/unsubscribe`);
 }
 
+export async function publishCmdVel(
+  twist: ROS2TwistPublishRequest
+): Promise<void> {
+  await apiClient.post("/ros2/cmd_vel", {
+    topic: twist.topic ?? "/cmd_vel",
+    linear_x: twist.linear_x,
+    angular_z: twist.angular_z,
+  });
+}
+
 export async function getSystemStats(): Promise<HostSystemStatsResponse> {
   try {
     const response = await apiClient.get<HostSystemStatsResponse>("/system/status");
@@ -519,4 +530,3 @@ export async function startRepoContainer(name: string): Promise<ContainerScriptR
     handleError(error);
   }
 }
-

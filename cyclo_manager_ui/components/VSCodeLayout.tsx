@@ -45,6 +45,7 @@ export default function VSCodeLayout({
     { href: "/topics", label: "Topics", icon: "📡", isTopics: true },
     { href: "/terminal", label: "Terminal", icon: "🖥️", isTerminal: true },
     { href: "/novnc", label: "noVNC", icon: "📺" },
+    { href: "/jog", label: "Jog", icon: "🎮" },
   ];
 
   async function handleSystemClick() {

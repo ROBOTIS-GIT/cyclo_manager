@@ -29,6 +29,7 @@ from cyclo_manager.models import (
     ROS2TopicDataResponse,
     ROS2TopicsListResponse,
     ROS2TopicStatus,
+    ROS2TwistPublishRequest,
 )
 from cyclo_manager.state import get_any_ros2_node
 from fastapi import APIRouter, Body, HTTPException, status
@@ -63,6 +64,19 @@ def _require_node():
             detail='No ROS2 node available.',
         )
     return node
+
+
+@router.post('/cmd_vel')
+async def publish_cmd_vel(body: ROS2TwistPublishRequest):
+    """Publish geometry_msgs/msg/Twist for web jog control."""
+    node = _require_node()
+    ok = node.publish_twist(body.topic, body.linear_x, body.angular_z)
+    if not ok:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=f"Failed to publish Twist on topic '{body.topic}'.",
+        )
+    return {'ok': True, 'topic': body.topic}
 
 
 def resolve_qos_profile_for_topic(topic: str, node) -> dict[str, Any]:

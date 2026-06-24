@@ -4,6 +4,7 @@ services:
     build:
       context: .
       dockerfile: cyclo_manager_cli/cyclo_manager_cli/docker/Dockerfile.zenoh_daemon
+      network: host ## 추가
     restart: unless-stopped
     network_mode: host
     init: true
@@ -13,6 +14,7 @@ services:
     build:
       context: .
       dockerfile: cyclo_manager/Dockerfile.dev
+      network: host ## 추가
     restart: unless-stopped
     network_mode: host
     volumes:
@@ -41,6 +43,7 @@ services:
     build:
       context: ./cyclo_manager_ui
       dockerfile: Dockerfile.dev
+      network: host ## 추가
     restart: unless-stopped
     network_mode: host
     volumes:
@@ -52,7 +55,7 @@ services:
       # Exclude public/assets from host to use meshes downloaded during build
       - /app/public/assets
     environment:
-      - NEXT_PUBLIC_API_URL=http://127.0.0.1:8081
+      - NEXT_PUBLIC_API_URL=http://192.168.6.2:8081     #http://127.0.0.1:8081   추가
       - NODE_ENV=development
       - WATCHPACK_POLLING=true
     # Note: Next.js dev server will automatically reload on code changes

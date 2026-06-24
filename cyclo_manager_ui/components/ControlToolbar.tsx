@@ -208,7 +208,7 @@ type ToolbarHelpKey = "robot" | "leader" | "physical" | "zenoh";
 
 const TOOLBAR_HELP_TEXT: Record<ToolbarHelpKey, string> = {
   robot:
-    "Starts and stops the follower robot bringup service. The dot shows status — green is running, red is stopped. Pick SG2, BG2, SH5, or BH5, then use play to start.",
+    "Starts and stops the robot bringup service. The dot shows status — green is running, red is stopped. Pick SG2, BG2, SH5, BH5, or Mobile, then use play to start.",
   leader:
     "Starts and stops the leader bringup service. The dot shows status — green is running, red is stopped.",
   physical:
@@ -381,6 +381,7 @@ export default function ControlToolbar({
               { value: "BG2", label: "BG2" },
               { value: "SH5", label: "SH5" },
               { value: "BH5", label: "BH5" },
+              { value: "Mobile", label: "Mobile" },
             ]}
           />
           <button
