@@ -53,12 +53,6 @@ From **PyPI**:
 pip install cyclo-manager
 ```
 
-Pre-release versions:
-
-```bash
-pip install --pre cyclo-manager==0.2.0.dev0
-```
-
 If `cyclo_manager` is not on `PATH`, add the user script directory:
 
 ```bash
