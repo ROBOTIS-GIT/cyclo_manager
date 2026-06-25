@@ -112,13 +112,11 @@ def _install_sudoers(user: str) -> bool:
     Write /etc/sudoers.d/cyclo_manager granting NOPASSWD for udev operations
     needed by container.sh (cp to /etc/udev/rules.d/, udevadm control/trigger).
     """
-    print('  Installing sudoers rules (cp, udevadm, reboot, poweroff)...')
+    print('  Installing sudoers rules (cp, udevadm)...')
     sudoers_content = (
         f'{user} ALL=(ALL) NOPASSWD: /usr/bin/cp, '
         f'/usr/bin/udevadm control --reload-rules, '
-        f'/usr/bin/udevadm trigger, '
-        f'/usr/sbin/reboot, '
-        f'/usr/sbin/poweroff\n'
+        f'/usr/bin/udevadm trigger\n'
     )
     sudoers_file = '/etc/sudoers.d/cyclo_manager'
     try:

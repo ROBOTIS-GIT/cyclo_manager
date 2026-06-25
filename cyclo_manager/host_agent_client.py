@@ -98,15 +98,3 @@ class HostAgentClient:
         response = await client.get('/system/update/status', timeout=10.0)
         response.raise_for_status()
         return response.json()
-
-    async def reboot_host(self) -> dict:
-        client = await self._ensure_client()
-        response = await client.post('/system/reboot', timeout=10.0)
-        response.raise_for_status()
-        return response.json()
-
-    async def shutdown_host(self) -> dict:
-        client = await self._ensure_client()
-        response = await client.post('/system/shutdown', timeout=10.0)
-        response.raise_for_status()
-        return response.json()
