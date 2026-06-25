@@ -369,14 +369,8 @@ def cmd_update(args: argparse.Namespace) -> int:
     except subprocess.CalledProcessError as e:
         return e.returncode
 
-    print('Restarting host agent...')
-    try:
-        subprocess.run(
-            ['sudo', 'systemctl', 'restart', f'{HOST_AGENT_SERVICE}.service'],
-            check=True,
-        )
-    except subprocess.CalledProcessError as e:
-        print(f'Warning: failed to restart host agent: {e}', file=sys.stderr)
+    print('Refreshing host agent (unit, socket, sudoers)...')
+    _ensure_host_agent()
 
     print('cyclo_manager update completed.')
     return 0
