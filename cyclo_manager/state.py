@@ -94,7 +94,6 @@ class AppState:
         return self._docker_client
 
 
-
 # Public singleton.  lifespan.py owns its lifecycle; routers use the
 # module-level dependency functions below.
 app_state = AppState()

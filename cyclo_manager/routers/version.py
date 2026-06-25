@@ -80,5 +80,3 @@ async def get_cyclo_manager_version() -> CycloManagerVersionResponse:
         pypi_available=pypi_available,
         update_available=update_available,
     )
-
-

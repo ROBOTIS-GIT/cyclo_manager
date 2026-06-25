@@ -20,11 +20,9 @@
 
 import asyncio
 import os
-import re
 from pathlib import Path
+import re
 from typing import Optional
-
-from fastapi import APIRouter, HTTPException, status
 
 from cyclo_host_agent.models import (
     ContainerScriptResponse,
@@ -33,11 +31,12 @@ from cyclo_host_agent.models import (
     RepoInfo,
     RepoListResponse,
     RepoStatusResponse,
-    RepoUpdateStatus,
     RepoUpdatesResponse,
+    RepoUpdateStatus,
     UpdateRequest,
     UpdateResponse,
 )
+from fastapi import APIRouter, HTTPException, status
 
 router = APIRouter(prefix='/repos', tags=['repos'])
 
@@ -110,12 +109,12 @@ async def _ensure_allowed_branch(repo_path: Path) -> None:
     allowed = ', '.join(sorted(ALLOWED_UPDATE_BRANCHES))
     if branch:
         detail = (
-            f"Updates are only allowed on branches: {allowed}. "
+            f'Updates are only allowed on branches: {allowed}. '
             f"Current branch is '{branch}'."
         )
     else:
         detail = (
-            f"Updates are only allowed on branches: {allowed}. "
+            f'Updates are only allowed on branches: {allowed}. '
             'Could not determine the current branch (detached HEAD?).'
         )
     raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=detail)
@@ -222,7 +221,12 @@ async def _repo_update_status(repo_path: Path) -> Optional[RepoUpdateStatus]:
 
     latest = await _fetch_latest_tag(remote_url)
     if not latest:
-        return RepoUpdateStatus(name=repo_path.name, branch=branch, current_version=current, has_update=False)
+        return RepoUpdateStatus(
+            name=repo_path.name,
+            branch=branch,
+            current_version=current,
+            has_update=False,
+        )
 
     return RepoUpdateStatus(
         name=repo_path.name,

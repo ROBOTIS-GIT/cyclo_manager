@@ -21,10 +21,10 @@
 import logging
 from typing import Optional
 
-import httpx
 from cyclo_manager.host_agent_client import HostAgentClient
 from cyclo_manager.state import get_host_agent_client
 from fastapi import APIRouter, Depends, HTTPException, status
+import httpx
 from pydantic import BaseModel
 
 logger = logging.getLogger(__name__)
@@ -222,4 +222,3 @@ async def get_update_status(
         return await client.get_update_status()
     except Exception as e:
         raise _proxy_error(e)
-

@@ -246,7 +246,6 @@ class DockerTopResponse(BaseModel):
     processes: list[list[str]] = Field(..., description='Process rows')
 
 
-
 class CycloManagerVersionResponse(BaseModel):
     """Response for GET /version (cyclo_manager server/CLI version from PyPI)."""
 

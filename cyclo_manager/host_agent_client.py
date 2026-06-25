@@ -27,6 +27,7 @@ logger = logging.getLogger(__name__)
 
 
 class HostAgentClient:
+
     def __init__(self, socket_path: str, timeout: float = 30.0) -> None:
         self.socket_path = socket_path
         self.timeout = timeout

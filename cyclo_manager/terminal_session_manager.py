@@ -26,6 +26,7 @@ Navigating away: WebSocket closes, PTY + bash keep running (background drain thr
 Closing a tab:   bash is killed via its container-namespace PID, PTY is closed.
 """
 
+from dataclasses import dataclass, field
 import fcntl
 import glob
 import logging
@@ -37,7 +38,6 @@ import struct
 import subprocess
 import termios
 import threading
-from dataclasses import dataclass, field
 from typing import Dict, Optional
 
 logger = logging.getLogger(__name__)

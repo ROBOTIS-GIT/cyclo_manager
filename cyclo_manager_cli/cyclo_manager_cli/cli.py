@@ -95,7 +95,7 @@ def _setup_socket_dir(user: str) -> bool:
             check=True,
             capture_output=True,
         )
-        print(f'  [3/3] Removing stale socket file (if any)...')
+        print('  [3/3] Removing stale socket file (if any)...')
         subprocess.run(
             ['sudo', 'rm', '-f', HOST_AGENT_SOCKET],
             check=True,
@@ -109,8 +109,10 @@ def _setup_socket_dir(user: str) -> bool:
 
 def _install_sudoers(user: str) -> bool:
     """
-    Write /etc/sudoers.d/cyclo_manager granting NOPASSWD for udev operations
-    needed by container.sh (cp to /etc/udev/rules.d/, udevadm control/trigger).
+    Write sudoers rules for cyclo_manager.
+
+    Grant NOPASSWD for udev operations needed by container.sh
+    (cp to /etc/udev/rules.d/, udevadm control/trigger).
     """
     print('  Installing sudoers rules (cp, udevadm)...')
     sudoers_content = (
@@ -272,7 +274,10 @@ def _teardown_host_agent() -> None:
     steps = [
         (['sudo', 'systemctl', 'stop', f'{HOST_AGENT_SERVICE}.service'], 'stop service'),
         (['sudo', 'systemctl', 'disable', f'{HOST_AGENT_SERVICE}.service'], 'disable service'),
-        (['sudo', 'rm', '-f', f'/etc/systemd/system/{HOST_AGENT_SERVICE}.service'], 'remove unit file'),
+        (
+            ['sudo', 'rm', '-f', f'/etc/systemd/system/{HOST_AGENT_SERVICE}.service'],
+            'remove unit file',
+        ),
         (['sudo', 'systemctl', 'daemon-reload'], 'daemon-reload'),
         (['sudo', 'rm', '-f', '/etc/sudoers.d/cyclo_manager'], 'remove sudoers'),
         (['sudo', 'rm', '-rf', HOST_AGENT_SOCKET_DIR], 'remove socket dir'),

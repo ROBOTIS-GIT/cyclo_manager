@@ -183,5 +183,3 @@ async def kill_container_process(
     except Exception as e:
         logger.error("Failed to kill pid %d in container '%s': %s", pid, name, e)
         raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(e))
-
-

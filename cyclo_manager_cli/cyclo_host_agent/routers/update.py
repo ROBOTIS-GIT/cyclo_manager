@@ -75,5 +75,3 @@ async def start_update() -> dict:
 async def get_update_status() -> dict:
     """Return the current update phase and stored outputs."""
     return _update_status
-
-

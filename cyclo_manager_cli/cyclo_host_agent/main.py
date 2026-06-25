@@ -21,10 +21,9 @@
 import logging
 from pathlib import Path
 
-import uvicorn
-from fastapi import FastAPI
-
 from cyclo_host_agent.routers import repos, update
+from fastapi import FastAPI
+import uvicorn
 
 logging.basicConfig(
     level=logging.INFO,
