@@ -452,21 +452,6 @@ export async function getRobotInfo(): Promise<RobotInfoResponse> {
   }
 }
 
-export async function rebootHost(): Promise<void> {
-  try {
-    await apiClient.post("/host/reboot");
-  } catch (error) {
-    handleError(error);
-  }
-}
-
-export async function shutdownHost(): Promise<void> {
-  try {
-    await apiClient.post("/host/shutdown");
-  } catch (error) {
-    handleError(error);
-  }
-}
 
 export async function getRepoUpdates(): Promise<RepoUpdatesResponse> {
   try {

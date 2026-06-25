@@ -175,6 +175,8 @@ After=network.target
 Type=simple
 User={user}
 Group={user}
+RuntimeDirectory=robotis/agent_sockets/host
+RuntimeDirectoryMode=0755
 ExecStart={agent_exe}
 Environment=HOME={user_home}
 Restart=always
