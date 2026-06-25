@@ -70,12 +70,14 @@ async def get_cyclo_manager_version() -> CycloManagerVersionResponse:
     from cyclo_manager import __version__ as current_ver
 
     latest_ver = await _fetch_latest_from_pypi(PYPI_PACKAGE)
+    pypi_available = bool(latest_ver)
     update_available = bool(
-        latest_ver and current_ver != 'unknown' and _is_newer(latest_ver, current_ver)
+        pypi_available and current_ver != 'unknown' and _is_newer(latest_ver, current_ver)
     )
     return CycloManagerVersionResponse(
         current=current_ver,
         latest=latest_ver or 'unknown',
+        pypi_available=pypi_available,
         update_available=update_available,
     )
 

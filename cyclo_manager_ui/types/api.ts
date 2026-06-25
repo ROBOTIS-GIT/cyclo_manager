@@ -190,6 +190,7 @@ export interface ContainerScriptResponse {
 export interface CycloManagerVersionResponse {
   current: string;
   latest: string;
+  pypi_available: boolean;
   update_available: boolean;
 }
 

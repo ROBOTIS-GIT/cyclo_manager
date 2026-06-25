@@ -30,6 +30,46 @@ const PHASE_LABELS: Record<Phase, string> = {
   error: "Update failed.",
 };
 
+const UPDATE_TIMEOUT_MS = 15 * 60 * 1000;
+const STATUS_POLL_MS = 2000;
+const VERSION_POLL_MS = 3000;
+
+function isKnownVersion(version: string): boolean {
+  return !!version && version !== "unknown";
+}
+
+/** True when we can confidently treat the update as successful. */
+function isUpdateSuccessful(
+  v: CycloManagerVersionResponse,
+  beforeCurrent: string,
+  targetLatest: string,
+): boolean {
+  if (isKnownVersion(v.current) && beforeCurrent && v.current !== beforeCurrent) {
+    return true;
+  }
+  if (isKnownVersion(targetLatest) && v.current === targetLatest) {
+    return true;
+  }
+  if (v.pypi_available && isKnownVersion(v.latest) && v.current === v.latest) {
+    return true;
+  }
+  if (v.pypi_available && !v.update_available && isKnownVersion(v.latest)) {
+    return true;
+  }
+  return false;
+}
+
+/** True when PyPI is reachable and the running version did not change. */
+function isUpdateFailed(
+  v: CycloManagerVersionResponse,
+  beforeCurrent: string,
+): boolean {
+  if (!v.pypi_available || !beforeCurrent) {
+    return false;
+  }
+  return v.update_available && v.current === beforeCurrent;
+}
+
 function OutputBox({ output, error }: { output: string; error?: boolean }) {
   if (!output) return null;
   return (
@@ -84,38 +124,92 @@ export default function CycloManagerUpdateAnnouncement({
     }
   }, []);
 
-  const pollStatus = useCallback(() => {
-    pollingRef.current = setInterval(async () => {
-      try {
-        const s = await getUpdateStatus();
-        if (s.output) setOutput(s.output);
-        if (s.phase === "done") {
-          stopPolling();
-          setPhase("done");
-          setTimeout(() => window.location.reload(), 1500);
-        } else if (s.phase === "error") {
-          stopPolling();
-          setErrorMsg(s.error);
-          setPhase("error");
-        }
-      } catch {
-        // keep polling
-      }
-    }, 3000);
+  const failUpdate = useCallback((message: string) => {
+    stopPolling();
+    setErrorMsg(message);
+    setPhase("error");
   }, [stopPolling]);
 
+  const succeedUpdate = useCallback(() => {
+    stopPolling();
+    setPhase("done");
+    setTimeout(() => window.location.reload(), 1500);
+  }, [stopPolling]);
+
+  // Step 2: API came back — verify version (host-agent status is lost after restart)
+  const waitForServerThenCheckVersion = useCallback((
+    beforeCurrent: string,
+    targetLatest: string,
+    startedAt: number,
+  ) => {
+    pollingRef.current = setInterval(async () => {
+      if (Date.now() - startedAt > UPDATE_TIMEOUT_MS) {
+        failUpdate("Update timed out. Check the server and retry.");
+        return;
+      }
+      try {
+        const v = await getCycloManagerVersion();
+        if (isUpdateSuccessful(v, beforeCurrent, targetLatest)) {
+          succeedUpdate();
+        } else if (isUpdateFailed(v, beforeCurrent)) {
+          failUpdate(
+            `Update may have failed — still on ${v.current}, latest is ${v.latest}.`,
+          );
+        }
+      } catch {
+        // API still down, keep waiting
+      }
+    }, VERSION_POLL_MS);
+  }, [failUpdate, succeedUpdate]);
+
+  // Step 1: poll host-agent status until API goes down or an error is reported
+  const pollUntilDown = useCallback((
+    beforeCurrent: string,
+    targetLatest: string,
+    startedAt: number,
+  ) => {
+    let consecutiveFailures = 0;
+    let sawUpdating = false;
+
+    pollingRef.current = setInterval(async () => {
+      if (Date.now() - startedAt > UPDATE_TIMEOUT_MS) {
+        failUpdate("Update timed out. Check the server and retry.");
+        return;
+      }
+      try {
+        consecutiveFailures = 0;
+        const s = await getUpdateStatus();
+        if (s.output) setOutput(s.output);
+        if (s.phase === "updating") sawUpdating = true;
+        if (s.phase === "error") {
+          failUpdate(s.error || "Update failed.");
+        }
+      } catch {
+        consecutiveFailures += 1;
+        if (sawUpdating || consecutiveFailures >= 2) {
+          stopPolling();
+          waitForServerThenCheckVersion(beforeCurrent, targetLatest, startedAt);
+        }
+      }
+    }, STATUS_POLL_MS);
+  }, [failUpdate, stopPolling, waitForServerThenCheckVersion]);
+
   const handleUpdate = useCallback(async () => {
+    const beforeCurrent = info?.current ?? "";
+    const targetLatest = info?.latest ?? "";
+    const startedAt = Date.now();
+
     setPhase("updating");
     setOutput("");
     setErrorMsg("");
     try {
       await updateCycloManager();
-      pollStatus();
+      pollUntilDown(beforeCurrent, targetLatest, startedAt);
     } catch (e) {
       setPhase("error");
       setErrorMsg(e instanceof Error ? e.message : "Failed to start update.");
     }
-  }, [pollStatus]);
+  }, [info, pollUntilDown]);
 
   useEffect(() => () => stopPolling(), [stopPolling]);
 
