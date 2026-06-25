@@ -29,6 +29,7 @@ from fastapi import APIRouter, HTTPException, status
 from cyclo_host_agent.models import (
     ContainerScriptResponse,
     FileChange,
+    RepoBranchCheckResponse,
     RepoInfo,
     RepoListResponse,
     RepoStatusResponse,
@@ -354,6 +355,17 @@ async def list_repos() -> RepoListResponse:
     infos = await asyncio.gather(*(_repo_info(item) for item in candidates))
     repos = [r for r in infos if r.remote and _is_managed_remote(r.remote)]
     return RepoListResponse(repos=repos, workspace_path=str(WORKSPACE_PATH))
+
+
+@router.get('/{name}/branch', response_model=RepoBranchCheckResponse)
+async def get_repo_branch(name: str) -> RepoBranchCheckResponse:
+    repo_path = _get_repo(name)
+    branch = await _current_branch(repo_path)
+    return RepoBranchCheckResponse(
+        name=name,
+        branch=branch,
+        allowed=branch in ALLOWED_UPDATE_BRANCHES,
+    )
 
 
 @router.get('/{name}/status', response_model=RepoStatusResponse)

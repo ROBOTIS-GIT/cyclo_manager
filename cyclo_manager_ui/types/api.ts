@@ -167,6 +167,12 @@ export interface RepoStatusResponse {
   has_changes: boolean;
 }
 
+export interface RepoBranchCheckResponse {
+  name: string;
+  branch: string | null;
+  allowed: boolean;
+}
+
 export interface UpdateRequest {
   strategy: "stash" | "reset";
   preserve_files: string[];

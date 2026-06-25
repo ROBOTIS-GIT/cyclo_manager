@@ -370,7 +370,9 @@ def cmd_update(args: argparse.Namespace) -> int:
         return e.returncode
 
     print('Refreshing host agent (unit, socket, sudoers)...')
-    _ensure_host_agent()
+    if _ensure_host_agent() != 0:
+        print('Warning: Failed to refresh host agent service.', file=sys.stderr)
+        return 1
 
     print('cyclo_manager update completed.')
     return 0

@@ -71,6 +71,14 @@ class RepoStatusResponse(BaseModel):
     has_changes: bool
 
 
+class RepoBranchCheckResponse(BaseModel):
+    """Response for GET /repos/{name}/branch."""
+
+    name: str
+    branch: Optional[str] = None
+    allowed: bool
+
+
 class UpdateRequest(BaseModel):
     """Request body for POST /repos/{name}/update."""
 

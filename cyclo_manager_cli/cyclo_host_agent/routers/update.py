@@ -62,6 +62,10 @@ async def start_update() -> dict:
         raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
                             detail='cyclo_manager command not found')
 
+    if _update_status.get('phase') == 'updating':
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT,
+                            detail='Update already in progress')
+
     _update_status = {'phase': 'updating', 'output': '', 'error': ''}
     asyncio.create_task(_run_update(cyclo_exe))
     return {'status': 'update started'}

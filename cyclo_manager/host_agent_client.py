@@ -59,6 +59,12 @@ class HostAgentClient:
         response.raise_for_status()
         return response.json()
 
+    async def get_repo_branch(self, name: str) -> dict:
+        client = await self._ensure_client()
+        response = await client.get(f'/repos/{name}/branch')
+        response.raise_for_status()
+        return response.json()
+
     async def get_repo_status(self, name: str) -> dict:
         client = await self._ensure_client()
         response = await client.get(f'/repos/{name}/status')

@@ -37,6 +37,7 @@ import type {
   ServiceRunScriptResponse,
   BashrcResponse,
   RepoUpdatesResponse,
+  RepoBranchCheckResponse,
   CycloManagerVersionResponse,
   ROS2TopicsListResponse,
   ROS2TopicDataResponse,
@@ -450,6 +451,15 @@ export async function getRobotInfo(): Promise<RobotInfoResponse> {
 export async function getRepoUpdates(): Promise<RepoUpdatesResponse> {
   try {
     const response = await apiClient.get<RepoUpdatesResponse>("/host/repos/updates");
+    return response.data;
+  } catch (error) {
+    handleError(error);
+  }
+}
+
+export async function getRepoBranchCheck(name: string): Promise<RepoBranchCheckResponse> {
+  try {
+    const response = await apiClient.get<RepoBranchCheckResponse>(`/host/repos/${name}/branch`);
     return response.data;
   } catch (error) {
     handleError(error);

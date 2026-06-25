@@ -18,6 +18,7 @@
 
 """System info and stats endpoints: reads directly from /proc inside the container."""
 
+import asyncio
 import os
 import platform
 import socket
@@ -36,11 +37,18 @@ router = APIRouter(prefix='/system', tags=['system'])
 _HOST_ROOT = '/host_root'
 
 
-def _check_internet() -> bool:
+async def _check_internet() -> bool:
+    loop = asyncio.get_event_loop()
     try:
-        with socket.create_connection(("8.8.8.8", 53), timeout=3):
-            return True
-    except OSError:
+        await asyncio.wait_for(
+            loop.run_in_executor(
+                None,
+                lambda: socket.create_connection(("8.8.8.8", 53), timeout=3),
+            ),
+            timeout=4,
+        )
+        return True
+    except Exception:
         return False
 
 
@@ -103,7 +111,7 @@ async def get_robot_info() -> RobotInfoResponse:
         hostname=hostname,
         os_info=_os_info(),
         ip_address=ip_address,
-        internet_connected=_check_internet(),
+        internet_connected=await _check_internet(),
     )
 
 
