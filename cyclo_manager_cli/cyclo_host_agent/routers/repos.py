@@ -52,6 +52,7 @@ def _resolve_home() -> Path:
 
 WORKSPACE_PATH = _resolve_home()
 MANAGED_GITHUB_ORG = 'ROBOTIS-GIT'
+ALLOWED_UPDATE_BRANCHES = frozenset({'main', 'jazzy'})
 
 
 # ── shared helpers ─────────────────────────────────────────────────────────────
@@ -83,6 +84,41 @@ def _fmt_cmd(cmd: str, output: str) -> str:
 
 
 # ── git helpers ────────────────────────────────────────────────────────────────
+
+async def _stash_count(cwd: Path) -> int:
+    rc, out, _ = await _git(['stash', 'list'], cwd=cwd)
+    if rc != 0:
+        return 0
+    return sum(1 for line in out.splitlines() if line.strip())
+
+
+async def _current_branch(repo_path: Path) -> Optional[str]:
+    rc, out, _ = await _git(['rev-parse', '--abbrev-ref', 'HEAD'], cwd=repo_path)
+    if rc != 0:
+        return None
+    branch = out.strip()
+    if not branch or branch == 'HEAD':
+        return None
+    return branch
+
+
+async def _ensure_allowed_branch(repo_path: Path) -> None:
+    branch = await _current_branch(repo_path)
+    if branch in ALLOWED_UPDATE_BRANCHES:
+        return
+    allowed = ', '.join(sorted(ALLOWED_UPDATE_BRANCHES))
+    if branch:
+        detail = (
+            f"Updates are only allowed on branches: {allowed}. "
+            f"Current branch is '{branch}'."
+        )
+    else:
+        detail = (
+            f"Updates are only allowed on branches: {allowed}. "
+            'Could not determine the current branch (detached HEAD?).'
+        )
+    raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=detail)
+
 
 async def _git(args: list[str], cwd: Optional[Path] = None) -> tuple[int, str, str]:
     proc = await asyncio.create_subprocess_exec(
@@ -202,16 +238,22 @@ async def _update_stash(repo_path: Path) -> UpdateResponse:
     name = repo_path.name
     lines: list[str] = []
 
+    stash_before = await _stash_count(repo_path)
     rc, out, err = await _git(['stash', '-u'], cwd=repo_path)
     lines.append(_fmt_cmd('git stash -u', out + err))
     if rc != 0:
         return UpdateResponse(name=name, success=False, output='\n'.join(lines))
+    stashed = await _stash_count(repo_path) > stash_before
 
     rc, out, err = await _git(['pull'], cwd=repo_path)
     lines.append(_fmt_cmd('git pull', out + err))
     if rc != 0:
-        await _git(['stash', 'pop'], cwd=repo_path)
+        if stashed:
+            await _git(['stash', 'pop'], cwd=repo_path)
         return UpdateResponse(name=name, success=False, output='\n'.join(lines))
+
+    if not stashed:
+        return UpdateResponse(name=name, success=True, output='\n'.join(lines))
 
     rc, out, err = await _git(['stash', 'pop'], cwd=repo_path)
     lines.append(_fmt_cmd('git stash pop', out + err))
@@ -347,6 +389,7 @@ async def start_repo_container(name: str) -> ContainerScriptResponse:
 @router.post('/{name}/update', response_model=UpdateResponse)
 async def update_repo(name: str, req: UpdateRequest) -> UpdateResponse:
     repo_path = _get_repo(name)
+    await _ensure_allowed_branch(repo_path)
     try:
         if req.strategy == 'reset':
             return await _update_reset(repo_path, req.preserve_files)

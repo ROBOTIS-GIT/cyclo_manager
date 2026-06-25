@@ -50,6 +50,7 @@ class RepoListResponse(BaseModel):
 
 class RepoUpdateStatus(BaseModel):
     name: str
+    branch: Optional[str] = None
     current_version: Optional[str] = None
     latest_version: Optional[str] = None
     has_update: bool
