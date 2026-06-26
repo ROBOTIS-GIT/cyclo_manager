@@ -2,6 +2,13 @@
 Changelog for package cyclo_manager
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
+0.2.1 (2026-06-26)
+------------------
+* Added a Jog page for ``ai_worker`` with desktop/mobile controls, keyboard control, speed sliders, robot readiness checks, and repeated ``/cmd_vel`` publishing.
+* Added ROS 2 Twist publishing support through the ``/ros2/cmd_vel`` API.
+* Added Mobile robot support for ``ai_worker_bringup`` service control and launch argument configuration.
+* Contributors: Howon Kim
+
 0.2.0 (2026-06-23)
 ------------------
 * Added a dashboard for host status, Docker controls, logs, bashrc editing, and repository updates.
