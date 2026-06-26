@@ -73,7 +73,7 @@ def load_config(config_path: Optional[str] = None) -> SystemConfig:
             data = {}
 
         config = SystemConfig(**data)
-        logger.info(f'Loaded configuration for {len(config.containers)} containers')
+        logger.info(f'Loaded configuration: robot_container={config.robot_container}')
         return config
 
     except yaml.YAMLError as e:

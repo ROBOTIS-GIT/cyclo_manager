@@ -17,6 +17,9 @@
 import axios, { AxiosError } from "axios";
 import type {
   ConfiguredContainerListResponse,
+  ContainerScriptResponse,
+  RepoStatusResponse,
+  UpdateResponse,
   ServiceListResponse,
   ServiceStatusResponse,
   ServiceStatusListResponse,
@@ -33,10 +36,13 @@ import type {
   ErrorResponse,
   ServiceRunScriptResponse,
   BashrcResponse,
-  RepoVersionResponse,
+  RepoUpdatesResponse,
+  RepoBranchCheckResponse,
   CycloManagerVersionResponse,
   ROS2TopicsListResponse,
   ROS2TopicDataResponse,
+  HostSystemStatsResponse,
+  RobotInfoResponse,
 } from "@/types/api";
 
 // Get API base URL from environment variable, default to frontend host:8081
@@ -62,7 +68,7 @@ const API_BASE_URL = getApiBaseUrl();
 
 export function getDockerTerminalWsUrl(containerName: string, sessionId: string): string {
   const wsBase = API_BASE_URL.replace(/^http/, "ws");
-  return `${wsBase}/docker/${containerName}/terminal/ws?session_id=${encodeURIComponent(sessionId)}`;
+  return `${wsBase}/terminal/${containerName}/ws?session_id=${encodeURIComponent(sessionId)}`;
 }
 
 // Create axios instance with default config
@@ -321,7 +327,7 @@ export async function stopDockerTerminal(
   sessionId: string
 ): Promise<void> {
   try {
-    await apiClient.delete(`/docker/${name}/terminal/${sessionId}`);
+    await apiClient.delete(`/terminal/${name}/${sessionId}`);
   } catch {
     // best-effort cleanup
   }
@@ -344,19 +350,6 @@ export async function getDockerContainerLogs(
   }
 }
 
-export async function getRepoVersion(
-  container: string
-): Promise<RepoVersionResponse> {
-  try {
-    const response = await apiClient.get<RepoVersionResponse>(
-      `/docker/${container}/version`
-    );
-    return response.data;
-  } catch (error) {
-    handleError(error);
-  }
-}
-
 export async function getCycloManagerVersion(): Promise<CycloManagerVersionResponse> {
   try {
     const response = await apiClient.get<CycloManagerVersionResponse>("/version");
@@ -366,11 +359,21 @@ export async function getCycloManagerVersion(): Promise<CycloManagerVersionRespo
   }
 }
 
-export async function updateCycloManager(): Promise<{ message: string }> {
+export async function updateCycloManager(): Promise<void> {
   try {
-    const response = await apiClient.post<{ message: string }>(
-      "/version/update"
-    );
+    await apiClient.post("/host/update", null, { timeout: 60000 });
+  } catch (error) {
+    handleError(error);
+  }
+}
+
+export async function getUpdateStatus(): Promise<{
+  phase: string;
+  output: string;
+  error: string;
+}> {
+  try {
+    const response = await apiClient.get("/host/update/status");
     return response.data;
   } catch (error) {
     handleError(error);
@@ -379,26 +382,19 @@ export async function updateCycloManager(): Promise<{ message: string }> {
 
 // ROS2 Topic Management
 
-export async function getROS2Topics(
-  container: string
-): Promise<ROS2TopicsListResponse> {
+export async function getROS2Topics(): Promise<ROS2TopicsListResponse> {
   try {
-    const response = await apiClient.get<ROS2TopicsListResponse>(
-      `/${container}/ros2/topics`
-    );
+    const response = await apiClient.get<ROS2TopicsListResponse>("/ros2/topics");
     return response.data;
   } catch (error) {
     handleError(error);
   }
 }
 
-export async function getROS2TopicData(
-  container: string,
-  topic: string
-): Promise<ROS2TopicDataResponse> {
+export async function getROS2TopicData(topic: string): Promise<ROS2TopicDataResponse> {
   try {
     const response = await apiClient.get<ROS2TopicDataResponse>(
-      `/${container}/ros2/topics/${encodeURIComponent(topic)}`
+      `/ros2/topics/${encodeURIComponent(topic)}`
     );
     return response.data;
   } catch (error) {
@@ -411,13 +407,10 @@ export interface ROS2TopicInfoResponse {
   info: string;
 }
 
-export async function getROS2TopicInfo(
-  container: string,
-  topic: string
-): Promise<ROS2TopicInfoResponse> {
+export async function getROS2TopicInfo(topic: string): Promise<ROS2TopicInfoResponse> {
   try {
     const response = await apiClient.get<ROS2TopicInfoResponse>(
-      `/${container}/ros2/topics/${encodeURIComponent(topic)}/info`
+      `/ros2/topics/${encodeURIComponent(topic)}/info`
     );
     return response.data;
   } catch (error) {
@@ -425,22 +418,94 @@ export async function getROS2TopicInfo(
   }
 }
 
-export async function ros2Subscribe(
-  container: string,
-  topic: string,
-  msgType?: string
-): Promise<void> {
+export async function ros2Subscribe(topic: string, msgType?: string): Promise<void> {
   await apiClient.post(
-    `/${container}/ros2/topics/${encodeURIComponent(topic)}/subscribe`,
+    `/ros2/topics/${encodeURIComponent(topic)}/subscribe`,
     msgType ? { msg_type: msgType } : {}
   );
 }
 
-export async function ros2Unsubscribe(
-  container: string,
-  topic: string
-): Promise<void> {
-  await apiClient.post(
-    `/${container}/ros2/topics/${encodeURIComponent(topic)}/unsubscribe`
-  );
+export async function ros2Unsubscribe(topic: string): Promise<void> {
+  await apiClient.post(`/ros2/topics/${encodeURIComponent(topic)}/unsubscribe`);
 }
+
+export async function getSystemStats(): Promise<HostSystemStatsResponse> {
+  try {
+    const response = await apiClient.get<HostSystemStatsResponse>("/system/status");
+    return response.data;
+  } catch (error) {
+    handleError(error);
+  }
+}
+
+export async function getRobotInfo(): Promise<RobotInfoResponse> {
+  try {
+    const response = await apiClient.get<RobotInfoResponse>("/system/info");
+    return response.data;
+  } catch (error) {
+    handleError(error);
+  }
+}
+
+
+export async function getRepoUpdates(): Promise<RepoUpdatesResponse> {
+  try {
+    const response = await apiClient.get<RepoUpdatesResponse>("/host/repos/updates");
+    return response.data;
+  } catch (error) {
+    handleError(error);
+  }
+}
+
+export async function getRepoBranchCheck(name: string): Promise<RepoBranchCheckResponse> {
+  try {
+    const response = await apiClient.get<RepoBranchCheckResponse>(`/host/repos/${name}/branch`);
+    return response.data;
+  } catch (error) {
+    handleError(error);
+  }
+}
+
+export async function getRepoStatus(name: string): Promise<RepoStatusResponse> {
+  try {
+    const response = await apiClient.get<RepoStatusResponse>(`/host/repos/${name}/status`);
+    return response.data;
+  } catch (error) {
+    handleError(error);
+  }
+}
+
+export async function updateRepo(
+  name: string,
+  strategy: "stash" | "reset",
+  preserveFiles: string[] = []
+): Promise<UpdateResponse> {
+  try {
+    const response = await apiClient.post<UpdateResponse>(`/host/repos/${name}/update`, {
+      strategy,
+      preserve_files: preserveFiles,
+    });
+    return response.data;
+  } catch (error) {
+    handleError(error);
+  }
+}
+
+export async function stopRepoContainer(name: string): Promise<ContainerScriptResponse> {
+  try {
+    const response = await apiClient.post<ContainerScriptResponse>(`/host/repos/${name}/container/stop`);
+    return response.data;
+  } catch (error) {
+    handleError(error);
+  }
+}
+
+export async function startRepoContainer(name: string): Promise<ContainerScriptResponse> {
+  try {
+    const response = await apiClient.post<ContainerScriptResponse>(`/host/repos/${name}/container/start`);
+    return response.data;
+  } catch (error) {
+    handleError(error);
+  }
+}
+

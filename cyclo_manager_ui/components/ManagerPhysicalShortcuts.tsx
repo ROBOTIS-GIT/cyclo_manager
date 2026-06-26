@@ -63,7 +63,7 @@ export default function ManagerPhysicalShortcuts({
   return (
     <>
       <Link
-        href="/home"
+        href="/dashboard"
         title="Cyclo Manager"
         aria-label="Cyclo Manager"
         className={className}

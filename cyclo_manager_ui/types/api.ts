@@ -28,6 +28,7 @@ export interface ConfiguredContainerInfo {
 
 export interface ConfiguredContainerListResponse {
   containers: ConfiguredContainerInfo[];
+  robot_container: string;
 }
 
 export interface ServiceListResponse {
@@ -142,22 +143,83 @@ export interface DockerTopResponse {
   processes: string[][];
 }
 
-export interface RepoVersionResponse {
-  container: string;
-  current: string;
-  latest: string;
-  update_available: boolean;
+export interface RepoUpdateStatus {
+  name: string;
+  branch: string | null;
+  current_version: string | null;
+  latest_version: string | null;
+  has_update: boolean;
+}
+
+export interface RepoUpdatesResponse {
+  repos: RepoUpdateStatus[];
+  workspace_path: string;
+}
+
+export interface FileChange {
+  path: string;
+  status: string;
+}
+
+export interface RepoStatusResponse {
+  name: string;
+  changes: FileChange[];
+  has_changes: boolean;
+}
+
+export interface RepoBranchCheckResponse {
+  name: string;
+  branch: string | null;
+  allowed: boolean;
+}
+
+export interface UpdateRequest {
+  strategy: "stash" | "reset";
+  preserve_files: string[];
+}
+
+export interface UpdateResponse {
+  name: string;
+  success: boolean;
+  output: string;
+  stash_conflict: boolean;
+  stash_conflict_files: string[];
+}
+
+export interface ContainerScriptResponse {
+  name: string;
+  action: string;
+  success: boolean;
+  output: string;
 }
 
 export interface CycloManagerVersionResponse {
   current: string;
   latest: string;
+  pypi_available: boolean;
   update_available: boolean;
 }
 
 export interface ErrorResponse {
   error: string;
   detail: string | null;
+}
+
+export interface RobotInfoResponse {
+  hostname: string;
+  os_info: string | null;
+  ip_address: string | null;
+  internet_connected: boolean;
+}
+
+export interface HostSystemStatsResponse {
+  cpu_percent: number;
+  memory_used_mb: number;
+  memory_total_mb: number;
+  disk_used_gb: number;
+  disk_total_gb: number;
+  uptime_seconds: number;
+  temperature_celsius: number | null;
 }
 
 // ROS2 Plugin Types
@@ -170,13 +232,11 @@ export interface ROS2TopicStatus {
 }
 
 export interface ROS2TopicsListResponse {
-  container: string;
   domain_id: number;
   topics: ROS2TopicStatus[];
 }
 
 export interface ROS2TopicDataResponse {
-  container: string;
   topic: string;
   msg_type: string;
   data: any;

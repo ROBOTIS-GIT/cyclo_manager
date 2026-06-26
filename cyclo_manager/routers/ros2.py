@@ -30,12 +30,12 @@ from cyclo_manager.models import (
     ROS2TopicsListResponse,
     ROS2TopicStatus,
 )
-from cyclo_manager.state import get_ros2_node, get_validated_container
-from fastapi import APIRouter, Body, Depends, HTTPException, status
+from cyclo_manager.state import get_any_ros2_node
+from fastapi import APIRouter, Body, HTTPException, status
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(prefix='/{container}/ros2', tags=['ros2'])
+router = APIRouter(prefix='/ros2', tags=['ros2'])
 
 # QoS presets for topics the UI subscribes on every System page load.
 # Skips `ros2 topic info -v` (blocking subprocess) — keeps the FastAPI event loop responsive.
@@ -55,15 +55,25 @@ KNOWN_TOPIC_QOS_PRESETS: dict[str, dict[str, Any]] = {
 }
 
 
-def resolve_qos_profile_for_topic(container: str, topic: str, node) -> dict[str, Any]:
+def _require_node():
+    node = get_any_ros2_node()
+    if node is None:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail='No ROS2 node available.',
+        )
+    return node
+
+
+def resolve_qos_profile_for_topic(topic: str, node) -> dict[str, Any]:
     """Use a known QoS preset when available; otherwise probe publishers via `ros2 topic info`."""
     preset = KNOWN_TOPIC_QOS_PRESETS.get(topic)
     if preset is not None:
         return dict(preset)
-    return _get_topic_publisher_qos(container, topic, node)
+    return _get_topic_publisher_qos(topic, node)
 
 
-def _get_topic_publisher_qos(container: str, topic: str, node) -> dict:
+def _get_topic_publisher_qos(topic: str, node) -> dict:
     """
     Parse ros2 topic info -v and return QoS profile to match publisher(s).
 
@@ -118,49 +128,26 @@ def _get_topic_publisher_qos(container: str, topic: str, node) -> dict:
 
 
 @router.get('/topics', response_model=ROS2TopicsListResponse)
-async def list_ros2_topics(
-    container: str = Depends(get_validated_container),
-) -> ROS2TopicsListResponse:
-    """Get list of ROS2 topics (discovery run on request). Topic list button calls this."""
-    node = get_ros2_node(container)
-    if node is None:
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail=f"ROS2 node for container '{container}' is not available.",
-        )
-
+async def list_ros2_topics() -> ROS2TopicsListResponse:
+    """Get list of ROS2 topics (discovery run on request)."""
+    node = _require_node()
     topics_status = node.get_all_topics_status()
-
     topics = [
         ROS2TopicStatus(
             topic=topic,
-            msg_type=status_info['msg_type'],
-            available=status_info['available'],
-            subscribed=status_info['subscribed'],
+            msg_type=info['msg_type'],
+            available=info['available'],
+            subscribed=info['subscribed'],
         )
-        for topic, status_info in sorted(topics_status.items(), key=lambda x: x[0])
+        for topic, info in sorted(topics_status.items())
     ]
-
-    return ROS2TopicsListResponse(
-        container=container,
-        domain_id=node.domain_id,
-        topics=topics,
-    )
+    return ROS2TopicsListResponse(domain_id=node.domain_id, topics=topics)
 
 
 @router.get('/topics/{topic:path}/info')
-async def get_ros2_topic_info(
-    topic: str,
-    container: str = Depends(get_validated_container),
-) -> dict:
+async def get_ros2_topic_info(topic: str) -> dict:
     """Get ros2 topic info -v output for a topic. Must be before get_ros2_topic_data."""
-    node = get_ros2_node(container)
-    if node is None:
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail=f"ROS2 node for container '{container}' is not available.",
-        )
-
+    node = _require_node()
     env = os.environ.copy()
     env['ROS_DOMAIN_ID'] = str(node.domain_id)
     try:
@@ -190,42 +177,26 @@ async def get_ros2_topic_info(
 
 
 @router.get('/topics/{topic:path}', response_model=ROS2TopicDataResponse)
-async def get_ros2_topic_data(
-    topic: str,
-    container: str = Depends(get_validated_container),
-) -> ROS2TopicDataResponse:
+async def get_ros2_topic_data(topic: str) -> ROS2TopicDataResponse:
     """Get the latest data from a specific ROS2 topic. On-demand subscription if needed."""
-    node = get_ros2_node(container)
-    if node is None:
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail=f"ROS2 node for container '{container}' is not available.",
-        )
-
+    node = _require_node()
     if topic not in node.list_topics():
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Topic '{topic}' not found for container '{container}'",
+            detail=f"Topic '{topic}' not found",
         )
-
     msg_type = node.get_topic_msg_type(topic)
     if msg_type and not node.is_topic_available(topic):
-        qos_profile = resolve_qos_profile_for_topic(container, topic, node)
+        qos_profile = resolve_qos_profile_for_topic(topic, node)
         node.add_topic_subscription(topic, msg_type, qos_profile=qos_profile)
-
     cached_data = node.get_topic_data(topic)
     available = node.is_topic_available(topic)
     data = cached_data.get('data') if cached_data else None
     if msg_type is None:
         msg_type = node.get_topic_msg_type(topic) or ''
-
     return ROS2TopicDataResponse(
-        container=container,
-        topic=topic,
-        msg_type=msg_type,
-        data=data,
-        available=available,
-        domain_id=node.domain_id,
+        topic=topic, msg_type=msg_type,
+        data=data, available=available, domain_id=node.domain_id,
     )
 
 
@@ -233,20 +204,9 @@ async def get_ros2_topic_data(
 async def ros2_topic_subscribe(
     topic: str,
     body: ROS2SubscribeRequest | None = Body(default=None),
-    container: str = Depends(get_validated_container),
 ):
-    """
-    Subscribe to a ROS2 topic.
-
-    Optionally pass {"msg_type": "sensor_msgs/msg/JointState"} in body.
-
-    """
-    node = get_ros2_node(container)
-    if node is None:
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail=f"ROS2 node for container '{container}' is not available.",
-        )
+    """Subscribe to a ROS2 topic. Optionally pass {"msg_type": "..."} in body."""
+    node = _require_node()
     msg_type = (body or ROS2SubscribeRequest()).msg_type
     if not msg_type:
         msg_type = node.get_topic_msg_type(topic)
@@ -259,22 +219,14 @@ async def ros2_topic_subscribe(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=f"Unknown msg_type for topic '{topic}'. Provide msg_type in request body.",
         )
-    qos_profile = resolve_qos_profile_for_topic(container, topic, node)
+    qos_profile = resolve_qos_profile_for_topic(topic, node)
     ok = node.add_topic_subscription(topic, msg_type, qos_profile=qos_profile)
     return {'ok': ok}
 
 
 @router.post('/topics/{topic:path}/unsubscribe')
-async def ros2_topic_unsubscribe(
-    topic: str,
-    container: str = Depends(get_validated_container),
-):
+async def ros2_topic_unsubscribe(topic: str):
     """Unsubscribe from a ROS2 topic."""
-    node = get_ros2_node(container)
-    if node is None:
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail=f"ROS2 node for container '{container}' is not available.",
-        )
+    node = _require_node()
     node.remove_topic_subscription(topic)
     return {'ok': True}

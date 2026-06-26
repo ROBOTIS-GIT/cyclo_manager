@@ -10,7 +10,6 @@ RUN apt-get update && \
     ros-jazzy-rmw-zenoh-cpp \
     ros-jazzy-control-msgs \
     docker.io \
-    tmux \
     && rm -rf /var/lib/apt/lists/*
 
 # Create venv and install pip dependencies
@@ -25,6 +24,7 @@ COPY cyclo_manager_cli/cyclo_manager_cli/config/config.yml ./config.yml
 
 RUN echo "source /opt/ros/jazzy/setup.bash" >> ~/.bashrc
 RUN echo 'export ROS_DOMAIN_ID=30' >> ~/.bashrc
+RUN echo 'export RMW_IMPLEMENTATION=rmw_zenoh_cpp' >> ~/.bashrc
 
 # Expose API port
 EXPOSE 8081

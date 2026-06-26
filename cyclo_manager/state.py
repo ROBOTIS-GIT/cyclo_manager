@@ -23,6 +23,7 @@ from typing import Optional
 from cyclo_manager.agent_client import AgentClient, AgentClientPool
 from cyclo_manager.config import SystemConfig
 from cyclo_manager.docker_client import DockerClient
+from cyclo_manager.host_agent_client import HostAgentClient
 from cyclo_manager.ros2_node import CycloManagerTopicSubscriber
 from cyclo_manager.terminal_session_manager import TerminalSessionManager
 from fastapi import Depends, HTTPException, status
@@ -41,6 +42,7 @@ class AppState:
         self._config: Optional[SystemConfig] = None
         self._client_pool: Optional[AgentClientPool] = None
         self._docker_client: Optional[DockerClient] = None
+        self._host_agent_client: Optional[HostAgentClient] = None
         self._ros2_nodes: dict[str, CycloManagerTopicSubscriber] = {}
         self._terminal_session_manager: Optional[TerminalSessionManager] = None
 
@@ -63,6 +65,12 @@ class AppState:
     def set_docker_client(self, client: Optional[DockerClient]) -> None:
         self._docker_client = client
 
+    def set_host_agent_client(self, client: Optional[HostAgentClient]) -> None:
+        self._host_agent_client = client
+
+    def get_host_agent_client_or_none(self) -> Optional[HostAgentClient]:
+        return self._host_agent_client
+
     def set_ros2_node(self, container_name: str, node: CycloManagerTopicSubscriber) -> None:
         self._ros2_nodes[container_name] = node
 
@@ -84,11 +92,6 @@ class AppState:
 
     def get_docker_client_or_none(self) -> Optional[DockerClient]:
         return self._docker_client
-
-    def get_ros2_node(self, container_name: str) -> Optional[CycloManagerTopicSubscriber]:
-        if self._config is None or container_name not in self._config.containers:
-            return None
-        return self._ros2_nodes.get(container_name)
 
 
 # Public singleton.  lifespan.py owns its lifecycle; routers use the
@@ -133,9 +136,20 @@ def get_docker_client() -> DockerClient:
     return client
 
 
+def get_host_agent_client() -> HostAgentClient:
+    """Dependency: return host agent client or raise 503."""
+    client = app_state.get_host_agent_client_or_none()
+    if client is None:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail='Host agent not available. Ensure cyclo_host_agent service is running.',
+        )
+    return client
+
+
 def get_validated_container(container: str, config: SystemConfig = Depends(get_config)) -> str:
     """Dependency: validate that *container* exists in config or raise 404."""
-    if container not in config.containers:
+    if container not in config.container_sockets:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Container '{container}' not found",
@@ -146,7 +160,7 @@ def get_validated_container(container: str, config: SystemConfig = Depends(get_c
 def get_agent_client(container_name: str) -> AgentClient:
     """Return an AgentClient for *container_name* or raise an appropriate HTTPException."""
     config = get_config()
-    if container_name not in config.containers:
+    if container_name not in config.container_sockets:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Container '{container_name}' not found",
@@ -173,5 +187,8 @@ def get_client_pool_or_none() -> Optional[AgentClientPool]:
     return app_state.get_client_pool_or_none()
 
 
-def get_ros2_node(container_name: str) -> Optional[CycloManagerTopicSubscriber]:
-    return app_state.get_ros2_node(container_name)
+def get_any_ros2_node() -> Optional[CycloManagerTopicSubscriber]:
+    """Return the first available ROS2 node. All nodes share the same domain_id."""
+    for node in app_state.get_ros2_nodes().values():
+        return node
+    return None

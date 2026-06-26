@@ -110,7 +110,6 @@ const TEXT_STYLES = {
 
 // Types
 interface TopicViewerPanelProps {
-  container: string;
   topic: string;
   msgType: string;
   onClose: () => void;
@@ -287,28 +286,27 @@ function TopicContent({ topicData, status }: TopicContentProps) {
 }
 
 interface TopicInfoContentProps {
-  container: string;
   topic: string;
 }
 
-function TopicInfoContent({ container, topic }: TopicInfoContentProps) {
+function TopicInfoContent({ topic }: TopicInfoContentProps) {
   const [info, setInfo] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const loadInfo = useCallback(async () => {
-    if (!container || !topic) return;
+    if (!topic) return;
     try {
       setLoading(true);
       setError(null);
-      const res = await getROS2TopicInfo(container, topic);
+      const res = await getROS2TopicInfo(topic);
       setInfo(res.info ?? "");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to load topic info");
     } finally {
       setLoading(false);
     }
-  }, [container, topic]);
+  }, [topic]);
 
   useEffect(() => {
     loadInfo();
@@ -352,7 +350,6 @@ function TopicInfoContent({ container, topic }: TopicInfoContentProps) {
 
 // Main component
 export default function TopicViewerPanel({
-  container,
   topic,
   msgType,
   onClose,
@@ -361,16 +358,16 @@ export default function TopicViewerPanel({
   const [lastUpdateTime, setLastUpdateTime] = useState<Date | null>(null);
   const [activeTab, setActiveTab] = useState<TabId>("data");
 
-  const { topicData, status } = useROS2TopicWebSocket(container, topic, {
+  const { topicData, status } = useROS2TopicWebSocket(topic, {
     onError: (err: Error) => setError(err.message),
   });
 
   // Unsubscribe on unmount
   useEffect(() => {
     return () => {
-      ros2Unsubscribe(container, topic).catch(() => {});
+      ros2Unsubscribe(topic).catch(() => {});
     };
-  }, [container, topic]);
+  }, [topic]);
 
   // Update last update time when data changes
   useEffect(() => {
@@ -389,7 +386,7 @@ export default function TopicViewerPanel({
           {activeTab === "data" ? (
             <TopicContent topicData={topicData} status={status} />
           ) : (
-            <TopicInfoContent container={container} topic={topic} />
+            <TopicInfoContent topic={topic} />
           )}
         </div>
       </div>

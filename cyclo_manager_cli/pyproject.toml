@@ -4,12 +4,16 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "cyclo-manager"
-version = "0.1.1"
+version = "0.2.0"
 description = "cyclo_manager CLI: pip-installable launcher for cyclo_manager server and UI containers. Run 'cyclo_manager up' to start Docker stack."
 readme = "README.md"
 license = "Apache-2.0"
 requires-python = ">=3.10"
-dependencies = []
+dependencies = [
+    "fastapi>=0.100.0",
+    "uvicorn[standard]>=0.23.0",
+    "psutil>=5.9.0",
+]
 
 [project.optional-dependencies]
 dev = [
@@ -19,10 +23,12 @@ dev = [
 
 [project.scripts]
 cyclo_manager = "cyclo_manager_cli.cli:main"
+cyclo-manager = "cyclo_manager_cli.cli:main"
+cyclo_host_agent = "cyclo_host_agent.main:main"
 
 [tool.setuptools.packages.find]
 where = ["."]
-include = ["cyclo_manager_cli*"]
+include = ["cyclo_manager_cli*", "cyclo_host_agent*"]
 
 [tool.setuptools.package-data]
 cyclo_manager_cli = ["docker/*.yml", "docker/*.yaml", "config/*.yml", "config/*.yaml"]

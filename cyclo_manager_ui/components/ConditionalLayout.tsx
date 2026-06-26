@@ -32,7 +32,7 @@ export default function ConditionalLayout({
     <AppsHubBannerProvider>
       <>
         <AppsHubLink />
-        {pathname === "/home" || pathname === "/app" ? (
+        {pathname === "/app" ? (
           children
         ) : (
           <VSCodeLayout>{children}</VSCodeLayout>

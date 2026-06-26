@@ -11,7 +11,7 @@ services:
 
   cyclo_manager:
     container_name: cyclo_manager
-    image: robotis/cyclo-manager:0.1.1
+    image: robotis/cyclo-manager:0.2.0
     restart: always
     network_mode: host
     volumes:
@@ -20,12 +20,14 @@ services:
       - /var/run/robotis/agent_sockets:/agents # For agent socket access
       - ${CYCLO_MANAGER_CONFIG_FILE}:/app/config.yml # For hot-reload on config changes
       - /var/run/docker.sock:/var/run/docker.sock # For Docker API access
+      - /:/host_root:ro # For host disk usage and OS info
     environment:
       - CONFIG_FILE=/app/config.yml
+      - HOST_HOSTNAME=${HOSTNAME}
 
   ui:
     container_name: cyclo_manager_ui
-    image: robotis/cyclo-manager-ui:0.1.1
+    image: robotis/cyclo-manager-ui:0.2.0
     restart: always
     network_mode: host
     environment:

@@ -20,7 +20,7 @@
 
 from typing import Any, Literal, Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 
 class ServiceInfo(BaseModel):
@@ -36,43 +36,50 @@ class ServiceInfo(BaseModel):
     )
 
 
-class RepoVersionConfig(BaseModel):
-    """Optional config for repo metapackage version check (ai_worker)."""
-
-    github_releases_api: str = Field(
-        default='https://api.github.com/repos/ROBOTIS-GIT/ai_worker/releases/latest',
-        description='GitHub API URL for latest release',
-    )
-    package_xml_path: str = Field(
-        default='/root/ros2_ws/src/ai_worker/ffw/package.xml',
-        description='Path to metapackage package.xml inside container',
-    )
-
-
-class ContainerConfig(BaseModel):
-    """
-    Container configuration from YAML.
-
-    Services are discovered dynamically from the agent, not defined in config.
-    The config only needs container name and socket path.
-    """
-
-    socket_path: str = Field(..., description='Path to agent Unix domain socket')
-    repo_version: RepoVersionConfig | None = Field(
-        default=None,
-        description=(
-            'Optional: Repo metapackage version check (e.g. for ai_worker). '
-            'Uses defaults if omitted.'
-        ),
-    )
-
-
 class SystemConfig(BaseModel):
     """Root configuration model."""
 
-    containers: dict[str, ContainerConfig] = Field(
-        default_factory=dict, description='Map of container names to their configurations'
+    robot_container: str = Field(
+        default='ai_worker',
+        description='Name of the robot container managed by cyclo_manager',
     )
+    sockets: dict[str, str] = Field(
+        default_factory=dict,
+        description='Map of container/service names to their Unix domain socket paths',
+    )
+
+    @property
+    def container_sockets(self) -> dict[str, str]:
+        """Socket paths for all containers (excludes host_agent)."""
+        return {k: v for k, v in self.sockets.items() if k != 'host_agent'}
+
+    @property
+    def host_agent_socket(self) -> str:
+        """Socket path for the host agent."""
+        return self.sockets.get('host_agent', '/agents/host/host_agent.sock')
+
+    @model_validator(mode='after')
+    def validate_config(self) -> 'SystemConfig':
+        containers = self.container_sockets
+        if not containers:
+            raise ValueError(
+                'sockets must include at least one container entry (besides host_agent)',
+            )
+        if not self.robot_container.strip():
+            raise ValueError('robot_container must not be empty')
+        if self.robot_container == 'host_agent':
+            raise ValueError('robot_container cannot be host_agent')
+        if self.robot_container not in containers:
+            raise ValueError(
+                f"robot_container '{self.robot_container}' must be a key in sockets "
+                f'(excluding host_agent); available: {sorted(containers)}',
+            )
+        for name, path in self.sockets.items():
+            if not name.strip():
+                raise ValueError('sockets keys must not be empty')
+            if not str(path).strip():
+                raise ValueError(f"sockets['{name}'] must not be empty")
+        return self
 
 
 # API Request/Response Models
@@ -109,6 +116,7 @@ class ConfiguredContainerListResponse(BaseModel):
     """Response for GET /containers."""
 
     containers: list[ConfiguredContainerInfo] = Field(..., description='List of known containers')
+    robot_container: str = Field(..., description='Name of the robot container')
 
 
 class ServiceListResponse(BaseModel):
@@ -238,20 +246,12 @@ class DockerTopResponse(BaseModel):
     processes: list[list[str]] = Field(..., description='Process rows')
 
 
-class RepoVersionResponse(BaseModel):
-    """Response for GET /docker/{container}/version (ai_worker metapackage version check)."""
-
-    container: str = Field(..., description='Container name')
-    current: str = Field(..., description='Current version from package.xml')
-    latest: str = Field(..., description='Latest version from GitHub releases')
-    update_available: bool = Field(..., description='Whether an update is available')
-
-
 class CycloManagerVersionResponse(BaseModel):
     """Response for GET /version (cyclo_manager server/CLI version from PyPI)."""
 
     current: str = Field(..., description='Current cyclo_manager version (API __version__)')
     latest: str = Field(..., description='Latest version from PyPI')
+    pypi_available: bool = Field(..., description='Whether the latest PyPI version was fetched')
     update_available: bool = Field(..., description='Whether an update is available')
 
 
@@ -307,9 +307,8 @@ class BashrcUpdateRequest(BaseModel):
 
 
 class ROS2TopicDataResponse(BaseModel):
-    """Response for GET /containers/{container}/ros2/topics/{topic}."""
+    """Response for GET /ros2/topics/{topic}."""
 
-    container: str = Field(..., description='Container name')
     topic: str = Field(..., description='ROS2 topic name', examples=['/robot_description'])
     msg_type: str = Field(..., description='Message type', examples=['std_msgs/msg/String'])
     data: Optional[Any] = Field(
@@ -329,16 +328,36 @@ class ROS2TopicStatus(BaseModel):
 
 
 class ROS2TopicsListResponse(BaseModel):
-    """Response for GET /containers/{container}/ros2/topics."""
+    """Response for GET /ros2/topics."""
 
-    container: str = Field(..., description='Container name')
     domain_id: int = Field(..., description='ROS2 domain ID')
     topics: list[ROS2TopicStatus] = Field(..., description='List of topic statuses')
 
 
 class ROS2SubscribeRequest(BaseModel):
-    """Request body for POST /containers/{container}/ros2/topics/{topic}/subscribe."""
+    """Request body for POST /ros2/topics/{topic}/subscribe."""
 
     msg_type: Optional[str] = Field(
         None, description='Message type (e.g. sensor_msgs/msg/JointState)'
     )
+
+
+class RobotInfoResponse(BaseModel):
+    """Response for GET /system/info."""
+
+    hostname: str
+    os_info: Optional[str] = None
+    ip_address: Optional[str] = None
+    internet_connected: bool = False
+
+
+class SystemStatsResponse(BaseModel):
+    """Response for GET /system/status."""
+
+    cpu_percent: float
+    memory_used_mb: int
+    memory_total_mb: int
+    disk_used_gb: float
+    disk_total_gb: float
+    uptime_seconds: int
+    temperature_celsius: Optional[float] = None

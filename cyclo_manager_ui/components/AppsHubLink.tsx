@@ -20,7 +20,6 @@ import type { CSSProperties } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useAppsHubBanner } from "@/contexts/AppsHubBannerContext";
-import ManagerPhysicalShortcuts from "@/components/ManagerPhysicalShortcuts";
 import ThemeToggle from "@/components/ThemeToggle";
 
 const INSET_FROM_EDGE = "1.75rem";
@@ -86,12 +85,12 @@ export function AppsHubButton({
   );
 }
 
-/** Floating on /home and /app; sidebar pages use AppsHubButton in VSCodeLayout. */
+/** Floating on /app only; sidebar pages use AppsHubButton in VSCodeLayout. */
 export default function AppsHubLink() {
   const pathname = usePathname();
   const { updateBannerVisible } = useAppsHubBanner();
 
-  if (pathname !== "/home" && pathname !== "/app") {
+  if (pathname !== "/app") {
     return null;
   }
 
@@ -99,7 +98,7 @@ export default function AppsHubLink() {
 
   return (
     <div
-      className="fixed z-[60] flex flex-col items-start gap-2"
+      className="fixed z-[60]"
       style={{
         left: INSET_FROM_EDGE,
         top,
@@ -107,10 +106,6 @@ export default function AppsHubLink() {
     >
       <div className="w-[9rem]">
         <ThemeToggle />
-      </div>
-      <div className="flex flex-row items-center gap-3">
-        <AppsHubButton />
-        <ManagerPhysicalShortcuts />
       </div>
     </div>
   );

@@ -53,7 +53,7 @@ export default function AppHubPage() {
         </header>
         <div className="flex-1 flex flex-col items-center justify-center gap-4 min-h-0 w-full">
           <div className="flex flex-row flex-wrap justify-center gap-6">
-            <Link href="/home">
+            <Link href="/dashboard">
               <div
                 className="group rounded-lg border-2 p-5 cursor-pointer w-[min(40rem,calc(100vw-3rem))] h-[13rem] sm:h-[14rem] max-h-[min(14rem,38vh)] flex flex-col items-stretch justify-center min-h-0 hover:border-[var(--vscode-focusBorder)] hover:bg-[var(--vscode-list-hoverBackground)] hover:scale-[1.02] transition-all duration-150"
                 style={{

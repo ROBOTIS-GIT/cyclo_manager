@@ -25,6 +25,7 @@ import os
 from cyclo_manager.agent_client import AgentClientPool
 from cyclo_manager.config import load_config
 from cyclo_manager.docker_client import DockerClient
+from cyclo_manager.host_agent_client import HostAgentClient
 from cyclo_manager.ros2_node import CycloManagerTopicSubscriber
 from cyclo_manager.state import app_state
 from cyclo_manager.terminal_session_manager import TerminalSessionManager
@@ -61,9 +62,24 @@ async def lifespan(app: FastAPI):
         app_state.set_terminal_session_manager(TerminalSessionManager())
         logger.info('Terminal session manager initialized')
 
+        # Host agent client is optional — may not be running in dev or first boot.
+        try:
+            host_agent_client = HostAgentClient(config.host_agent_socket)
+            app_state.set_host_agent_client(host_agent_client)
+            logger.info(
+                'Host agent client initialized (socket: %s)', config.host_agent_socket
+            )
+        except Exception as e:
+            logger.warning(
+                'Host agent client initialization failed '
+                '(system stats and repo management will be unavailable): %s',
+                e,
+            )
+            app_state.set_host_agent_client(None)
+
         # Initialize ROS2 nodes for all containers (no subscriptions yet).
         domain_id = int(os.getenv('ROS_DOMAIN_ID', '30'))
-        for container_name in config.containers:
+        for container_name in config.container_sockets:
             try:
                 node = CycloManagerTopicSubscriber(
                     container_name=container_name, domain_id=domain_id
@@ -93,6 +109,10 @@ async def lifespan(app: FastAPI):
     docker_client = app_state.get_docker_client_or_none()
     if docker_client:
         docker_client.close()
+
+    host_agent_client = app_state.get_host_agent_client_or_none()
+    if host_agent_client:
+        await host_agent_client.async_close()
 
     for container_name, node in app_state.get_ros2_nodes().items():
         try:

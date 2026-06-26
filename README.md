@@ -1,67 +1,157 @@
 # cyclo_manager
 
-**cyclo_manager** provides **management tools** for ROS 2–based robot stacks. It talks to **s6-overlay agents** in containers over **Unix domain sockets (UDS)**, serves a **FastAPI** REST API and **WebSockets**, and provides a **Next.js** web UI and a **pip-installable CLI** to bring up a Dockerized stack.
+Management stack for ROS 2 robot deployments. cyclo_manager exposes a **FastAPI** control plane, a **Next.js** web UI, and a **pip-installable CLI** that orchestrates Docker containers on the host.
+
+Each managed robot container runs an **s6-overlay agent** (Unix domain socket). cyclo_manager talks to those agents to list and control s6 services, while also using the Docker API for container lifecycle, terminals, and host-level operations via **cyclo_host_agent**.
 
 ---
 
-## Table of contents
+## Components
 
-- [cyclo\_manager](#cyclo_manager)
-  - [Table of contents](#table-of-contents)
-  - [Features](#features)
-  - [Architecture](#architecture)
-  - [Repository layout](#repository-layout)
-  - [Configuration](#configuration)
-  - [How to run](#how-to-run)
-    - [Packaged stack (PyPI + prebuilt images)](#packaged-stack-pypi--prebuilt-images)
-  - [API overview](#api-overview)
-  - [Security](#security)
-  - [Contributing \& license](#contributing--license)
-
----
-
-## Features
-
-- **s6 services (per configured container)**: List services, read status, start/stop/restart. Optional **launch arguments** and **`robot_type`** (e.g. `sg2`, `bg2`, `sh5`, `bh5` for `ai_worker_bringup`) are passed through to the in-container agent. Service logs (when enabled) are read from **`/var/log/<service_name>/current`** inside the container (s6 log layout); see the agent’s [`logs` router](cyclo_manager/agent/routers/logs.py).
-- **Launch arguments in the UI**: Gear icon on the System page opens a popup to edit bringup args per service. Follower bringup supports robot models **SG2 / BG2 / SH5 / BH5** (separate defaults and `localStorage` per model). **Init Position File** is a dropdown: robot-specific default YAML, **`pack_position.yaml`**, or **Custom input** (free-form filename). Settings are persisted per container in the browser.
-- **Docker** (from the API host): List containers, status, start/stop/restart, engine logs, **`docker top`**, and **signal processes** inside a container. Requires **Docker socket** access for the API process.
-- **In-browser terminals**: WebSocket terminal into running containers (`/docker/{name}/terminal/ws`), backed by persistent **tmux** sessions in the API container so shells survive UI navigation. Multi-tab terminals, process list with kill, and per-container **bashrc** editing from the Docker page.
-- **ROS 2**: For each configured container, an **rclpy** node discovers topics, aligns with publisher QoS (via `ros2 topic info` where used), caches messages, and supports subscribe/unsubscribe for the UI and WebSockets.
-- **Live data**: Service logs and ROS topic payloads over **WebSockets**.
-- **System control UI**: Follower/leader bringup, Physical AI Server, Zenoh daemon, streaming service logs, and a **3D URDF viewer** driven by `/robot_description` and `/joint_states`.
-- **Other**: **`GET` / `PUT` `/{container}/bashrc`** to read/update shell init in a container via Docker; **version** checks against PyPI and an optional **update** path for the CLI package; optional **metapackage vs GitHub** version check for `ai_worker` when configured.
-
-Each **logical container** name in YAML maps to an **agent socket path** as seen by cyclo_manager (often under `/agents/...` in the API container).
+| Component | Role |
+|-----------|------|
+| **cyclo_manager** (this repo, API image) | REST + WebSocket API on port **8081** |
+| **cyclo_manager_ui** | Web UI on port **3000** |
+| **cyclo-manager** (PyPI CLI) | `cyclo_manager up` / `down` / `update`; installs **cyclo_host_agent** systemd service |
+| **cyclo_host_agent** | Host-side agent (UDS): git repo updates, `cyclo_manager` package update |
+| **In-container agent** (`cyclo_manager.agent`) | FastAPI + s6 client inside each robot container |
 
 ---
 
 ## Architecture
 
 ```text
-┌──────────────────────────────────────────────────────────────┐
-│  Host / cyclo_manager container (FastAPI, e.g. :8081)        │
-│  ┌──────────────────────────────────────────────────────────┐│
-│  │  REST + WebSocket                                        ││
-│  │  /containers  /{container}/services  /docker  /ros2      ││
-│  │  /{container}/bashrc  /version  /docker/.../terminal/ws ││
-│  │  /ws/...                                                 ││
-│  └──────────────────────────────────────────────────────────┘│
-│       │                   │                    │             │
-│       │ httpx (UDS HTTP)  │ Docker SDK         │ rclpy       │
-│       ▼                    ▼                    ▼            │
-│  Agent sockets       docker.sock           ROS_DOMAIN_ID     │
-└──────────────────────────────────────────────────────────────┘
-        │                                  ▲
-        │  UDS (agent socket, bind mount)  │ same domain as robots
-        ▼                                  │
-┌──────────────────┐            ┌──────────────────┐
-│ Robot container  │            │ ROS 2 graph      │
-│ (e.g. ai_worker) │────────────│ (topics, nodes)  │
-│  s6_agent : UDS  │            └──────────────────┘
-└──────────────────┘
+┌─────────────────────────────────────────────────────────────────┐
+│  cyclo_manager container (FastAPI :8081)                        │
+│  REST / WebSocket ──► agent UDS    Docker SDK ──► docker.sock   │
+│                    └──► host_agent UDS (repo / system update)   │
+│                    └──► rclpy (ROS_DOMAIN_ID)                     │
+└─────────────────────────────────────────────────────────────────┘
+         │ UDS (/agents/...)              │
+         ▼                                ▼
+┌──────────────────┐              ┌──────────────────┐
+│ Robot containers │              │ Host             │
+│ (e.g. ai_worker) │              │ cyclo_host_agent │
+│  s6_agent.sock   │              │  + git repos ~   │
+└──────────────────┘              └──────────────────┘
 ```
 
-The **in-container agent** (`cyclo_manager.agent`: FastAPI + s6 client) lives in this repo and runs **inside** each managed container. It is **not** the same process as the host API.
+Agent socket paths on the host live under `/var/run/robotis/agent_sockets/` and are bind-mounted into the API container as `/agents/`.
+
+---
+
+## Quick start (robot / production)
+
+```bash
+pip install cyclo-manager
+cyclo_manager up
+```
+
+- Starts **cyclo_manager** and **UI** containers from pre-built images.
+- Creates (but does not start) **Zenoh** and **noVNC** containers by default.
+- Installs **cyclo_host_agent** as a systemd service (runs as the invoking user).
+
+Open **http://127.0.0.1:3000** (UI) and **http://127.0.0.1:8081/docs** (API).
+
+CLI details: **[cyclo_manager_cli/README.md](cyclo_manager_cli/README.md)**
+
+---
+
+## Development
+
+From the repository root:
+
+```bash
+docker compose -f docker-compose.dev.yml up
+```
+
+- Mounts `./config.yml` and local source for API/UI hot reload.
+- Requires agent sockets on the host at `/var/run/robotis/agent_sockets/`.
+
+---
+
+## Configuration
+
+The API reads **`CONFIG_FILE`** (default `config.yml`). The pip CLI mounts the bundled config via **`CYCLO_MANAGER_CONFIG_FILE`** (no `-c` flag).
+
+### Schema
+
+| Key | Description |
+|-----|-------------|
+| **`robot_container`** | Primary robot Docker container name (e.g. `ai_worker`). Used by the UI for the System page and service bringup. Must be a key in `sockets` (not `host_agent`). |
+| **`sockets`** | Map of logical name → agent socket path **as seen inside the API container** (typically under `/agents/...`). Include robot/service containers and `host_agent`. |
+
+s6 **service names** are not listed in config; each in-container agent reports them at runtime.
+
+### Example
+
+```yaml
+robot_container: ai_worker
+
+sockets:
+  ai_worker: "/agents/ai_worker/s6_agent.sock"
+  physical_ai_server: "/agents/physical_ai_server/s6_agent.sock"
+  host_agent: "/agents/host/host_agent.sock"
+```
+
+Validation rules (enforced at startup):
+
+- At least one socket entry besides `host_agent`
+- `robot_container` must exist in `sockets` and cannot be `host_agent`
+- All socket paths must be non-empty strings
+
+Bundled copy for pip installs: `cyclo_manager_cli/cyclo_manager_cli/config/config.yml`
+
+---
+
+## Web UI
+
+| Page | Path | Notes |
+|------|------|-------|
+| Dashboard | `/dashboard` | Host stats, Docker containers, version management (host git repos) |
+| System | `/{robot_container}/system` | s6 bringup, launch args, URDF viewer, service logs |
+| Topics | `/topics` | ROS 2 topic browser |
+| Terminal | `/terminal` | Multi-tab bash into running containers |
+| noVNC | `/novnc` | Remote display (when `novnc-server` is running) |
+
+The sidebar **System** button navigates to `robot_container` from `GET /containers`.
+
+UI details: **[cyclo_manager_ui/README_UI.md](cyclo_manager_ui/README_UI.md)**
+
+---
+
+## API overview
+
+Interactive docs: `http://<host>:8081/docs`
+
+| Area | Method & path | Notes |
+|------|----------------|-------|
+| Root | `GET /` | API metadata |
+| Config | `GET /containers` | Configured containers + `robot_container` |
+| System | `GET /system/info`, `GET /system/status` | Hostname, internet, CPU/memory/disk |
+| Services | `GET /{container}/services` | List s6 services |
+| | `GET /{container}/services/status` | All statuses |
+| | `POST /{container}/services/{service}` | `up` / `down` / `restart`; optional `launch_args`, `robot_type` |
+| | `GET`, `DELETE /{container}/services/{service}/logs` | s6 log files |
+| | `GET`, `PUT /{container}/services/{service}/run` | s6 run script |
+| Container | `GET`, `PUT /{container}/bashrc` | Via `docker exec` |
+| Docker | `GET /docker/containers` | Optional `?all=true` |
+| | `GET /docker/{name}/status` | |
+| | `POST /docker/{name}` | start / stop / restart |
+| | `GET /docker/{name}/logs` | Engine logs |
+| | `GET /docker/{name}/top` | Process list |
+| | `DELETE /docker/{name}/processes/{pid}` | Signal process |
+| Terminal | `WebSocket /terminal/{name}/ws` | PTY bash; optional `session_id` |
+| | `DELETE /terminal/{name}/{session_id}` | Kill session |
+| ROS 2 | `GET /ros2/topics`, `GET /ros2/topics/{topic}`, … | Subscribe / cache for UI |
+| Host | `GET /host/repos/updates` | Managed `ROBOTIS-GIT/*` repos on host |
+| | `POST /host/repos/{name}/update` | git pull workflow |
+| | `POST /host/update` | `pip install -U cyclo-manager` + stack restart |
+| Version | `GET /version` | Installed vs PyPI `cyclo-manager` |
+| WebSocket | `/ws/{container}/services/{service}/logs` | Live s6 logs |
+| | `/ws/ros2/topics/{topic}` | Live topic data |
+
+Docker routes return **503** if `docker.sock` is unavailable. ROS routes require a running **rclpy** node and matching **`ROS_DOMAIN_ID`**.
 
 ---
 
@@ -69,99 +159,23 @@ The **in-container agent** (`cyclo_manager.agent`: FastAPI + s6 client) lives in
 
 ```text
 cyclo_manager/
-├── cyclo_manager/              # Backend Python package (FastAPI)
-│   ├── api.py                  # App entry, CORS, routers
-│   ├── agent/                  # s6 agent (runs inside robot containers)
-│   ├── routers/                # root, containers, container, services,
-│   │                           # docker, ros2, websocket, version
-│   ├── agent_client.py         # HTTP client pool → agent UDS
-│   ├── docker_client.py
-│   ├── ros2_node/              # rclpy subscriber + message helpers
-│   ├── config.py, models.py, state.py, lifespan.py
-│   ├── Dockerfile, Dockerfile.dev
-│   └── requirements.txt
-├── cyclo_manager_ui/           # Next.js UI (see cyclo_manager_ui/README*.md)
-├── cyclo_manager_cli/          # PyPI package `cyclo-manager` → `cyclo_manager` CLI
-│   └── cyclo_manager_cli/docker/docker-compose.yml   # used by `cyclo_manager up`
-├── config.yml                  # Example config (repo root; dev compose mount)
-├── docker-compose.dev.yml      # Dev: local builds, hot reload
-├── novnc/                      # Optional noVNC image (dev compose)
-├── CONTRIBUTING.md
-├── LICENSE
+├── cyclo_manager/           # FastAPI backend + in-container agent
+├── cyclo_manager_ui/        # Next.js UI
+├── cyclo_manager_cli/       # PyPI package (cyclo-manager)
+├── config.yml               # Dev / example config
+├── docker-compose.dev.yml
 └── README.md
 ```
 
 ---
 
-## Configuration
-
-The API loads YAML from **`CONFIG_FILE`** (default `config.yml` in the working directory) unless overridden. The **pip-installed** `cyclo_manager up` command mounts the **bundled** config using **`CYCLO_MANAGER_CONFIG_FILE`** (no separate `-c` override). To use a custom file on the host in development, prefer **`docker-compose.dev.yml`** at the repo root and adjust volume/env there.
-
-**Top-level keys**
-
-- **`containers`**: Map of **name** → **`socket_path`** (agent UDS as seen by the API).
-- **`repo_version`** (optional, per target container such as `ai_worker`): GitHub Releases API + path to `package.xml` for **`GET /docker/{name}/version`**.
-
-s6 service names are **not** listed in this file; they come from each agent at runtime.
-
----
-
-## How to run
-
-### Packaged stack (PyPI + prebuilt images)
-
-```bash
-pip install cyclo-manager
-cyclo_manager up
-```
-
-This starts the API and UI using the bundled Compose file; related images (e.g. Zenoh / noVNC) may be created but not always started by default. **`ROS_DOMAIN_ID`** is not set by the CLI—configure it in the environment (e.g. **`~/.bashrc`**) and restart as needed. CLI commands and details: **[cyclo_manager_cli/README.md](cyclo_manager_cli/README.md)**.
-
-
-## API overview
-
-Interactive docs: **`http://<host>:8081/docs`**, **`/redoc`**, **`/openapi.json`**.
-
-| Area | Method & path | Notes |
-|------|----------------|--------|
-| Root | `GET /` | Metadata and doc links |
-| Containers (config) | `GET /containers` | Configured names + socket paths |
-| Per-container | `GET`, `PUT /{container}/bashrc` | Read/update via Docker |
-| Services | `GET /{container}/services` | List |
-| | `GET /{container}/services/status` | All statuses |
-| | `GET /{container}/services/{service}/status` | One service |
-| | `POST /{container}/services/{service}` | `up` / `down` / `restart`; body: `launch_args`, `robot_type` (for `ai_worker_bringup`) |
-| | `GET`, `DELETE /{container}/services/{service}/logs` | Read / clear s6 service logs |
-| | `GET`, `PUT /{container}/services/{service}/run` | Read / update s6 run script |
-| Docker | `GET /docker/containers` | Optional `?all=true` |
-| | `GET /docker/{name}/status` | |
-| | `POST /docker/{name}` | Start/stop/restart |
-| | `GET /docker/{name}/logs` | Docker engine logs (not s6 file logs) |
-| | `GET /docker/{name}/top` | Process list (`docker top` style) |
-| | `DELETE /docker/{name}/processes/{pid}` | Send signal (query `signal`, default `SIGTERM`) |
-| | `WebSocket /docker/{name}/terminal/ws` | Interactive terminal (`session_id` query optional) |
-| | `DELETE /docker/{name}/terminal/{session_id}` | Close tmux-backed session |
-| | `GET /docker/{name}/version` | Repo vs GitHub (if `repo_version` configured; `ai_worker` only) |
-| ROS 2 | `GET /{container}/ros2/topics` | Discovery |
-| | `GET /{container}/ros2/topics/{topic}/info` | |
-| | `GET /{container}/ros2/topics/{topic}` | Cached payload |
-| | `POST .../subscribe`, `POST .../unsubscribe` | |
-| Version | `GET /version` | Installed vs PyPI `cyclo-manager` |
-| | `POST /version/update` | `pip install -U` + `cyclo_manager` CLI up/down; limited in minimal API images |
-| WebSocket | `/ws/{container}/services/{service}/logs` | Log stream |
-| | `/ws/{container}/ros2/topics/{topic}` | Topic stream (`topic` may include `/` path segments) |
-
-If the Docker socket is missing or unusable, Docker routes usually return **503**. ROS routes need a working **rclpy** node for that container and a matching **`ROS_DOMAIN_ID`** with your robots.
-
----
-
 ## Security
 
-The API is **unauthenticated** by default. With **`docker.sock`**, it is **highly privileged**. Restrict access (firewall / VPN), tighten **CORS** in production, and treat **`/docs`**, unauthenticated WebSockets, and **`POST /version/update`** as sensitive if exposed.
+The API is **unauthenticated** by default and mounts **`docker.sock`** (high privilege). Restrict network access, tighten **CORS** in production, and treat `/docs`, WebSockets, and `/host/*` as sensitive when exposed.
 
 ---
 
 ## Contributing & license
 
-- **Contributing**: **[CONTRIBUTING.md](CONTRIBUTING.md)**
-- **License**: **[LICENSE](LICENSE)**
+- **[CONTRIBUTING.md](CONTRIBUTING.md)**
+- **[LICENSE](LICENSE)** (Apache-2.0)

@@ -74,7 +74,6 @@ function getMeshesForJoint(joint: THREE.Object3D): THREE.Mesh[] {
 }
 
 interface Robot3DViewerProps {
-  container: string;
   robotDescriptionTopic?: string;
   jointStatesTopic?: string;
   className?: string;
@@ -174,7 +173,6 @@ function disposeGridHelper(grid: THREE.GridHelper): void {
 // Component
 // -----------------------------------------------------------------------------
 export default function Robot3DViewer({
-  container,
   robotDescriptionTopic = "/robot_description",
   jointStatesTopic = "/joint_states",
   className = "",
@@ -194,8 +192,8 @@ export default function Robot3DViewer({
   const [jointValues, setJointValues] = useState<Record<string, number>>({});
   const [highlightedJoint, setHighlightedJoint] = useState<string | null>(null);
 
-  const { topicData: robotDescriptionData } = useROS2TopicWebSocket(container, robotDescriptionTopic);
-  const { topicData: jointStatesData } = useROS2TopicWebSocket(container, jointStatesTopic);
+  const { topicData: robotDescriptionData } = useROS2TopicWebSocket(robotDescriptionTopic);
+  const { topicData: jointStatesData } = useROS2TopicWebSocket(jointStatesTopic);
 
   // Parse robot description from topic data
   useEffect(() => {

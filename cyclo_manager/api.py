@@ -26,9 +26,12 @@ from cyclo_manager.routers import (
     container,
     containers,
     docker,
+    host,
     root,
     ros2,
     services,
+    system,
+    terminal,
     version,
     websocket,
 )
@@ -69,7 +72,7 @@ app = FastAPI(
     * **ReDoc**: Available at `/redoc` (alternative documentation)
     * **OpenAPI Schema**: Available at `/openapi.json`
     """,
-    version='0.1.1',
+    version='0.2.0',
     lifespan=lifespan,
     docs_url='/docs',
     redoc_url='/redoc',
@@ -114,6 +117,12 @@ app = FastAPI(
                 'cyclo_manager version check (PyPI) and update (pip + cyclo_manager up).'
             ),
         },
+        {
+            'name': 'host',
+            'description': (
+                'Host agent operations: ROS2 workspace repo management (clone, pull, delete).'
+            ),
+        },
     ],
 )
 
@@ -129,13 +138,16 @@ app.add_middleware(
 
 # Include routers
 app.include_router(root.router)
+app.include_router(system.router)
 app.include_router(containers.router)
 app.include_router(container.router)
 app.include_router(services.router)
 app.include_router(version.router)
 app.include_router(docker.router)
+app.include_router(terminal.router)
 app.include_router(ros2.router)
 app.include_router(websocket.router)
+app.include_router(host.router)
 
 
 @app.exception_handler(HTTPException)
