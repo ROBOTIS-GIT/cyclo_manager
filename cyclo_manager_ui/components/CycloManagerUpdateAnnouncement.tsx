@@ -21,59 +21,53 @@ import { getCycloManagerVersion, updateCycloManager, getUpdateStatus } from "@/l
 import type { CycloManagerVersionResponse } from "@/types/api";
 import { useAppsHubBanner } from "@/contexts/AppsHubBannerContext";
 
-type Phase = "idle" | "stopping" | "restarting" | "installing" | "starting" | "done" | "error";
+type Phase = "idle" | "updating" | "done" | "error";
 
 const PHASE_LABELS: Record<Phase, string> = {
   idle: "",
-  stopping: "Stopping server...",
-  restarting: "Server stopped. Waiting for install to complete...",
-  installing: "Installing package...",
-  starting: "Starting server...",
+  updating: "Updating cyclo_manager...",
   done: "Update complete. Reloading...",
   error: "Update failed.",
 };
 
-const STEPS: { key: Phase; label: string }[] = [
-  { key: "stopping",   label: "Stop Server" },
-  { key: "installing", label: "Install Package" },
-  { key: "starting",   label: "Start Server" },
-];
+const UPDATE_TIMEOUT_MS = 15 * 60 * 1000;
+const STATUS_POLL_MS = 2000;
+const VERSION_POLL_MS = 3000;
 
-function StepBar({ phase }: { phase: Phase }) {
-  const order: Phase[] = ["stopping", "installing", "starting", "done"];
-  const idx = order.indexOf(phase === "restarting" ? "installing" : phase);
-  return (
-    <div className="flex items-center gap-0 px-5 py-3 text-xs"
-      style={{ borderBottom: "1px solid var(--vscode-panel-border)", flexShrink: 0 }}>
-      {STEPS.map((step, i) => {
-        const done = i < (idx === -1 ? 0 : idx) || phase === "done";
-        const active = order[idx] === step.key && phase !== "done";
-        return (
-          <div key={step.key} className="flex items-center">
-            <div className="flex items-center gap-1.5">
-              <span style={{
-                width: 20, height: 20, borderRadius: "50%",
-                display: "flex", alignItems: "center", justifyContent: "center",
-                fontSize: 11, fontWeight: 600, flexShrink: 0,
-                backgroundColor: done ? "#3fb950" : active ? "var(--vscode-button-background)" : "transparent",
-                color: done || active ? "#fff" : "var(--vscode-descriptionForeground)",
-                border: done || active ? "none" : "1px solid var(--vscode-panel-border)",
-              }}>
-                {done ? "✓" : i + 1}
-              </span>
-              <span style={{
-                color: active ? "var(--vscode-foreground)" : done ? "#3fb950" : "var(--vscode-descriptionForeground)",
-                fontWeight: active ? 600 : 400,
-              }}>{step.label}</span>
-            </div>
-            {i < STEPS.length - 1 && (
-              <span className="mx-2" style={{ color: "var(--vscode-panel-border)" }}>—</span>
-            )}
-          </div>
-        );
-      })}
-    </div>
-  );
+function isKnownVersion(version: string): boolean {
+  return !!version && version !== "unknown";
+}
+
+/** True when we can confidently treat the update as successful. */
+function isUpdateSuccessful(
+  v: CycloManagerVersionResponse,
+  beforeCurrent: string,
+  targetLatest: string,
+): boolean {
+  if (isKnownVersion(v.current) && beforeCurrent && v.current !== beforeCurrent) {
+    return true;
+  }
+  if (isKnownVersion(targetLatest) && v.current === targetLatest) {
+    return true;
+  }
+  if (v.pypi_available && isKnownVersion(v.latest) && v.current === v.latest) {
+    return true;
+  }
+  if (v.pypi_available && !v.update_available && isKnownVersion(v.latest)) {
+    return true;
+  }
+  return false;
+}
+
+/** True when PyPI is reachable and the running version did not change. */
+function isUpdateFailed(
+  v: CycloManagerVersionResponse,
+  beforeCurrent: string,
+): boolean {
+  if (!v.pypi_available || !beforeCurrent) {
+    return false;
+  }
+  return v.update_available && v.current === beforeCurrent;
 }
 
 function OutputBox({ output, error }: { output: string; error?: boolean }) {
@@ -103,9 +97,7 @@ export default function CycloManagerUpdateAnnouncement({
   const [info, setInfo] = useState<CycloManagerVersionResponse | null>(null);
   const [showModal, setShowModal] = useState(false);
   const [phase, setPhase] = useState<Phase>("idle");
-  const [downOutput, setDownOutput] = useState("");
-  const [installOutput, setInstallOutput] = useState("");
-  const [upOutput, setUpOutput] = useState("");
+  const [output, setOutput] = useState("");
   const [errorMsg, setErrorMsg] = useState("");
   const pollingRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const { setUpdateBannerVisible } = useAppsHubBanner();
@@ -132,68 +124,98 @@ export default function CycloManagerUpdateAnnouncement({
     }
   }, []);
 
-  // After server comes back up, poll status endpoint for install+up results
-  const pollStatus = useCallback(() => {
-    pollingRef.current = setInterval(async () => {
-      try {
-        const s = await getUpdateStatus();
-        if (s.phase === "installing" || s.phase === "starting") {
-          setPhase(s.phase);
-          if (s.install_output) setInstallOutput(s.install_output);
-        } else if (s.phase === "done") {
-          stopPolling();
-          if (s.install_output) setInstallOutput(s.install_output);
-          if (s.up_output) setUpOutput(s.up_output);
-          setPhase("done");
-          setTimeout(() => window.location.reload(), 1500);
-        } else if (s.phase === "error") {
-          stopPolling();
-          if (s.install_output) setInstallOutput(s.install_output);
-          if (s.up_output) setUpOutput(s.up_output);
-          setErrorMsg(s.error);
-          setPhase("error");
-        }
-      } catch {
-        // server still restarting, keep polling
-      }
-    }, 3000);
+  const failUpdate = useCallback((message: string) => {
+    stopPolling();
+    setErrorMsg(message);
+    setPhase("error");
   }, [stopPolling]);
 
-  // After cyclo down, wait for server to come back before polling status
-  const waitForServerThenPollStatus = useCallback(() => {
-    setPhase("restarting");
-    const serverPoll = setInterval(async () => {
-      try {
-        await getCycloManagerVersion();
-        clearInterval(serverPoll);
-        pollStatus();
-      } catch {
-        // still down
+  const succeedUpdate = useCallback(() => {
+    stopPolling();
+    setPhase("done");
+    setTimeout(() => window.location.reload(), 1500);
+  }, [stopPolling]);
+
+  // Step 2: API came back — verify version (host-agent status is lost after restart)
+  const waitForServerThenCheckVersion = useCallback((
+    beforeCurrent: string,
+    targetLatest: string,
+    startedAt: number,
+  ) => {
+    pollingRef.current = setInterval(async () => {
+      if (Date.now() - startedAt > UPDATE_TIMEOUT_MS) {
+        failUpdate("Update timed out. Check the server and retry.");
+        return;
       }
-    }, 3000);
-  }, [pollStatus]);
+      try {
+        const v = await getCycloManagerVersion();
+        if (isUpdateSuccessful(v, beforeCurrent, targetLatest)) {
+          succeedUpdate();
+        } else if (isUpdateFailed(v, beforeCurrent)) {
+          failUpdate(
+            `Update may have failed — still on ${v.current}, latest is ${v.latest}.`,
+          );
+        }
+      } catch {
+        // API still down, keep waiting
+      }
+    }, VERSION_POLL_MS);
+  }, [failUpdate, succeedUpdate]);
+
+  // Step 1: poll host-agent status until API goes down or an error is reported
+  const pollUntilDown = useCallback((
+    beforeCurrent: string,
+    targetLatest: string,
+    startedAt: number,
+  ) => {
+    let consecutiveFailures = 0;
+    let sawUpdating = false;
+
+    pollingRef.current = setInterval(async () => {
+      if (Date.now() - startedAt > UPDATE_TIMEOUT_MS) {
+        failUpdate("Update timed out. Check the server and retry.");
+        return;
+      }
+      try {
+        consecutiveFailures = 0;
+        const s = await getUpdateStatus();
+        if (s.output) setOutput(s.output);
+        if (s.phase === "updating") sawUpdating = true;
+        if (s.phase === "error") {
+          failUpdate(s.error || "Update failed.");
+        }
+      } catch {
+        consecutiveFailures += 1;
+        if (sawUpdating || consecutiveFailures >= 2) {
+          stopPolling();
+          waitForServerThenCheckVersion(beforeCurrent, targetLatest, startedAt);
+        }
+      }
+    }, STATUS_POLL_MS);
+  }, [failUpdate, stopPolling, waitForServerThenCheckVersion]);
 
   const handleUpdate = useCallback(async () => {
-    setPhase("stopping");
-    setDownOutput("");
-    setInstallOutput("");
-    setUpOutput("");
+    const beforeCurrent = info?.current ?? "";
+    const targetLatest = info?.latest ?? "";
+    const startedAt = Date.now();
+
+    setPhase("updating");
+    setOutput("");
     setErrorMsg("");
     try {
-      const res = await updateCycloManager();
-      setDownOutput(res.down_output);
-      waitForServerThenPollStatus();
+      await updateCycloManager();
+      pollUntilDown(beforeCurrent, targetLatest, startedAt);
     } catch (e) {
       setPhase("error");
       setErrorMsg(e instanceof Error ? e.message : "Failed to start update.");
     }
-  }, [waitForServerThenPollStatus]);
+  }, [info, pollUntilDown]);
 
   useEffect(() => () => stopPolling(), [stopPolling]);
 
   if (!info?.update_available) return null;
 
-  const isRunning = phase === "stopping" || phase === "restarting" || phase === "installing" || phase === "starting";
+  const isRunning = phase === "updating";
   const canClose = !isRunning && phase !== "done";
 
   return (
@@ -251,19 +273,11 @@ export default function CycloManagerUpdateAnnouncement({
               )}
             </div>
 
-            {/* Step bar */}
-            {phase !== "idle" && <StepBar phase={phase} />}
-
             {/* Body */}
             <div style={{ flex: 1, overflowY: "auto", padding: "16px 20px" }} className="flex flex-col gap-3">
               {phase === "idle" && (
-                <div className="flex flex-col gap-1.5 text-sm" style={{ color: "var(--vscode-descriptionForeground)" }}>
-                  <div>The following steps will be performed:</div>
-                  <ol className="flex flex-col gap-1 pl-4 list-decimal">
-                    <li><strong style={{ color: "var(--vscode-foreground)" }}>Stop Server</strong> — stop cyclo_manager stack</li>
-                    <li><strong style={{ color: "var(--vscode-foreground)" }}>Install Package</strong> — pip install -U cyclo-manager</li>
-                    <li><strong style={{ color: "var(--vscode-foreground)" }}>Start Server</strong> — restart cyclo_manager stack</li>
-                  </ol>
+                <div className="text-sm" style={{ color: "var(--vscode-descriptionForeground)" }}>
+                  Runs <code>cyclo_manager update</code> — installs the latest package and restarts the stack without removing sockets or services.
                 </div>
               )}
 
@@ -280,9 +294,7 @@ export default function CycloManagerUpdateAnnouncement({
               )}
 
               {/* Logs */}
-              {downOutput && <OutputBox output={downOutput} />}
-              {installOutput && <OutputBox output={installOutput} />}
-              {upOutput && <OutputBox output={upOutput} />}
+              {output && <OutputBox output={output} />}
             </div>
 
             {/* Footer */}

@@ -28,8 +28,6 @@ import {
   getBashrc,
   updateBashrc,
   getRepoUpdates,
-  rebootHost,
-  shutdownHost,
 } from "@/lib/api";
 import type { HostSystemStatsResponse, RobotInfoResponse, DockerContainerInfo, RepoUpdateStatus } from "@/types/api";
 import StatusBadge from "@/components/StatusBadge";
@@ -312,8 +310,6 @@ export default function HomePage() {
   const [repoCheckState, setRepoCheckState] = useState<"loading" | "error" | "done">("loading");
   const [wizardRepo, setWizardRepo] = useState<RepoUpdateStatus | null>(null);
   const [actionLoading, setActionLoading] = useState<{ container: string; action: string } | null>(null);
-  const [actionError, setActionError] = useState<string | null>(null);
-  const [confirmAction, setConfirmAction] = useState<"reboot" | "shutdown" | null>(null);
 
   // settings modal
   const [settingsContainer, setSettingsContainer] = useState<string | null>(null);
@@ -374,13 +370,11 @@ export default function HomePage() {
 
   const handleAction = useCallback(async (name: string, action: "start" | "stop" | "restart") => {
     setActionLoading({ container: name, action });
-    setActionError(null);
     try {
       await controlDockerContainer(name, action);
       await loadContainers();
     } catch (err) {
-      setActionError(err instanceof Error ? err.message : "Docker action failed");
-      setTimeout(() => setActionError(null), 4000);
+      console.error("Docker action failed:", err);
     } finally {
       setActionLoading(null);
     }
@@ -503,55 +497,12 @@ export default function HomePage() {
             </Card>
           </section>
 
-          {/* Quick Actions */}
-          <section>
-            <Card title="Quick Actions" className="h-full">
-              <div className="p-4 flex flex-row gap-3">
-                <button
-                  onClick={() => setConfirmAction("reboot")}
-                  className="flex-1 flex flex-col items-center justify-center gap-2 py-5 rounded font-semibold"
-                  style={{
-                    backgroundColor: "var(--vscode-button-secondaryBackground)",
-                    color: "var(--vscode-button-secondaryForeground)",
-                    border: "1px solid var(--vscode-panel-border)",
-                    cursor: "pointer",
-                  }}
-                >
-                  <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                    <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8" />
-                    <path d="M3 3v5h5" />
-                  </svg>
-                  <span style={{ fontSize: 13 }}>Reboot</span>
-                </button>
-                <button
-                  onClick={() => setConfirmAction("shutdown")}
-                  className="flex-1 flex flex-col items-center justify-center gap-2 py-5 rounded font-semibold"
-                  style={{
-                    backgroundColor: "var(--vscode-button-secondaryBackground)",
-                    color: "var(--vscode-button-secondaryForeground)",
-                    border: "1px solid var(--vscode-panel-border)",
-                    cursor: "pointer",
-                  }}
-                >
-                  <span style={{ fontSize: 28 }}>🛑</span>
-                  <span style={{ fontSize: 13 }}>Shutdown</span>
-                </button>
-              </div>
-            </Card>
-          </section>
-
         </div>
 
         {/* ── Bottom row: 2 columns ── */}
         <div className="grid gap-4 items-start" style={{ gridTemplateColumns: "1.5fr 1fr" }}>
 
         <section>
-          {actionError && (
-            <div className="mb-2 px-3 py-2 rounded text-xs"
-              style={{ backgroundColor: "var(--vscode-inputValidation-errorBackground)", color: "var(--vscode-errorForeground)" }}>
-              {actionError}
-            </div>
-          )}
           <Card title="Container Management">
             {containers.length === 0 ? (
               <div className="p-4 text-sm" style={{ color: "var(--vscode-descriptionForeground)" }}>
@@ -623,54 +574,6 @@ export default function HomePage() {
         </div>
 
       </div>
-
-      {/* ── Reboot / Shutdown confirm ── */}
-      {confirmAction && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center"
-          style={{ backgroundColor: "rgba(0,0,0,0.5)" }}>
-          <div className="rounded-lg p-5 flex flex-col gap-4 w-72"
-            style={{
-              backgroundColor: "var(--vscode-editor-background)",
-              border: "1px solid var(--vscode-panel-border)",
-            }}>
-            <div className="text-sm font-semibold" style={{ color: "var(--vscode-foreground)" }}>
-              {confirmAction === "reboot" ? "Reboot the system?" : "Shut down the system?"}
-            </div>
-            <div className="text-xs" style={{ color: "var(--vscode-descriptionForeground)" }}>
-              {confirmAction === "reboot"
-                ? "The host machine will restart."
-                : "The host machine will power off."}
-            </div>
-            <div className="flex justify-end gap-2">
-              <button
-                onClick={() => setConfirmAction(null)}
-                className="px-4 py-1.5 rounded text-xs"
-                style={{
-                  backgroundColor: "var(--vscode-button-secondaryBackground)",
-                  color: "var(--vscode-button-secondaryForeground)",
-                  border: "none", cursor: "pointer",
-                }}>
-                Cancel
-              </button>
-              <button
-                onClick={async () => {
-                  const action = confirmAction;
-                  setConfirmAction(null);
-                  if (action === "reboot") await rebootHost();
-                  else await shutdownHost();
-                }}
-                className="px-4 py-1.5 rounded text-xs font-semibold"
-                style={{
-                  backgroundColor: "var(--vscode-button-background)",
-                  color: "var(--vscode-button-foreground)",
-                  border: "none", cursor: "pointer",
-                }}>
-                {confirmAction === "reboot" ? "Reboot" : "Shut Down"}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
 
       {/* ── Settings modal ── */}
       {settingsDocker && (

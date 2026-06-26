@@ -18,16 +18,17 @@
 
 """System info and stats endpoints: reads directly from /proc inside the container."""
 
+import asyncio
 import os
+from pathlib import Path
 import platform
 import socket
 import time
-from pathlib import Path
 from typing import Optional
 
-import psutil
 from cyclo_manager.models import RobotInfoResponse, SystemStatsResponse
 from fastapi import APIRouter
+import psutil
 
 router = APIRouter(prefix='/system', tags=['system'])
 
@@ -36,11 +37,18 @@ router = APIRouter(prefix='/system', tags=['system'])
 _HOST_ROOT = '/host_root'
 
 
-def _check_internet() -> bool:
+async def _check_internet() -> bool:
+    loop = asyncio.get_event_loop()
     try:
-        with socket.create_connection(("8.8.8.8", 53), timeout=3):
-            return True
-    except OSError:
+        await asyncio.wait_for(
+            loop.run_in_executor(
+                None,
+                lambda: socket.create_connection(('8.8.8.8', 53), timeout=3),
+            ),
+            timeout=4,
+        )
+        return True
+    except Exception:
         return False
 
 
@@ -79,7 +87,8 @@ def _temperature() -> float | None:
 
 @router.get('/info', response_model=RobotInfoResponse)
 async def get_robot_info() -> RobotInfoResponse:
-    """Return hostname, OS name, and IP address.
+    """
+    Return hostname, OS name, and IP address.
 
     Uses HOST_HOSTNAME env var for hostname if set, otherwise the container hostname.
     """
@@ -103,13 +112,14 @@ async def get_robot_info() -> RobotInfoResponse:
         hostname=hostname,
         os_info=_os_info(),
         ip_address=ip_address,
-        internet_connected=_check_internet(),
+        internet_connected=await _check_internet(),
     )
 
 
 @router.get('/status', response_model=SystemStatsResponse)
 async def get_system_stats() -> SystemStatsResponse:
-    """Return CPU, memory, disk, and uptime stats.
+    """
+    Return CPU, memory, disk, and uptime stats.
 
     CPU/memory/uptime are read from /proc (host values via bind mount).
     Disk usage prefers /host_root (host root mount); falls back to /.

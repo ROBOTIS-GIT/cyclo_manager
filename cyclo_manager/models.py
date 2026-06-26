@@ -246,12 +246,12 @@ class DockerTopResponse(BaseModel):
     processes: list[list[str]] = Field(..., description='Process rows')
 
 
-
 class CycloManagerVersionResponse(BaseModel):
     """Response for GET /version (cyclo_manager server/CLI version from PyPI)."""
 
     current: str = Field(..., description='Current cyclo_manager version (API __version__)')
     latest: str = Field(..., description='Latest version from PyPI')
+    pypi_available: bool = Field(..., description='Whether the latest PyPI version was fetched')
     update_available: bool = Field(..., description='Whether an update is available')
 
 

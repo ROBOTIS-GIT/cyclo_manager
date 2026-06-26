@@ -13,7 +13,7 @@ Each managed robot container runs an **s6-overlay agent** (Unix domain socket). 
 | **cyclo_manager** (this repo, API image) | REST + WebSocket API on port **8081** |
 | **cyclo_manager_ui** | Web UI on port **3000** |
 | **cyclo-manager** (PyPI CLI) | `cyclo_manager up` / `down` / `update`; installs **cyclo_host_agent** systemd service |
-| **cyclo_host_agent** | Host-side agent (UDS): git repo updates, `cyclo_manager` package update, reboot/shutdown |
+| **cyclo_host_agent** | Host-side agent (UDS): git repo updates, `cyclo_manager` package update |
 | **In-container agent** (`cyclo_manager.agent`) | FastAPI + s6 client inside each robot container |
 
 ---
@@ -147,7 +147,6 @@ Interactive docs: `http://<host>:8081/docs`
 | Host | `GET /host/repos/updates` | Managed `ROBOTIS-GIT/*` repos on host |
 | | `POST /host/repos/{name}/update` | git pull workflow |
 | | `POST /host/update` | `pip install -U cyclo-manager` + stack restart |
-| | `POST /host/reboot`, `POST /host/shutdown` | Host power control |
 | Version | `GET /version` | Installed vs PyPI `cyclo-manager` |
 | WebSocket | `/ws/{container}/services/{service}/logs` | Live s6 logs |
 | | `/ws/ros2/topics/{topic}` | Live topic data |

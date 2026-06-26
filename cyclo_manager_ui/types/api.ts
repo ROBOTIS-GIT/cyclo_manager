@@ -167,6 +167,12 @@ export interface RepoStatusResponse {
   has_changes: boolean;
 }
 
+export interface RepoBranchCheckResponse {
+  name: string;
+  branch: string | null;
+  allowed: boolean;
+}
+
 export interface UpdateRequest {
   strategy: "stash" | "reset";
   preserve_files: string[];
@@ -190,6 +196,7 @@ export interface ContainerScriptResponse {
 export interface CycloManagerVersionResponse {
   current: string;
   latest: string;
+  pypi_available: boolean;
   update_available: boolean;
 }
 

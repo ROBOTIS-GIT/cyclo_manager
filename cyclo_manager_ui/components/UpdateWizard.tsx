@@ -17,10 +17,8 @@
 "use client";
 
 import { useEffect, useState, useCallback } from "react";
-import { getRepoStatus, updateRepo, stopRepoContainer, startRepoContainer } from "@/lib/api";
-import type { FileChange, RepoUpdateStatus } from "@/types/api";
-
-const ALLOWED_BRANCHES = ["main", "jazzy"];
+import { getRepoBranchCheck, getRepoStatus, updateRepo, stopRepoContainer, startRepoContainer } from "@/lib/api";
+import type { FileChange, RepoBranchCheckResponse, RepoUpdateStatus } from "@/types/api";
 
 type Phase = "intro" | "stop" | "choose" | "update" | "start";
 type RunStatus = "idle" | "running" | "done" | "error";
@@ -141,10 +139,16 @@ function RunningLabel({ label }: { label: string }) {
   );
 }
 
+type BranchCheckState =
+  | { status: "loading" }
+  | { status: "error"; message: string }
+  | { status: "done"; check: RepoBranchCheckResponse };
+
 // ── main component ────────────────────────────────────────────────────────────
 
 export default function UpdateWizard({ repo, onClose, onDone }: Props) {
   const [phase, setPhase] = useState<Phase>("intro");
+  const [branchCheck, setBranchCheck] = useState<BranchCheckState>({ status: "loading" });
   const [stop, setStop] = useState<PhaseState>({ status: "idle", output: "" });
   const [changes, setChanges] = useState<FileChange[]>([]);
   const [chooseLoading, setChooseLoading] = useState(false);
@@ -154,6 +158,32 @@ export default function UpdateWizard({ repo, onClose, onDone }: Props) {
   const [stashConflict, setStashConflict] = useState(false);
   const [stashConflictFiles, setStashConflictFiles] = useState<string[]>([]);
   const [start, setStart] = useState<PhaseState>({ status: "idle", output: "" });
+
+  const branchAllowed = branchCheck.status === "done" && branchCheck.check.allowed;
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      setBranchCheck({ status: "loading" });
+      try {
+        const check = await getRepoBranchCheck(repo.name);
+        if (!cancelled) setBranchCheck({ status: "done", check });
+      } catch (err) {
+        if (!cancelled) {
+          setBranchCheck({
+            status: "error",
+            message: err instanceof Error ? err.message : "Failed to check branch.",
+          });
+        }
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [repo.name]);
+
+  const goToStop = useCallback(() => {
+    if (!branchAllowed) return;
+    setPhase("stop");
+  }, [branchAllowed]);
 
   // ── Phase: stop ─────────────────────────────────────────────────────────────
   const runStop = useCallback(async () => {
@@ -239,7 +269,6 @@ export default function UpdateWizard({ repo, onClose, onDone }: Props) {
   const renderBody = () => {
     // INTRO
     if (phase === "intro") {
-      const branchAllowed = !repo.branch || ALLOWED_BRANCHES.includes(repo.branch);
       return (
         <div className="flex flex-col gap-4">
           <div className="text-sm" style={{ color: "var(--vscode-foreground)" }}>
@@ -251,21 +280,48 @@ export default function UpdateWizard({ repo, onClose, onDone }: Props) {
               {repo.current_version} → {repo.latest_version}
             </div>
           )}
-          {!branchAllowed && (
-            <div className="px-3 py-2 rounded text-sm"
-              style={{ backgroundColor: "rgba(241,76,76,0.12)", color: "var(--vscode-errorForeground)", border: "1px solid rgba(241,76,76,0.3)" }}>
-              Current branch is <strong>{repo.branch}</strong>. Only <strong>main</strong> or <strong>jazzy</strong> branches can be updated.
+
+          <div className="px-3 py-2 rounded text-sm border"
+            style={{ borderColor: "var(--vscode-panel-border)", backgroundColor: "var(--vscode-sidebar-background)" }}>
+            <div className="text-xs font-semibold uppercase tracking-wide mb-1.5"
+              style={{ color: "var(--vscode-descriptionForeground)" }}>
+              Branch check
+            </div>
+            {branchCheck.status === "loading" && (
+              <div style={{ color: "var(--vscode-descriptionForeground)" }}>
+                Checking current branch...
+              </div>
+            )}
+            {branchCheck.status === "error" && (
+              <div style={{ color: "var(--vscode-errorForeground)" }}>
+                {branchCheck.message}
+              </div>
+            )}
+            {branchCheck.status === "done" && branchCheck.check.allowed && (
+              <div style={{ color: "#3fb950" }}>
+                Current branch: <strong>{branchCheck.check.branch}</strong> — update allowed.
+              </div>
+            )}
+            {branchCheck.status === "done" && !branchCheck.check.allowed && (
+              <div style={{ color: "var(--vscode-errorForeground)" }}>
+                {branchCheck.check.branch
+                  ? <>Current branch is <strong>{branchCheck.check.branch}</strong>. Only <strong>main</strong> or <strong>jazzy</strong> branches can be updated.</>
+                  : <>Could not determine the current branch. Only <strong>main</strong> or <strong>jazzy</strong> branches can be updated.</>}
+              </div>
+            )}
+          </div>
+
+          {branchAllowed && (
+            <div className="flex flex-col gap-1.5 text-sm" style={{ color: "var(--vscode-descriptionForeground)" }}>
+              <div>The following steps will be performed:</div>
+              <ol className="flex flex-col gap-1 pl-4 list-decimal">
+                <li><strong style={{ color: "var(--vscode-foreground)" }}>Stop Container</strong> — stop the running container before updating</li>
+                <li><strong style={{ color: "var(--vscode-foreground)" }}>Choose Strategy</strong> — decide how to handle local changes</li>
+                <li><strong style={{ color: "var(--vscode-foreground)" }}>Update Repository</strong> — pull the latest code from remote</li>
+                <li><strong style={{ color: "var(--vscode-foreground)" }}>Start Container</strong> — restart the container with the new version</li>
+              </ol>
             </div>
           )}
-          <div className="flex flex-col gap-1.5 text-sm" style={{ color: "var(--vscode-descriptionForeground)" }}>
-            <div>The following steps will be performed:</div>
-            <ol className="flex flex-col gap-1 pl-4 list-decimal">
-              <li><strong style={{ color: "var(--vscode-foreground)" }}>Stop Container</strong> — stop the running container before updating</li>
-              <li><strong style={{ color: "var(--vscode-foreground)" }}>Choose Strategy</strong> — decide how to handle local changes</li>
-              <li><strong style={{ color: "var(--vscode-foreground)" }}>Update Repository</strong> — pull the latest code from remote</li>
-              <li><strong style={{ color: "var(--vscode-foreground)" }}>Start Container</strong> — restart the container with the new version</li>
-            </ol>
-          </div>
         </div>
       );
     }
@@ -423,12 +479,17 @@ export default function UpdateWizard({ repo, onClose, onDone }: Props) {
   // ── render footer per phase ───────────────────────────────────────────────────
   const renderFooter = () => {
     if (phase === "intro") {
-      const branchAllowed = !repo.branch || ALLOWED_BRANCHES.includes(repo.branch);
+      const canProceed = branchAllowed;
+      const checking = branchCheck.status === "loading";
       return (
         <>
           <button style={btnSecondary()} onClick={onClose}>Cancel</button>
-          <button style={btnPrimary(!branchAllowed)} disabled={!branchAllowed} onClick={() => setPhase("stop")}>
-            Stop Container
+          <button
+            style={btnPrimary(!canProceed || checking)}
+            disabled={!canProceed || checking}
+            onClick={goToStop}
+          >
+            {checking ? "Checking branch..." : "Stop Container"}
           </button>
         </>
       );

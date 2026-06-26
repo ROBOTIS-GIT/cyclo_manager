@@ -21,10 +21,10 @@
 import logging
 from typing import Optional
 
-import httpx
 from cyclo_manager.host_agent_client import HostAgentClient
 from cyclo_manager.state import get_host_agent_client
 from fastapi import APIRouter, Depends, HTTPException, status
+import httpx
 from pydantic import BaseModel
 
 logger = logging.getLogger(__name__)
@@ -50,6 +50,7 @@ class RepoListResponse(BaseModel):
 
 class RepoUpdateStatus(BaseModel):
     name: str
+    branch: Optional[str] = None
     current_version: Optional[str] = None
     latest_version: Optional[str] = None
     has_update: bool
@@ -69,6 +70,12 @@ class RepoStatusResponse(BaseModel):
     name: str
     changes: list[FileChange]
     has_changes: bool
+
+
+class RepoBranchCheckResponse(BaseModel):
+    name: str
+    branch: Optional[str] = None
+    allowed: bool
 
 
 class UpdateRequest(BaseModel):
@@ -102,10 +109,11 @@ def _proxy_error(e: Exception) -> HTTPException:
             detail=f'Host agent unreachable: {e}',
         )
     if isinstance(e, httpx.HTTPStatusError):
-        return HTTPException(
-            status_code=e.response.status_code,
-            detail=e.response.json().get('detail', str(e)),
-        )
+        try:
+            detail = e.response.json().get('detail', str(e))
+        except Exception:
+            detail = e.response.text or str(e)
+        return HTTPException(status_code=e.response.status_code, detail=detail)
     return HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))
 
 
@@ -131,6 +139,18 @@ async def list_repos(
     try:
         data = await client.list_repos()
         return RepoListResponse(**data)
+    except Exception as e:
+        raise _proxy_error(e)
+
+
+@router.get('/repos/{name}/branch', response_model=RepoBranchCheckResponse)
+async def get_repo_branch(
+    name: str,
+    client: HostAgentClient = Depends(get_host_agent_client),
+) -> RepoBranchCheckResponse:
+    try:
+        data = await client.get_repo_branch(name)
+        return RepoBranchCheckResponse(**data)
     except Exception as e:
         raise _proxy_error(e)
 
@@ -200,25 +220,5 @@ async def get_update_status(
 ) -> dict:
     try:
         return await client.get_update_status()
-    except Exception as e:
-        raise _proxy_error(e)
-
-
-@router.post('/reboot')
-async def reboot_host(
-    client: HostAgentClient = Depends(get_host_agent_client),
-) -> dict:
-    try:
-        return await client.reboot_host()
-    except Exception as e:
-        raise _proxy_error(e)
-
-
-@router.post('/shutdown')
-async def shutdown_host(
-    client: HostAgentClient = Depends(get_host_agent_client),
-) -> dict:
-    try:
-        return await client.shutdown_host()
     except Exception as e:
         raise _proxy_error(e)

@@ -27,6 +27,7 @@ logger = logging.getLogger(__name__)
 
 
 class HostAgentClient:
+
     def __init__(self, socket_path: str, timeout: float = 30.0) -> None:
         self.socket_path = socket_path
         self.timeout = timeout
@@ -56,6 +57,12 @@ class HostAgentClient:
     async def get_repo_updates(self) -> dict:
         client = await self._ensure_client()
         response = await client.get('/repos/updates')
+        response.raise_for_status()
+        return response.json()
+
+    async def get_repo_branch(self, name: str) -> dict:
+        client = await self._ensure_client()
+        response = await client.get(f'/repos/{name}/branch')
         response.raise_for_status()
         return response.json()
 
@@ -96,17 +103,5 @@ class HostAgentClient:
     async def get_update_status(self) -> dict:
         client = await self._ensure_client()
         response = await client.get('/system/update/status', timeout=10.0)
-        response.raise_for_status()
-        return response.json()
-
-    async def reboot_host(self) -> dict:
-        client = await self._ensure_client()
-        response = await client.post('/system/reboot', timeout=10.0)
-        response.raise_for_status()
-        return response.json()
-
-    async def shutdown_host(self) -> dict:
-        client = await self._ensure_client()
-        response = await client.post('/system/shutdown', timeout=10.0)
         response.raise_for_status()
         return response.json()
