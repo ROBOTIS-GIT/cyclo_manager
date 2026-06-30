@@ -266,10 +266,12 @@ class CycloManagerTopicSubscriber:
             return False
 
         pub_key = (topic, msg_type)
-        pub = self._pubs.get(pub_key)
+        with self._lock:
+            pub = self._pubs.get(pub_key)
         if pub is None:
             pub = self._node.create_publisher(msg_class, topic, 5)
-            self._pubs[pub_key] = pub
+            with self._lock:
+                self._pubs[pub_key] = pub
 
         try:
             msg = msg_class()
@@ -316,8 +318,9 @@ class CycloManagerTopicSubscriber:
     def _remove_all_publishers(self) -> None:
         if not self._node:
             return
-        pubs = list(self._pubs.items())
-        self._pubs.clear()
+        with self._lock:
+            pubs = list(self._pubs.items())
+            self._pubs.clear()
         for (topic, _msg_type), pub in pubs:
             try:
                 self._node.destroy_publisher(pub)
@@ -389,14 +392,14 @@ class CycloManagerTopicSubscriber:
             'linear': {'x': linear_x, 'y': 0.0, 'z': 0.0},
             'angular': {'x': 0.0, 'y': 0.0, 'z': angular_z},
         }
-        self._enqueue_and_wait(
+        self._request_queue.put(
             (
                 RequestKind.PUBLISH_TOPIC,
                 (topic, 'geometry_msgs/msg/Twist', data, response_queue),
             )
         )
         try:
-            return response_queue.get_nowait()
+            return response_queue.get(timeout=5.0)
         except queue.Empty:
             return False
 

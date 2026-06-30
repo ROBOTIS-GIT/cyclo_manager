@@ -53,6 +53,14 @@ type JogControlsProps = {
   stopJog: () => void;
 };
 
+function isEditableKeyboardTarget(target: EventTarget | null): boolean {
+  return target instanceof HTMLElement && (
+    target.tagName === "INPUT" ||
+    target.tagName === "TEXTAREA" ||
+    target.isContentEditable
+  );
+}
+
 const JOG_COMMANDS: JogCommand[] = [
   { id: "forward", label: "↑", hint: "Forward", linearDirection: 1, angularDirection: 0, gridClass: "col-start-2 row-start-1" },
   { id: "left", label: "←", hint: "Turn left", linearDirection: 0, angularDirection: 1, gridClass: "col-start-1 row-start-2" },
@@ -243,6 +251,10 @@ export default function JogPage() {
           resetControllerReady();
           return;
         }
+        if (warmedUpRef.current) {
+          setControllerReady(true);
+          return;
+        }
         const logs = await getServiceLogs(JOG_CONTAINER, ROBOT_SERVICE_NAME, READY_LOG_TAIL_LINES);
         if (disposed) return;
         const startIndex = logs.logs.lastIndexOf(BRINGUP_START_LOG);
@@ -350,6 +362,7 @@ export default function JogPage() {
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.repeat) return;
+      if (isEditableKeyboardTarget(event.target)) return;
       const command =
         event.key.toLowerCase() === "w" ? JOG_COMMANDS[0] :
           event.key.toLowerCase() === "a" ? JOG_COMMANDS[1] :
@@ -361,6 +374,7 @@ export default function JogPage() {
       startJog(command);
     };
     const handleKeyUp = (event: KeyboardEvent) => {
+      if (isEditableKeyboardTarget(event.target)) return;
       if (!["w", "a", "s", "d", " "].includes(event.key.toLowerCase())) return;
       event.preventDefault();
       stopJog();
