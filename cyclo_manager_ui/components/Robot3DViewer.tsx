@@ -28,8 +28,6 @@ import URDFLoader from "urdf-loader";
 // -----------------------------------------------------------------------------
 // Constants
 // -----------------------------------------------------------------------------
-const CANVAS_WIDTH = 500;
-const CANVAS_HEIGHT = 400;
 /** Match VS Code–style editor backgrounds for dark / light. */
 const SCENE_BG = { dark: 0x1e1e1e, light: 0xf3f3f3 } as const;
 const GROUND_COLOR = { dark: 0x333333, light: 0xd4d4d4 } as const;
@@ -213,16 +211,15 @@ export default function Robot3DViewer({
     const containerEl = containerRef.current;
     if (!containerEl || rendererRef.current) return;
 
+    const { width: initW, height: initH } = containerEl.getBoundingClientRect();
+    const w = initW || 500;
+    const h = initH || 400;
+
     const scene = new THREE.Scene();
     scene.background = new THREE.Color(SCENE_BG.dark);
     sceneRef.current = scene;
 
-    const camera = new THREE.PerspectiveCamera(
-      CAMERA_FOV,
-      CANVAS_WIDTH / CANVAS_HEIGHT,
-      CAMERA_NEAR,
-      CAMERA_FAR
-    );
+    const camera = new THREE.PerspectiveCamera(CAMERA_FOV, w / h, CAMERA_NEAR, CAMERA_FAR);
     camera.position.set(
       CAMERA_INITIAL_POSITION.x,
       CAMERA_INITIAL_POSITION.y,
@@ -231,7 +228,7 @@ export default function Robot3DViewer({
     cameraRef.current = camera;
 
     const renderer = new THREE.WebGLRenderer({ antialias: true });
-    renderer.setSize(CANVAS_WIDTH, CANVAS_HEIGHT);
+    renderer.setSize(w, h);
     containerEl.appendChild(renderer.domElement);
     rendererRef.current = renderer;
 
@@ -281,7 +278,19 @@ export default function Robot3DViewer({
     };
     animate();
 
+    const resizeObserver = new ResizeObserver((entries) => {
+      const entry = entries[0];
+      if (!entry) return;
+      const { width, height } = entry.contentRect;
+      if (width === 0 || height === 0) return;
+      renderer.setSize(width, height);
+      camera.aspect = width / height;
+      camera.updateProjectionMatrix();
+    });
+    resizeObserver.observe(containerEl);
+
     return () => {
+      resizeObserver.disconnect();
       if (animationFrameRef.current != null) {
         cancelAnimationFrame(animationFrameRef.current);
         animationFrameRef.current = null;
@@ -377,18 +386,15 @@ export default function Robot3DViewer({
 
   return (
     <div
-      className={`flex-none self-start border rounded overflow-hidden ${className}`}
+      className={`flex-1 min-w-0 min-h-0 border rounded overflow-hidden ${className}`}
       style={{
-        width: `${CANVAS_WIDTH}px`,
-        maxWidth: `${CANVAS_WIDTH}px`,
+        maxWidth: "500px",
+        maxHeight: "400px",
         backgroundColor: "var(--vscode-sidebar-background)",
         borderColor: "var(--vscode-panel-border)",
       }}
     >
-      <div
-        ref={containerRef}
-        style={{ width: CANVAS_WIDTH, height: CANVAS_HEIGHT }}
-      />
+      <div ref={containerRef} style={{ width: "100%", height: "100%" }} />
     </div>
   );
 }

@@ -21,6 +21,7 @@ import { useParams } from "next/navigation";
 import Link from "next/link";
 import Convert from "ansi-to-html";
 import { controlService, getServiceStatus, getDockerContainers, controlDockerContainer, getDockerContainerLogs, ros2Subscribe, ros2Unsubscribe } from "@/lib/api";
+import { useROS2TopicWebSocket } from "@/lib/websocket";
 import type { ServiceStatusResponse } from "@/types/api";
 import {
   LG2_LEADER_AI_CONFIG,
@@ -46,7 +47,18 @@ const STATUS_RELOAD_DELAY = 1000;
 const CONTROL_TOPICS = [
   { topic: "/joint_states", msgType: "sensor_msgs/msg/JointState" },
   { topic: "/robot_description", msgType: "std_msgs/msg/String" },
+  { topic: "/ai_worker/battery/left/state", msgType: "sensor_msgs/msg/BatteryState" },
+  { topic: "/ai_worker/battery/right/state", msgType: "sensor_msgs/msg/BatteryState" },
 ] as const;
+
+function parseBatteryPercentage(topicData: unknown): number | null {
+  if (!topicData || typeof topicData !== "object") return null;
+  const d = topicData as Record<string, unknown>;
+  const payload = (d.data ?? d) as Record<string, unknown>;
+  const pct = payload.percentage;
+  if (typeof pct !== "number") return null;
+  return Math.round(pct * 100);
+}
 
 const PANEL_STYLES = {
   flex: 1,
@@ -168,6 +180,11 @@ export default function SystemPage() {
   const robotService = useServiceStatus(container, FOLLOWER_SERVICE_NAME);
   const leaderService = useServiceStatus(container, LEADER_SERVICE_NAME);
   const cycloIntelligenceService = useServiceStatus(CYCLO_INTELLIGENCE_CONTAINER, CYCLO_INTELLIGENCE_SERVICE);
+
+  const { topicData: batteryLeftData } = useROS2TopicWebSocket("/ai_worker/battery/left/state");
+  const { topicData: batteryRightData } = useROS2TopicWebSocket("/ai_worker/battery/right/state");
+  const batteryLeft = parseBatteryPercentage(batteryLeftData);
+  const batteryRight = parseBatteryPercentage(batteryRightData);
 
   useEffect(() => {
     cycloIntelligenceService.loadStatus();
@@ -376,8 +393,64 @@ export default function SystemPage() {
           setShowCycloIntelligenceLogs(false);
         }}
       />
-      <div className="flex gap-4 items-stretch mt-4 flex-1 min-h-0">
-        <Robot3DViewer />
+      <div className="flex gap-4 items-start mt-4 flex-1 min-h-0">
+        <div className="flex-none flex flex-col gap-4" style={{ width: "500px" }}>
+          <Robot3DViewer />
+          <div
+            className="rounded border overflow-hidden"
+            style={{
+              backgroundColor: "var(--vscode-sidebar-background)",
+              borderColor: "var(--vscode-panel-border)",
+            }}
+          >
+            <div
+              className="px-5 pt-4 pb-1 text-sm font-bold uppercase tracking-widest"
+              style={{ color: "var(--vscode-foreground)" }}
+            >
+              Robot Status
+            </div>
+            <div className="px-5 pb-3">
+              {[
+                {
+                  label: "Bringup",
+                  value: robotService.status === null ? null : robotService.status.is_up ? "Running" : "Stopped",
+                  ok: robotService.status?.is_up ?? null,
+                },
+                {
+                  label: "Battery (Left)",
+                  value: batteryLeft !== null ? `${batteryLeft}%` : null,
+                  ok: batteryLeft !== null ? batteryLeft > 20 : null,
+                },
+                {
+                  label: "Battery (Right)",
+                  value: batteryRight !== null ? `${batteryRight}%` : null,
+                  ok: batteryRight !== null ? batteryRight > 20 : null,
+                },
+              ].map(({ label, value, ok }) => (
+                <div
+                  key={label}
+                  className="flex items-start justify-between gap-3 py-2 text-sm"
+                >
+                  <span className="shrink-0" style={{ color: "var(--vscode-descriptionForeground)" }}>
+                    {label}
+                  </span>
+                  <span
+                    className="text-right font-bold break-all"
+                    style={{
+                      color: ok === null || value === null
+                        ? "var(--vscode-descriptionForeground)"
+                        : ok === false
+                        ? "var(--vscode-errorForeground)"
+                        : "var(--vscode-testing-iconPassed, #73c991)",
+                    }}
+                  >
+                    {value ?? "—"}
+                  </span>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
         {showLogs && !showLeaderLogs && (
           <div style={PANEL_STYLES}>
             <FixedLogPanel container={container} service={FOLLOWER_SERVICE_NAME} onClose={() => setShowLogs(false)} />
