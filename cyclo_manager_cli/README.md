@@ -157,7 +157,7 @@ robot_container: ai_worker
 
 sockets:
   ai_worker: "/agents/ai_worker/s6_agent.sock"
-  physical_ai_server: "/agents/physical_ai_server/s6_agent.sock"
+  cyclo_intelligence: "/agents/cyclo_intelligence/s6_agent.sock"
   host_agent: "/agents/host/host_agent.sock"
 ```
 
@@ -178,7 +178,7 @@ On the host, sockets typically live under:
 ```text
 /var/run/robotis/agent_sockets/
 ├── ai_worker/s6_agent.sock
-├── physical_ai_server/s6_agent.sock
+├── cyclo_intelligence/s6_agent.sock
 └── host/host_agent.sock          ← created by cyclo_manager up
 ```
 

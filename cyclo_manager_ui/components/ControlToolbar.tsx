@@ -486,7 +486,7 @@ export default function ControlToolbar({
             }}
             className="text-sm font-medium uppercase tracking-wider cursor-pointer border-none bg-transparent p-0 text-left"
             style={{ color: "var(--vscode-descriptionForeground)" }}
-            title="Open Physical AI Tools (port 80)"
+            title="Open Cyclo Intelligence (port 80)"
           >
             Physical AI Server
           </button>

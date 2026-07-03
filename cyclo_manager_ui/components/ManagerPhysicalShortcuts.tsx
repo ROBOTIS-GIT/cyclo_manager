@@ -46,7 +46,7 @@ function shortcutStyle(
   };
 }
 
-/** Circular M (→ /home) and P (→ physical AI tools :80) beside the Apps home icon. */
+/** Circular M (→ /home) and I (→ Cyclo Intelligence :80) beside the Apps home icon. */
 export default function ManagerPhysicalShortcuts({
   variant = "default",
   compact = false,
@@ -73,12 +73,12 @@ export default function ManagerPhysicalShortcuts({
       </Link>
       <a
         href={physicalUrl}
-        title="Physical AI Tools"
-        aria-label="Physical AI Tools"
+        title="Cyclo Intelligence"
+        aria-label="Cyclo Intelligence"
         className={`${className} no-underline`}
         style={{ ...base, color: "var(--vscode-foreground)" }}
       >
-        P
+        I
       </a>
     </>
   );

@@ -86,8 +86,8 @@ export default function AppHubPage() {
               >
                 <div className="shrink-0 flex justify-center w-full px-2">
                   <img
-                    src="/physical_ai_tools_logo.png"
-                    alt="Physical AI Tools"
+                    src="/intelligence_logo.png"
+                    alt="Cyclo Intelligence"
                     draggable={false}
                     className="max-w-full w-auto h-auto object-contain object-center group-hover:scale-110 transition-transform duration-150"
                     style={{
