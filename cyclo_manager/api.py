@@ -20,6 +20,7 @@
 
 import logging
 
+from cyclo_manager import __version__
 from cyclo_manager.lifespan import lifespan
 from cyclo_manager.models import ErrorResponse
 from cyclo_manager.routers import (
@@ -72,7 +73,7 @@ app = FastAPI(
     * **ReDoc**: Available at `/redoc` (alternative documentation)
     * **OpenAPI Schema**: Available at `/openapi.json`
     """,
-    version='0.2.1',
+    version=__version__,
     lifespan=lifespan,
     docs_url='/docs',
     redoc_url='/redoc',
