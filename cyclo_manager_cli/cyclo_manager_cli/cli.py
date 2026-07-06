@@ -361,11 +361,19 @@ def cmd_update(args: argparse.Namespace) -> int:
         print('pip install timed out.', file=sys.stderr)
         return 1
 
+    if not getattr(args, 'no_pull', False):
+        print('Pulling latest images...')
+        try:
+            subprocess.run([*base, 'pull'], env=env, check=True)
+        except subprocess.CalledProcessError as e:
+            print(
+                f'Warning: docker compose pull failed (exit {e.returncode}); '
+                'continuing with cached images.',
+                file=sys.stderr,
+            )
+
     print('Starting containers...')
     try:
-        if not getattr(args, 'no_pull', False):
-            print('Pulling latest images...')
-            subprocess.run([*base, 'pull'], env=env, check=True)
         subprocess.run([*base, 'up', '-d', *COMPOSE_SERVICES_UP], env=env, check=True)
         subprocess.run(
             [*base, 'create', '--no-recreate', *COMPOSE_SERVICES_CREATE_ONLY],
