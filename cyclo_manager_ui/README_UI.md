@@ -4,19 +4,19 @@ Next.js web interface for **cyclo_manager** (ROS 2 robot containers, s6 services
 
 ## Features
 
-- **Apps hub** (`/app`): Entry point; links to Cyclo Manager and Cyclo Intelligence
-- **Home** (`/home`): Configured slots (`ai_worker`, `open_manipulator`) with status, Docker control, and logs
+- **Apps hub** (`/app`): Entry point; links to **Cyclo Manager** (dashboard) and **Cyclo Intelligence** (external UI on port 80)
+- **Dashboard** (`/dashboard`): Host stats, Docker container list (start/stop/restart), logs, bashrc editing, version management (host git repos)
 - **System** (`/{container}/system`):
   - Follower bringup (`ai_worker_bringup`) with robot model **SG2 / BG2 / SH5 / BH5**
   - **Launch arguments** popup (gear icon): bool/string fields; **Init Position File** as dropdown (model default YAML, `pack_position.yaml`, or custom filename)
-  - Leader bringup (`avatar_bringup`), Cyclo Intelligence, Zenoh daemon
-  - Live service logs and **3D URDF viewer** (`/robot_description`, `/joint_states`)
-- **Topics** (`/{container}/topics`): Discover topics and stream messages via WebSocket
-- **Docker** (`/docker`): List containers, start/stop/restart, per-container settings (info, logs, bashrc)
-- **Terminal** (`/docker/{name}`): Multi-tab xterm.js shells, process list with kill, **Back** to Docker list
+  - Leader bringup (`avatar_bringup`), **Cyclo Intelligence** (`cyclo_intelligence`), Zenoh daemon
+  - Live service logs and **3D URDF viewer** (`/robot_description`, `/joint_states` via WebSocket)
+  - **Robot Status** panel: bringup state, left/right battery percentage (WebSocket on `/ai_worker/battery/{left,right}/state`), and head/wrist camera activity (`GET /ros2/topics/{topic}/available` polling)
+- **Topics** (`/topics`): Discover topics (`GET /ros2/topics`) and stream message JSON via WebSocket (`/ws/ros2/topics/{topic}`); optional **Info** tab (`GET /ros2/topics/{topic}/info`)
+- **Terminal** (`/terminal`, optional `?container={name}`): Multi-tab xterm.js shells into running containers, process list with kill; links from Dashboard when a container is running
 - **noVNC** (`/novnc`): Start/stop `novnc-server` and open the remote desktop viewer
 
-VS Code–style sidebar (System, Topics, Docker, noVNC) is shown on all routes except `/app` and `/home`.
+The VS Code–style sidebar (Dashboard, System, Topics, Terminal, noVNC) is shown on all routes **except** `/app`.
 
 ## Development
 
@@ -41,12 +41,14 @@ npm run dev
 
 Open **http://localhost:3000** (redirects to `/app`).
 
-Set the API base URL if needed:
+Set the API base URL only when the UI and API are not on the same host (e.g. UI on your PC, API on the robot):
 
 ```bash
 export NEXT_PUBLIC_API_URL=http://127.0.0.1:8081
 npm run dev
 ```
+
+When unset, the UI uses `window.location.hostname:8081` for REST and WebSocket calls, which is correct for opening the UI on the robot host (e.g. `http://ffw-snpr48a1050.local:3000`).
 
 ### Build for production
 
@@ -69,14 +71,22 @@ Or use the packaged stack via **`cyclo_manager up`** (prebuilt `robotis/cyclo-ma
 
 | Variable | Description |
 |----------|-------------|
-| `NEXT_PUBLIC_API_URL` | cyclo_manager API base URL (default in compose: `http://127.0.0.1:8081`) |
+| `NEXT_PUBLIC_API_URL` | Optional cyclo_manager API base URL. Omit on the robot so the browser targets the same hostname as the UI (`:8081`). |
 | `NODE_ENV` | `development` or `production` |
 
-With **`network_mode: host`**, use `http://127.0.0.1:8081` (or the host IP). On a Docker bridge network, point to the API service hostname instead.
+With **`network_mode: host`**, the default hostname-based URL resolves to `http://<host>:8081`. On a Docker bridge network, set `NEXT_PUBLIC_API_URL` to the API service hostname instead.
 
 ## Architecture
 
-The UI calls the cyclo_manager **REST API** and **WebSockets** (`/ws/...` for service logs and ROS topics; `/docker/{name}/terminal/ws` for terminals). Launch arguments and robot type for bringup are stored in **`localStorage`** per container (and per follower model for `ai_worker`).
+The UI calls the cyclo_manager **REST API** and **WebSockets**:
+
+| Use | Endpoint |
+|-----|----------|
+| Service logs | `WebSocket /ws/{container}/services/{service}/logs` |
+| ROS topic data | `WebSocket /ws/ros2/topics/{topic}` — on connect the API resolves the message type, subscribes if needed, then polls its cache and pushes JSON when data changes |
+| Container terminal | `WebSocket /terminal/{name}/ws?session_id=...` |
+
+Launch arguments and robot type for bringup are stored in **`localStorage`** per container (and per follower model for `ai_worker`).
 
 Configuration for default launch args lives in **`config/launchArgs.ts`** (edited in the UI popup, not in this file at runtime).
 
@@ -85,12 +95,11 @@ Configuration for default launch args lives in **`config/launchArgs.ts`** (edite
 | Path | Description |
 |------|-------------|
 | `/` | Redirects to `/app` |
-| `/app` | Apps hub |
-| `/home` | Robot slot overview |
-| `/{container}/system` | Control + 3D viewer |
-| `/{container}/topics` | Topic list + viewer |
-| `/docker` | Docker management |
-| `/docker/{name}` | Container terminal + processes |
+| `/app` | Apps hub (Cyclo Manager / Cyclo Intelligence) |
+| `/dashboard` | Host + Docker management, repo updates |
+| `/{container}/system` | Bringup, 3D viewer, robot status |
+| `/topics` | ROS 2 topic list + live viewer |
+| `/terminal` | Multi-tab container shells |
 | `/novnc` | noVNC |
 
 For the full stack and API, see the repository **[README.md](../README.md)**.

@@ -2,6 +2,12 @@
 Changelog for package cyclo_manager
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
+0.2.1 (2026-07-06)
+------------------
+* Added a Robot Status panel to the System page.
+* Renamed ``physical_ai_server`` references to ``cyclo_intelligence`` across the UI, config, and docs.
+* Contributors: Hyungyu Kim
+
 0.2.0 (2026-06-23)
 ------------------
 * Added a dashboard for host status, Docker controls, logs, bashrc editing, and repository updates.

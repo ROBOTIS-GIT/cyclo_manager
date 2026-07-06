@@ -108,13 +108,14 @@ Bundled copy for pip installs: `cyclo_manager_cli/cyclo_manager_cli/config/confi
 
 | Page | Path | Notes |
 |------|------|-------|
-| Dashboard | `/dashboard` | Host stats, Docker containers, version management (host git repos) |
-| System | `/{robot_container}/system` | s6 bringup, launch args, URDF viewer, service logs |
-| Topics | `/topics` | ROS 2 topic browser |
-| Terminal | `/terminal` | Multi-tab bash into running containers |
+| Apps hub | `/app` | Links to Cyclo Manager (dashboard) and Cyclo Intelligence (port 80) |
+| Dashboard | `/dashboard` | Host stats, Docker containers, logs, bashrc, version management (host git repos) |
+| System | `/{robot_container}/system` | s6 bringup, launch args, URDF viewer, service logs, robot status (bringup/battery/camera) |
+| Topics | `/topics` | ROS 2 topic browser; live data via WebSocket |
+| Terminal | `/terminal` | Multi-tab bash into running containers (`?container={name}` optional) |
 | noVNC | `/novnc` | Remote display (when `novnc-server` is running) |
 
-The sidebar **System** button navigates to `robot_container` from `GET /containers`.
+The VS Code–style sidebar is shown on all routes except `/app`. The **System** button navigates to `robot_container` from `GET /containers` when that container is running.
 
 UI details: **[cyclo_manager_ui/README_UI.md](cyclo_manager_ui/README_UI.md)**
 
@@ -141,15 +142,22 @@ Interactive docs: `http://<host>:8081/docs`
 | | `GET /docker/{name}/logs` | Engine logs |
 | | `GET /docker/{name}/top` | Process list |
 | | `DELETE /docker/{name}/processes/{pid}` | Signal process |
-| Terminal | `WebSocket /terminal/{name}/ws` | PTY bash; optional `session_id` |
+| Terminal | `WebSocket /terminal/{name}/ws` | PTY bash; optional `session_id` query param |
 | | `DELETE /terminal/{name}/{session_id}` | Kill session |
-| ROS 2 | `GET /ros2/topics`, `GET /ros2/topics/{topic}`, … | Subscribe / cache for UI |
+| ROS 2 | `GET /ros2/topics` | Run discovery; list topics with availability |
+| | `GET /ros2/topics/{topic}` | Latest cached message (JSON); on-demand subscribe if needed |
+| | `GET /ros2/topics/{topic}/available` | Cheap liveness check (no JSON conversion of payload) |
+| | `GET /ros2/topics/{topic}/info` | `ros2 topic info -v` output |
+| | `POST /ros2/topics/{topic}/subscribe` | Subscribe; optional `{"msg_type": "..."}` body |
+| | `POST /ros2/topics/{topic}/unsubscribe` | Remove subscription |
 | Host | `GET /host/repos/updates` | Managed `ROBOTIS-GIT/*` repos on host |
 | | `POST /host/repos/{name}/update` | git pull workflow |
 | | `POST /host/update` | `pip install -U cyclo-manager` + stack restart |
 | Version | `GET /version` | Installed vs PyPI `cyclo-manager` |
 | WebSocket | `/ws/{container}/services/{service}/logs` | Live s6 logs |
-| | `/ws/ros2/topics/{topic}` | Live topic data |
+| | `/ws/ros2/topics/{topic}` | Live topic data (see below) |
+
+**ROS 2 WebSocket behavior:** On connect, the API resolves the topic message type (known types, discovery, or existing subscription), calls `add_topic_subscription` if needed, then polls the in-memory cache and pushes `{topic, msg_type, data, available}` when data changes (throttled). The Topics UI uses this path without a prior REST subscribe. Disconnecting the WebSocket does not unsubscribe; use `POST /ros2/topics/{topic}/unsubscribe` or page cleanup.
 
 Docker routes return **503** if `docker.sock` is unavailable. ROS routes require a running **rclpy** node and matching **`ROS_DOMAIN_ID`**.
 
