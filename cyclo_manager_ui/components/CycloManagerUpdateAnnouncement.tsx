@@ -277,7 +277,7 @@ export default function CycloManagerUpdateAnnouncement({
             <div style={{ flex: 1, overflowY: "auto", padding: "16px 20px" }} className="flex flex-col gap-3">
               {phase === "idle" && (
                 <div className="text-sm" style={{ color: "var(--vscode-descriptionForeground)" }}>
-                  Runs <code>cyclo_manager update</code> — installs the latest package and restarts the stack without removing sockets or services.
+                  Runs <code>cyclo_manager update</code> — installs the latest package, pulls Docker images, and restarts the stack without removing sockets or services.
                 </div>
               )}
 

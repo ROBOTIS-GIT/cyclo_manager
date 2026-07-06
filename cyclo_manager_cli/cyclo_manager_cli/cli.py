@@ -363,7 +363,8 @@ def cmd_update(args: argparse.Namespace) -> int:
 
     print('Starting containers...')
     try:
-        if getattr(args, 'pull', False):
+        if not getattr(args, 'no_pull', False):
+            print('Pulling latest images...')
             subprocess.run([*base, 'pull'], env=env, check=True)
         subprocess.run([*base, 'up', '-d', *COMPOSE_SERVICES_UP], env=env, check=True)
         subprocess.run(
@@ -407,12 +408,12 @@ def main() -> int:
 
     update_parser = sub.add_parser(
         'update',
-        help='Down containers, pip install -U cyclo-manager, then up again',
+        help='Down containers, pip install -U cyclo-manager, pull images, then up again',
     )
     update_parser.add_argument(
-        '--pull',
+        '--no-pull',
         action='store_true',
-        help='Always pull images when running cyclo_manager up',
+        help='Skip docker compose pull before starting containers (use cached images only)',
     )
     update_parser.set_defaults(func=cmd_update)
 

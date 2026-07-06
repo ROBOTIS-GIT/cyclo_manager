@@ -152,7 +152,7 @@ Interactive docs: `http://<host>:8081/docs`
 | | `POST /ros2/topics/{topic}/unsubscribe` | Remove subscription |
 | Host | `GET /host/repos/updates` | Managed `ROBOTIS-GIT/*` repos on host |
 | | `POST /host/repos/{name}/update` | git pull workflow |
-| | `POST /host/update` | `pip install -U cyclo-manager` + stack restart |
+| | `POST /host/update` | `pip install -U cyclo-manager` + `docker compose pull` + stack restart |
 | Version | `GET /version` | Installed vs PyPI `cyclo-manager` |
 | WebSocket | `/ws/{container}/services/{service}/logs` | Live s6 logs |
 | | `/ws/ros2/topics/{topic}` | Live topic data (see below) |
