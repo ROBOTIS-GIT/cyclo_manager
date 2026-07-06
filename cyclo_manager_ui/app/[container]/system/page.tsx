@@ -20,8 +20,7 @@ import { useEffect, useState, useCallback, useMemo } from "react";
 import { useParams } from "next/navigation";
 import Link from "next/link";
 import Convert from "ansi-to-html";
-import { controlService, getServiceStatus, getDockerContainers, controlDockerContainer, getDockerContainerLogs, ros2Subscribe, ros2Unsubscribe, getROS2TopicAvailability } from "@/lib/api";
-import { useROS2TopicWebSocket } from "@/lib/websocket";
+import { controlService, getServiceStatus, getDockerContainers, controlDockerContainer, getDockerContainerLogs, ros2Subscribe, ros2Unsubscribe, getROS2TopicAvailability, getROS2TopicData } from "@/lib/api";
 import type { ServiceStatusResponse } from "@/types/api";
 import {
   LG2_LEADER_AI_CONFIG,
@@ -48,6 +47,11 @@ const CAMERA_TOPICS = [
   { label: "Camera (Head)", topic: "/zed/zed_node/left/image_rect_color/compressed" },
   { label: "Camera (Wrist L)", topic: "/camera_left/camera_left/color/image_rect_raw/compressed" },
   { label: "Camera (Wrist R)", topic: "/camera_right/camera_right/color/image_rect_raw/compressed" },
+] as const;
+
+const BATTERY_TOPICS = [
+  { label: "Battery (Left)", topic: "/ai_worker/battery/left/state" },
+  { label: "Battery (Right)", topic: "/ai_worker/battery/right/state" },
 ] as const;
 
 const CONTROL_TOPICS = [
@@ -188,26 +192,37 @@ export default function SystemPage() {
   const leaderService = useServiceStatus(container, LEADER_SERVICE_NAME);
   const cycloIntelligenceService = useServiceStatus(CYCLO_INTELLIGENCE_CONTAINER, CYCLO_INTELLIGENCE_SERVICE);
 
-  const { topicData: batteryLeftData } = useROS2TopicWebSocket("/ai_worker/battery/left/state");
-  const { topicData: batteryRightData } = useROS2TopicWebSocket("/ai_worker/battery/right/state");
-  const batteryLeft = parseBatteryPercentage(batteryLeftData);
-  const batteryRight = parseBatteryPercentage(batteryRightData);
-
+  const [batteryPercentage, setBatteryPercentage] = useState<Record<string, number | null>>({});
   const [cameraAvailability, setCameraAvailability] = useState<Record<string, boolean>>({});
 
   useEffect(() => {
     let cancelled = false;
-    const pollCameras = async () => {
-      const entries = await Promise.all(
-        CAMERA_TOPICS.map(async ({ topic }) => [topic, await getROS2TopicAvailability(topic)] as const)
-      );
-      if (!cancelled) setCameraAvailability(Object.fromEntries(entries));
+    let timeoutId: ReturnType<typeof setTimeout>;
+    const pollStatus = async () => {
+      const [batteryEntries, cameraEntries] = await Promise.all([
+        Promise.all(
+          BATTERY_TOPICS.map(async ({ topic }) => {
+            try {
+              return [topic, parseBatteryPercentage(await getROS2TopicData(topic))] as const;
+            } catch {
+              return [topic, null] as const;
+            }
+          })
+        ),
+        Promise.all(
+          CAMERA_TOPICS.map(async ({ topic }) => [topic, await getROS2TopicAvailability(topic)] as const)
+        ),
+      ]);
+      if (!cancelled) {
+        setBatteryPercentage(Object.fromEntries(batteryEntries));
+        setCameraAvailability(Object.fromEntries(cameraEntries));
+        timeoutId = setTimeout(pollStatus, STATUS_POLL_INTERVAL);
+      }
     };
-    pollCameras();
-    const interval = setInterval(pollCameras, STATUS_POLL_INTERVAL);
+    pollStatus();
     return () => {
       cancelled = true;
-      clearInterval(interval);
+      clearTimeout(timeoutId);
     };
   }, []);
 
@@ -441,22 +456,20 @@ export default function SystemPage() {
                   value: robotService.status === null ? null : robotService.status.is_up ? "Running" : "Stopped",
                   ok: robotService.status?.is_up ?? null,
                 },
-                {
-                  label: "Battery (Left)",
-                  value: batteryLeft !== null ? `${batteryLeft}%` : null,
-                  ok: batteryLeft !== null ? batteryLeft > 20 : null,
-                },
-                {
-                  label: "Battery (Right)",
-                  value: batteryRight !== null ? `${batteryRight}%` : null,
-                  ok: batteryRight !== null ? batteryRight > 20 : null,
-                },
+                ...BATTERY_TOPICS.map(({ label, topic }) => {
+                  const pct = batteryPercentage[topic] ?? null;
+                  return {
+                    label,
+                    value: pct !== null ? `${pct}%` : null,
+                    ok: pct !== null ? pct > 20 : null,
+                  };
+                }),
                 ...CAMERA_TOPICS.map(({ label, topic }) => {
-                  const available = cameraAvailability[topic];
+                  const available = cameraAvailability[topic] ?? null;
                   return {
                     label,
                     value: available ? "Active" : null,
-                    ok: available ? true : null,
+                    ok: available,
                   };
                 }),
               ].map(({ label, value, ok }) => (
