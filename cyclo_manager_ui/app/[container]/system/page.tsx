@@ -20,7 +20,7 @@ import { useEffect, useState, useCallback, useMemo } from "react";
 import { useParams } from "next/navigation";
 import Link from "next/link";
 import Convert from "ansi-to-html";
-import { controlService, getServiceStatus, getDockerContainers, controlDockerContainer, getDockerContainerLogs, ros2Subscribe, ros2Unsubscribe } from "@/lib/api";
+import { controlService, getServiceStatus, getDockerContainers, controlDockerContainer, getDockerContainerLogs, ros2Subscribe, ros2Unsubscribe, getROS2TopicAvailability } from "@/lib/api";
 import { useROS2TopicWebSocket } from "@/lib/websocket";
 import type { ServiceStatusResponse } from "@/types/api";
 import {
@@ -44,11 +44,18 @@ const STATUS_POLL_INTERVAL = 2000;
 const ERROR_DISPLAY_DURATION = 5000;
 const STATUS_RELOAD_DELAY = 1000;
 
+const CAMERA_TOPICS = [
+  { label: "Camera (Head)", topic: "/zed/zed_node/left/image_rect_color/compressed" },
+  { label: "Camera (Wrist L)", topic: "/camera_left/camera_left/color/image_rect_raw/compressed" },
+  { label: "Camera (Wrist R)", topic: "/camera_right/camera_right/color/image_rect_raw/compressed" },
+] as const;
+
 const CONTROL_TOPICS = [
   { topic: "/joint_states", msgType: "sensor_msgs/msg/JointState" },
   { topic: "/robot_description", msgType: "std_msgs/msg/String" },
   { topic: "/ai_worker/battery/left/state", msgType: "sensor_msgs/msg/BatteryState" },
   { topic: "/ai_worker/battery/right/state", msgType: "sensor_msgs/msg/BatteryState" },
+  ...CAMERA_TOPICS.map(({ topic }) => ({ topic, msgType: "sensor_msgs/msg/CompressedImage" })),
 ] as const;
 
 function parseBatteryPercentage(topicData: unknown): number | null {
@@ -185,6 +192,24 @@ export default function SystemPage() {
   const { topicData: batteryRightData } = useROS2TopicWebSocket("/ai_worker/battery/right/state");
   const batteryLeft = parseBatteryPercentage(batteryLeftData);
   const batteryRight = parseBatteryPercentage(batteryRightData);
+
+  const [cameraAvailability, setCameraAvailability] = useState<Record<string, boolean>>({});
+
+  useEffect(() => {
+    let cancelled = false;
+    const pollCameras = async () => {
+      const entries = await Promise.all(
+        CAMERA_TOPICS.map(async ({ topic }) => [topic, await getROS2TopicAvailability(topic)] as const)
+      );
+      if (!cancelled) setCameraAvailability(Object.fromEntries(entries));
+    };
+    pollCameras();
+    const interval = setInterval(pollCameras, STATUS_POLL_INTERVAL);
+    return () => {
+      cancelled = true;
+      clearInterval(interval);
+    };
+  }, []);
 
   useEffect(() => {
     cycloIntelligenceService.loadStatus();
@@ -426,6 +451,14 @@ export default function SystemPage() {
                   value: batteryRight !== null ? `${batteryRight}%` : null,
                   ok: batteryRight !== null ? batteryRight > 20 : null,
                 },
+                ...CAMERA_TOPICS.map(({ label, topic }) => {
+                  const available = cameraAvailability[topic];
+                  return {
+                    label,
+                    value: available ? "Active" : null,
+                    ok: available ? true : null,
+                  };
+                }),
               ].map(({ label, value, ok }) => (
                 <div
                   key={label}
