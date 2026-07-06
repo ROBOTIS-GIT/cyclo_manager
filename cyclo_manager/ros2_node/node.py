@@ -40,14 +40,17 @@ from rclpy.subscription import Subscription
 logger = logging.getLogger(__name__)
 
 # Fallback msg types when discovery hasn't run (e.g. joint_states, robot_description)
+_BATTERY_STATE = 'sensor_msgs/msg/BatteryState'
+_COMPRESSED_IMAGE = 'sensor_msgs/msg/CompressedImage'
+
 KNOWN_TOPIC_TYPES: dict[str, str] = {
     '/joint_states': 'sensor_msgs/msg/JointState',
     '/robot_description': 'std_msgs/msg/String',
-    '/ai_worker/battery/left/state': 'sensor_msgs/msg/BatteryState',
-    '/ai_worker/battery/right/state': 'sensor_msgs/msg/BatteryState',
-    '/zed/zed_node/left/image_rect_color/compressed': 'sensor_msgs/msg/CompressedImage',
-    '/camera_left/camera_left/color/image_rect_raw/compressed': 'sensor_msgs/msg/CompressedImage',
-    '/camera_right/camera_right/color/image_rect_raw/compressed': 'sensor_msgs/msg/CompressedImage',
+    '/ai_worker/battery/left/state': _BATTERY_STATE,
+    '/ai_worker/battery/right/state': _BATTERY_STATE,
+    '/zed/zed_node/left/image_rect_color/compressed': _COMPRESSED_IMAGE,
+    '/camera_left/camera_left/color/image_rect_raw/compressed': _COMPRESSED_IMAGE,
+    '/camera_right/camera_right/color/image_rect_raw/compressed': _COMPRESSED_IMAGE,
 }
 # Topics that never expire (static URDF, etc.)
 STATIC_TOPICS = frozenset(['/robot_description'])
