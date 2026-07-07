@@ -108,7 +108,7 @@ Bundled copy for pip installs: `cyclo_manager_cli/cyclo_manager_cli/config/confi
 
 | Page | Path | Notes |
 |------|------|-------|
-| Apps hub | `/app` | Links to Cyclo Manager (dashboard) and Cyclo Intelligence (port 80) |
+| Apps hub | `/app` | Links to Cyclo Manager (dashboard) and Cyclo Intelligence (port 7080) |
 | Dashboard | `/dashboard` | Host stats, Docker containers, logs, bashrc, version management (host git repos) |
 | System | `/{robot_container}/system` | s6 bringup, launch args, URDF viewer, service logs, robot status (bringup/battery/camera) |
 | Topics | `/topics` | ROS 2 topic browser; live data via WebSocket |

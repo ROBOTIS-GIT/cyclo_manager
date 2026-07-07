@@ -20,9 +20,9 @@ import { useEffect, useState, type CSSProperties } from "react";
 import Link from "next/link";
 
 function useCycloIntelligenceUrl(): string {
-  const [url, setUrl] = useState("http://localhost:80/");
+  const [url, setUrl] = useState("http://localhost:7080/");
   useEffect(() => {
-    setUrl(`http://${window.location.hostname}:80/`);
+    setUrl(`http://${window.location.hostname}:7080/`);
   }, []);
   return url;
 }
@@ -46,7 +46,7 @@ function shortcutStyle(
   };
 }
 
-/** Circular M (→ /dashboard) and I (→ Cyclo Intelligence :80) beside the Apps home icon. */
+/** Circular M (→ /dashboard) and I (→ Cyclo Intelligence :7080) beside the Apps home icon. */
 export default function ManagerIntelligenceShortcuts({
   variant = "default",
   compact = false,

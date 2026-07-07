@@ -481,12 +481,12 @@ export default function ControlToolbar({
             type="button"
             onClick={() => {
               if (typeof window !== "undefined") {
-                window.open(`http://${window.location.hostname}:80`, "_blank");
+                window.open(`http://${window.location.hostname}:7080`, "_blank");
               }
             }}
             className="text-sm font-medium uppercase tracking-wider cursor-pointer border-none bg-transparent p-0 text-left"
             style={{ color: "var(--vscode-descriptionForeground)" }}
-            title="Open Cyclo Intelligence (port 80)"
+            title="Open Cyclo Intelligence (port 7080)"
           >
             Cyclo Intelligence
           </button>

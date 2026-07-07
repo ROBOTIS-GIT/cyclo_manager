@@ -24,10 +24,10 @@ import { useTheme } from "@/contexts/ThemeContext";
 export default function AppHubPage() {
   const { theme } = useTheme();
   const [cmUpdateBanner, setCmUpdateBanner] = useState(false);
-  const [intelligenceUrl, setIntelligenceUrl] = useState("http://localhost:80/");
+  const [intelligenceUrl, setIntelligenceUrl] = useState("http://localhost:7080/");
 
   useEffect(() => {
-    setIntelligenceUrl(`http://${window.location.hostname}:80/`);
+    setIntelligenceUrl(`http://${window.location.hostname}:7080/`);
   }, []);
 
   return (

@@ -4,7 +4,7 @@ Next.js web interface for **cyclo_manager** (ROS 2 robot containers, s6 services
 
 ## Features
 
-- **Apps hub** (`/app`): Entry point; links to **Cyclo Manager** (dashboard) and **Cyclo Intelligence** (external UI on port 80)
+- **Apps hub** (`/app`): Entry point; links to **Cyclo Manager** (dashboard) and **Cyclo Intelligence** (external UI on port 7080, `http://<host>:7080/`)
 - **Dashboard** (`/dashboard`): Host stats, Docker container list (start/stop/restart), logs, bashrc editing, version management (host git repos)
 - **System** (`/{container}/system`):
   - Follower bringup (`ai_worker_bringup`) with robot model **SG2 / BG2 / SH5 / BH5**
@@ -95,7 +95,7 @@ Configuration for default launch args lives in **`config/launchArgs.ts`** (edite
 | Path | Description |
 |------|-------------|
 | `/` | Redirects to `/app` |
-| `/app` | Apps hub (Cyclo Manager / Cyclo Intelligence) |
+| `/app` | Apps hub (Cyclo Manager / Cyclo Intelligence on port 7080) |
 | `/dashboard` | Host + Docker management, repo updates |
 | `/{container}/system` | Bringup, 3D viewer, robot status |
 | `/topics` | ROS 2 topic list + live viewer |
