@@ -20,7 +20,7 @@ import { useEffect, useState, useCallback, useMemo } from "react";
 import { useParams } from "next/navigation";
 import Link from "next/link";
 import Convert from "ansi-to-html";
-import { controlService, getServiceStatus, getDockerContainers, controlDockerContainer, getDockerContainerLogs, ros2Subscribe, ros2Unsubscribe } from "@/lib/api";
+import { controlService, getServiceStatus, getDockerContainers, controlDockerContainer, getDockerContainerLogs, ros2Subscribe, ros2Unsubscribe, getROS2TopicAvailability, getROS2TopicData } from "@/lib/api";
 import type { ServiceStatusResponse } from "@/types/api";
 import {
   LG2_LEADER_AI_CONFIG,
@@ -43,10 +43,33 @@ const STATUS_POLL_INTERVAL = 2000;
 const ERROR_DISPLAY_DURATION = 5000;
 const STATUS_RELOAD_DELAY = 1000;
 
+const CAMERA_TOPICS = [
+  { label: "Camera (Head)", topic: "/zed/zed_node/left/image_rect_color/compressed" },
+  { label: "Camera (Wrist L)", topic: "/camera_left/camera_left/color/image_rect_raw/compressed" },
+  { label: "Camera (Wrist R)", topic: "/camera_right/camera_right/color/image_rect_raw/compressed" },
+] as const;
+
+const BATTERY_TOPICS = [
+  { label: "Battery (Left)", topic: "/ai_worker/battery/left/state" },
+  { label: "Battery (Right)", topic: "/ai_worker/battery/right/state" },
+] as const;
+
 const CONTROL_TOPICS = [
   { topic: "/joint_states", msgType: "sensor_msgs/msg/JointState" },
   { topic: "/robot_description", msgType: "std_msgs/msg/String" },
+  { topic: "/ai_worker/battery/left/state", msgType: "sensor_msgs/msg/BatteryState" },
+  { topic: "/ai_worker/battery/right/state", msgType: "sensor_msgs/msg/BatteryState" },
+  ...CAMERA_TOPICS.map(({ topic }) => ({ topic, msgType: "sensor_msgs/msg/CompressedImage" })),
 ] as const;
+
+function parseBatteryPercentage(topicData: unknown): number | null {
+  if (!topicData || typeof topicData !== "object") return null;
+  const d = topicData as Record<string, unknown>;
+  const payload = (d.data ?? d) as Record<string, unknown>;
+  const pct = payload.percentage;
+  if (typeof pct !== "number") return null;
+  return Math.round(pct * 100);
+}
 
 const PANEL_STYLES = {
   flex: 1,
@@ -74,8 +97,8 @@ function getStoredBringupArgs(config: LaunchArgsConfig, container: string): Reco
 }
 
 const FOLLOWER_SERVICE_NAME = "ai_worker_bringup";
-const PHYSICAL_AI_SERVER_CONTAINER = "physical_ai_server";
-const PHYSICAL_AI_SERVER_SERVICE = "physical_ai_server";
+const CYCLO_INTELLIGENCE_CONTAINER = "cyclo_intelligence";
+const CYCLO_INTELLIGENCE_SERVICE = "cyclo_intelligence";
 const ZENOH_DAEMON_CONTAINER_NAME = "zenoh_daemon";
 
 function useServiceStatus(
@@ -150,7 +173,7 @@ export default function SystemPage() {
   const [robotType, setRobotType] = useState<FollowerRobotModel>(() => getStoredFollowerRobotModel(container));
   const [showLogs, setShowLogs] = useState(false);
   const [showLeaderLogs, setShowLeaderLogs] = useState(false);
-  const [showPhysicalAiServerLogs, setShowPhysicalAiServerLogs] = useState(false);
+  const [showCycloIntelligenceLogs, setShowCycloIntelligenceLogs] = useState(false);
   const [showZenohDaemonLogs, setShowZenohDaemonLogs] = useState(false);
 
   const [zenohDaemonContainer, setZenohDaemonContainer] = useState<{ name: string; status: string } | null>(null);
@@ -167,18 +190,52 @@ export default function SystemPage() {
 
   const robotService = useServiceStatus(container, FOLLOWER_SERVICE_NAME);
   const leaderService = useServiceStatus(container, LEADER_SERVICE_NAME);
-  const physicalAiServerService = useServiceStatus(PHYSICAL_AI_SERVER_CONTAINER, PHYSICAL_AI_SERVER_SERVICE);
+  const cycloIntelligenceService = useServiceStatus(CYCLO_INTELLIGENCE_CONTAINER, CYCLO_INTELLIGENCE_SERVICE);
+
+  const [batteryPercentage, setBatteryPercentage] = useState<Record<string, number | null>>({});
+  const [cameraAvailability, setCameraAvailability] = useState<Record<string, boolean>>({});
 
   useEffect(() => {
-    physicalAiServerService.loadStatus();
-  }, [PHYSICAL_AI_SERVER_CONTAINER, physicalAiServerService.loadStatus]);
+    let cancelled = false;
+    let timeoutId: ReturnType<typeof setTimeout>;
+    const pollStatus = async () => {
+      const [batteryEntries, cameraEntries] = await Promise.all([
+        Promise.all(
+          BATTERY_TOPICS.map(async ({ topic }) => {
+            try {
+              return [topic, parseBatteryPercentage(await getROS2TopicData(topic))] as const;
+            } catch {
+              return [topic, null] as const;
+            }
+          })
+        ),
+        Promise.all(
+          CAMERA_TOPICS.map(async ({ topic }) => [topic, await getROS2TopicAvailability(topic)] as const)
+        ),
+      ]);
+      if (!cancelled) {
+        setBatteryPercentage(Object.fromEntries(batteryEntries));
+        setCameraAvailability(Object.fromEntries(cameraEntries));
+        timeoutId = setTimeout(pollStatus, STATUS_POLL_INTERVAL);
+      }
+    };
+    pollStatus();
+    return () => {
+      cancelled = true;
+      clearTimeout(timeoutId);
+    };
+  }, []);
+
+  useEffect(() => {
+    cycloIntelligenceService.loadStatus();
+  }, [CYCLO_INTELLIGENCE_CONTAINER, cycloIntelligenceService.loadStatus]);
 
   useEffect(() => {
     const interval = setInterval(() => {
-      physicalAiServerService.loadStatus();
+      cycloIntelligenceService.loadStatus();
     }, STATUS_POLL_INTERVAL);
     return () => clearInterval(interval);
-  }, [physicalAiServerService.loadStatus]);
+  }, [cycloIntelligenceService.loadStatus]);
 
   const loadZenohDaemon = useCallback(async () => {
     try {
@@ -232,10 +289,10 @@ export default function SystemPage() {
       .finally(() => setZenohDaemonLogLoading(false));
   }, [showZenohDaemonLogs]);
 
-  const handlePhysicalAiServerBringup = useCallback(async () => {
-    const action: "up" | "down" = physicalAiServerService.status?.is_up ? "down" : "up";
-    await physicalAiServerService.handleControl(action);
-  }, [physicalAiServerService]);
+  const handleCycloIntelligenceBringup = useCallback(async () => {
+    const action: "up" | "down" = cycloIntelligenceService.status?.is_up ? "down" : "up";
+    await cycloIntelligenceService.handleControl(action);
+  }, [cycloIntelligenceService]);
 
   const handleRobotBringup = useCallback(async () => {
     const action: "up" | "down" = robotService.status?.is_up ? "down" : "up";
@@ -336,13 +393,13 @@ export default function SystemPage() {
         onToggleLogs={() => {
           setShowLogs((prev) => !prev);
           setShowLeaderLogs(false);
-          setShowPhysicalAiServerLogs(false);
+          setShowCycloIntelligenceLogs(false);
           setShowZenohDaemonLogs(false);
         }}
         onToggleLeaderLogs={() => {
           setShowLeaderLogs((prev) => !prev);
           setShowLogs(false);
-          setShowPhysicalAiServerLogs(false);
+          setShowCycloIntelligenceLogs(false);
           setShowZenohDaemonLogs(false);
         }}
         robotLaunchConfig={robotConfig}
@@ -351,14 +408,14 @@ export default function SystemPage() {
         leaderLaunchConfig={LG2_LEADER_AI_CONFIG}
         leaderBringupArgs={leaderBringupArgs}
         onLeaderBringupArgsChange={setLeaderBringupArgs}
-        physicalAiServerService={{
-          status: physicalAiServerService.status,
-          loading: physicalAiServerService.loading,
+        cycloIntelligenceService={{
+          status: cycloIntelligenceService.status,
+          loading: cycloIntelligenceService.loading,
         }}
-        onPhysicalAiServerBringup={handlePhysicalAiServerBringup}
-        showPhysicalAiServerLogs={showPhysicalAiServerLogs}
-        onTogglePhysicalAiServerLogs={() => {
-          setShowPhysicalAiServerLogs((prev) => !prev);
+        onCycloIntelligenceBringup={handleCycloIntelligenceBringup}
+        showCycloIntelligenceLogs={showCycloIntelligenceLogs}
+        onToggleCycloIntelligenceLogs={() => {
+          setShowCycloIntelligenceLogs((prev) => !prev);
           setShowLogs(false);
           setShowLeaderLogs(false);
           setShowZenohDaemonLogs(false);
@@ -373,11 +430,73 @@ export default function SystemPage() {
           setShowZenohDaemonLogs((prev) => !prev);
           setShowLogs(false);
           setShowLeaderLogs(false);
-          setShowPhysicalAiServerLogs(false);
+          setShowCycloIntelligenceLogs(false);
         }}
       />
       <div className="flex gap-4 items-stretch mt-4 flex-1 min-h-0">
-        <Robot3DViewer />
+        <div className="flex-none flex flex-col gap-4" style={{ width: "500px" }}>
+          <Robot3DViewer />
+          <div
+            className="rounded border overflow-hidden"
+            style={{
+              backgroundColor: "var(--vscode-sidebar-background)",
+              borderColor: "var(--vscode-panel-border)",
+            }}
+          >
+            <div
+              className="px-5 pt-4 pb-1 text-sm font-bold uppercase tracking-widest"
+              style={{ color: "var(--vscode-foreground)" }}
+            >
+              Robot Status
+            </div>
+            <div className="px-5 pb-3">
+              {[
+                {
+                  label: "Bringup",
+                  value: robotService.status === null ? null : robotService.status.is_up ? "Running" : "Stopped",
+                  ok: robotService.status?.is_up ?? null,
+                },
+                ...BATTERY_TOPICS.map(({ label, topic }) => {
+                  const pct = batteryPercentage[topic] ?? null;
+                  return {
+                    label,
+                    value: pct !== null ? `${pct}%` : null,
+                    ok: pct !== null ? pct > 20 : null,
+                  };
+                }),
+                ...CAMERA_TOPICS.map(({ label, topic }) => {
+                  const available = cameraAvailability[topic] ?? null;
+                  return {
+                    label,
+                    value: available ? "Active" : null,
+                    ok: available,
+                  };
+                }),
+              ].map(({ label, value, ok }) => (
+                <div
+                  key={label}
+                  className="flex items-start justify-between gap-3 py-2 text-sm"
+                >
+                  <span className="shrink-0" style={{ color: "var(--vscode-descriptionForeground)" }}>
+                    {label}
+                  </span>
+                  <span
+                    className="text-right font-bold break-all"
+                    style={{
+                      color: ok === null || value === null
+                        ? "var(--vscode-descriptionForeground)"
+                        : ok === false
+                        ? "var(--vscode-errorForeground)"
+                        : "var(--vscode-testing-iconPassed, #73c991)",
+                    }}
+                  >
+                    {value ?? "—"}
+                  </span>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
         {showLogs && !showLeaderLogs && (
           <div style={PANEL_STYLES}>
             <FixedLogPanel container={container} service={FOLLOWER_SERVICE_NAME} onClose={() => setShowLogs(false)} />
@@ -388,9 +507,9 @@ export default function SystemPage() {
             <FixedLogPanel container={container} service={LEADER_SERVICE_NAME} onClose={() => setShowLeaderLogs(false)} />
           </div>
         )}
-        {showPhysicalAiServerLogs && (
+        {showCycloIntelligenceLogs && (
           <div style={PANEL_STYLES}>
-            <FixedLogPanel container={PHYSICAL_AI_SERVER_CONTAINER} service={PHYSICAL_AI_SERVER_SERVICE} onClose={() => setShowPhysicalAiServerLogs(false)} />
+            <FixedLogPanel container={CYCLO_INTELLIGENCE_CONTAINER} service={CYCLO_INTELLIGENCE_SERVICE} onClose={() => setShowCycloIntelligenceLogs(false)} />
           </div>
         )}
         {showZenohDaemonLogs && (

@@ -18,6 +18,7 @@
 
 """Root endpoint router."""
 
+from cyclo_manager import __version__
 from fastapi import APIRouter
 
 router = APIRouter(tags=['root'])
@@ -40,7 +41,7 @@ async def root():
     """
     return {
         'message': 'cyclo_manager API',
-        'version': '0.2.0',
+        'version': __version__,
         'docs': {
             'swagger_ui': '/docs',
             'redoc': '/redoc',

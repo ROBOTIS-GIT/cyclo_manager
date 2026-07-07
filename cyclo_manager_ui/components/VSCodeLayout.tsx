@@ -21,7 +21,7 @@ import Link from "next/link";
 import { useState } from "react";
 import { SIDEBAR_WIDTH_PX } from "@/lib/layout";
 import { AppsHubButton } from "@/components/AppsHubLink";
-import ManagerPhysicalShortcuts from "@/components/ManagerPhysicalShortcuts";
+import ManagerIntelligenceShortcuts from "@/components/ManagerIntelligenceShortcuts";
 import ThemeToggle from "./ThemeToggle";
 import { getConfiguredContainers, getDockerContainers } from "@/lib/api";
 import CycloManagerUpdateAnnouncement from "@/components/CycloManagerUpdateAnnouncement";
@@ -95,7 +95,7 @@ export default function VSCodeLayout({
           >
             <div className="flex justify-center w-full items-center gap-1 flex-nowrap">
               <AppsHubButton variant="onSidebar" compact />
-              <ManagerPhysicalShortcuts variant="onSidebar" compact />
+              <ManagerIntelligenceShortcuts variant="onSidebar" compact />
             </div>
           </div>
         </div>
