@@ -76,7 +76,8 @@ python3 -m cyclo_manager_cli.cli up
 | `cyclo_manager up` | Install/refresh **cyclo_host_agent** (systemd unit, socket dir, sudoers), then `docker compose up -d` for **API + UI**, then `docker compose create --no-recreate` for **Zenoh** and **noVNC** (created but **not started**). Sets **`CYCLO_MANAGER_CONFIG_FILE`** to the bundled config. |
 | `cyclo_manager up --pull` | `docker compose pull` first, then the same as `up`. |
 | `cyclo_manager down` | **Tear down host agent** (stop/disable service, remove unit, sudoers, socket dir), then `docker compose down` for all services in the bundled compose file. |
-| `cyclo_manager update` | `docker compose down` (containers only — **host agent stays installed**), `pip install -U cyclo-manager`, `docker compose up` + create optional services, then **refresh host agent** (unit, socket, sudoers). Optional `--pull` pulls images before the final `up`. |
+| `cyclo_manager update` | `docker compose down` (containers only — **host agent stays installed**), `pip install -U cyclo-manager`, **`docker compose pull`**, then `docker compose up` + create optional services, then **refresh host agent** (unit, socket, sudoers). |
+| `cyclo_manager update --no-pull` | Same as `update`, but skip image pull (use locally cached images). |
 | `cyclo_manager --help` | Subcommand overview |
 
 **`down` vs `update`:** `down` removes the host agent entirely. `update` only stops Docker containers, upgrades the pip package, restarts the stack, and refreshes the host agent — it does **not** call `cyclo_manager down`.
@@ -124,8 +125,8 @@ Defined in [`cyclo_manager_cli/docker/docker-compose.yml`](cyclo_manager_cli/doc
 
 | Compose service | Container name | `cyclo_manager up` | Image (example) |
 |-----------------|----------------|--------------------|-----------------|
-| `cyclo_manager` | `cyclo_manager` | **Started** | `robotis/cyclo-manager:0.2.0` |
-| `ui` | `cyclo_manager_ui` | **Started** | `robotis/cyclo-manager-ui:0.2.0` |
+| `cyclo_manager` | `cyclo_manager` | **Started** | `robotis/cyclo-manager:0.2.1` |
+| `ui` | `cyclo_manager_ui` | **Started** | `robotis/cyclo-manager-ui:0.2.1` |
 | `rmw_zenoh` | `zenoh_daemon` | **Created only** | `robotis/zenoh-daemon:latest` |
 | `novnc-server` | `novnc-server` | **Created only** | `robotis/novnc-server:latest` |
 
@@ -157,7 +158,7 @@ robot_container: ai_worker
 
 sockets:
   ai_worker: "/agents/ai_worker/s6_agent.sock"
-  physical_ai_server: "/agents/physical_ai_server/s6_agent.sock"
+  cyclo_intelligence: "/agents/cyclo_intelligence/s6_agent.sock"
   host_agent: "/agents/host/host_agent.sock"
 ```
 
@@ -178,7 +179,7 @@ On the host, sockets typically live under:
 ```text
 /var/run/robotis/agent_sockets/
 ├── ai_worker/s6_agent.sock
-├── physical_ai_server/s6_agent.sock
+├── cyclo_intelligence/s6_agent.sock
 └── host/host_agent.sock          ← created by cyclo_manager up
 ```
 

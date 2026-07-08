@@ -440,6 +440,17 @@ export async function publishCmdVel(
   });
 }
 
+export async function getROS2TopicAvailability(topic: string): Promise<boolean> {
+  try {
+    const response = await apiClient.get<{ topic: string; available: boolean }>(
+      `/ros2/topics/${encodeURIComponent(topic)}/available`
+    );
+    return response.data.available;
+  } catch {
+    return false;
+  }
+}
+
 export async function getSystemStats(): Promise<HostSystemStatsResponse> {
   try {
     const response = await apiClient.get<HostSystemStatsResponse>("/system/status");

@@ -41,10 +41,18 @@ from rclpy.subscription import Subscription
 logger = logging.getLogger(__name__)
 
 # Fallback msg types when discovery hasn't run (e.g. joint_states, robot_description)
+_BATTERY_STATE = 'sensor_msgs/msg/BatteryState'
+_COMPRESSED_IMAGE = 'sensor_msgs/msg/CompressedImage'
+
 KNOWN_TOPIC_TYPES: dict[str, str] = {
     '/cmd_vel': 'geometry_msgs/msg/Twist',
     '/joint_states': 'sensor_msgs/msg/JointState',
     '/robot_description': 'std_msgs/msg/String',
+    '/ai_worker/battery/left/state': _BATTERY_STATE,
+    '/ai_worker/battery/right/state': _BATTERY_STATE,
+    '/zed/zed_node/left/image_rect_color/compressed': _COMPRESSED_IMAGE,
+    '/camera_left/camera_left/color/image_rect_raw/compressed': _COMPRESSED_IMAGE,
+    '/camera_right/camera_right/color/image_rect_raw/compressed': _COMPRESSED_IMAGE,
 }
 # Topics that never expire (static URDF, etc.)
 STATIC_TOPICS = frozenset(['/robot_description'])
@@ -441,6 +449,20 @@ class CycloManagerTopicSubscriber:
     def is_topic_available(self, topic: str) -> bool:
         data = self.get_topic_data(topic)
         return data is not None
+
+    def is_topic_receiving(self, topic: str) -> bool:
+        """
+        Cheaply check whether fresh data has been received for a topic.
+
+        Unlike is_topic_available(), this never converts the cached message to a
+        dict, so it's safe to poll frequently even for large payloads (e.g. compressed
+        images).
+        """
+        with self._lock:
+            cached = self._msg_cache.get(topic)
+            if cached is None:
+                return False
+            return self._is_cached_valid(topic, cached)
 
     def request_discovery(self) -> None:
         """Enqueue discovery request; spin thread will run get_topic_names_and_types."""

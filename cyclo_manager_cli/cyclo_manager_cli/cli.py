@@ -361,10 +361,19 @@ def cmd_update(args: argparse.Namespace) -> int:
         print('pip install timed out.', file=sys.stderr)
         return 1
 
+    if not getattr(args, 'no_pull', False):
+        print('Pulling latest images...')
+        try:
+            subprocess.run([*base, 'pull'], env=env, check=True)
+        except subprocess.CalledProcessError as e:
+            print(
+                f'Warning: docker compose pull failed (exit {e.returncode}); '
+                'continuing with cached images.',
+                file=sys.stderr,
+            )
+
     print('Starting containers...')
     try:
-        if getattr(args, 'pull', False):
-            subprocess.run([*base, 'pull'], env=env, check=True)
         subprocess.run([*base, 'up', '-d', *COMPOSE_SERVICES_UP], env=env, check=True)
         subprocess.run(
             [*base, 'create', '--no-recreate', *COMPOSE_SERVICES_CREATE_ONLY],
@@ -407,12 +416,12 @@ def main() -> int:
 
     update_parser = sub.add_parser(
         'update',
-        help='Down containers, pip install -U cyclo-manager, then up again',
+        help='Down containers, pip install -U cyclo-manager, pull images, then up again',
     )
     update_parser.add_argument(
-        '--pull',
+        '--no-pull',
         action='store_true',
-        help='Always pull images when running cyclo_manager up',
+        help='Skip docker compose pull before starting containers (use cached images only)',
     )
     update_parser.set_defaults(func=cmd_update)
 

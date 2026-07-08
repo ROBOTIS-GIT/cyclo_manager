@@ -53,6 +53,31 @@ KNOWN_TOPIC_QOS_PRESETS: dict[str, dict[str, Any]] = {
         'reliability': 'reliable',
         'depth': 1,
     },
+    '/ai_worker/battery/left/state': {
+        'durability': 'volatile',
+        'reliability': 'reliable',
+        'depth': 10,
+    },
+    '/ai_worker/battery/right/state': {
+        'durability': 'volatile',
+        'reliability': 'reliable',
+        'depth': 10,
+    },
+    '/zed/zed_node/left/image_rect_color/compressed': {
+        'durability': 'volatile',
+        'reliability': 'reliable',
+        'depth': 10,
+    },
+    '/camera_left/camera_left/color/image_rect_raw/compressed': {
+        'durability': 'volatile',
+        'reliability': 'reliable',
+        'depth': 42,
+    },
+    '/camera_right/camera_right/color/image_rect_raw/compressed': {
+        'durability': 'volatile',
+        'reliability': 'reliable',
+        'depth': 42,
+    },
 }
 
 
@@ -188,6 +213,18 @@ async def get_ros2_topic_info(topic: str) -> dict:
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail='ros2 CLI not found',
         )
+
+
+@router.get('/topics/{topic:path}/available')
+async def get_ros2_topic_available(topic: str) -> dict:
+    """
+    Cheaply check whether a topic currently has fresh data.
+
+    Unlike GET /topics/{topic}, this never converts the cached message to JSON,
+    so it's safe to poll frequently even for large payloads (e.g. compressed images).
+    """
+    node = _require_node()
+    return {'topic': topic, 'available': node.is_topic_receiving(topic)}
 
 
 @router.get('/topics/{topic:path}', response_model=ROS2TopicDataResponse)

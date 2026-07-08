@@ -24,10 +24,10 @@ import { useTheme } from "@/contexts/ThemeContext";
 export default function AppHubPage() {
   const { theme } = useTheme();
   const [cmUpdateBanner, setCmUpdateBanner] = useState(false);
-  const [physicalUrl, setPhysicalUrl] = useState("http://localhost:80/");
+  const [intelligenceUrl, setIntelligenceUrl] = useState("http://localhost:7080/");
 
   useEffect(() => {
-    setPhysicalUrl(`http://${window.location.hostname}:80/`);
+    setIntelligenceUrl(`http://${window.location.hostname}:7080/`);
   }, []);
 
   return (
@@ -75,7 +75,7 @@ export default function AppHubPage() {
                 </div>
               </div>
             </Link>
-            <a href={physicalUrl} className="no-underline">
+            <a href={intelligenceUrl} className="no-underline">
               <div
                 className="group rounded-lg border-2 p-5 cursor-pointer w-[min(40rem,calc(100vw-3rem))] h-[13rem] sm:h-[14rem] max-h-[min(14rem,38vh)] flex flex-col items-stretch justify-center min-h-0 hover:border-[var(--vscode-focusBorder)] hover:bg-[var(--vscode-list-hoverBackground)] hover:scale-[1.02] transition-all duration-150"
                 style={{
@@ -86,8 +86,8 @@ export default function AppHubPage() {
               >
                 <div className="shrink-0 flex justify-center w-full px-2">
                   <img
-                    src="/physical_ai_tools_logo.png"
-                    alt="Physical AI Tools"
+                    src="/intelligence_logo.png"
+                    alt="Cyclo Intelligence"
                     draggable={false}
                     className="max-w-full w-auto h-auto object-contain object-center group-hover:scale-110 transition-transform duration-150"
                     style={{

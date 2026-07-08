@@ -19,10 +19,10 @@
 import { useEffect, useState, type CSSProperties } from "react";
 import Link from "next/link";
 
-function usePhysicalAiToolsUrl(): string {
-  const [url, setUrl] = useState("http://localhost:80/");
+function useCycloIntelligenceUrl(): string {
+  const [url, setUrl] = useState("http://localhost:7080/");
   useEffect(() => {
-    setUrl(`http://${window.location.hostname}:80/`);
+    setUrl(`http://${window.location.hostname}:7080/`);
   }, []);
   return url;
 }
@@ -46,15 +46,15 @@ function shortcutStyle(
   };
 }
 
-/** Circular M (→ /home) and P (→ physical AI tools :80) beside the Apps home icon. */
-export default function ManagerPhysicalShortcuts({
+/** Circular M (→ /dashboard) and I (→ Cyclo Intelligence :7080) beside the Apps home icon. */
+export default function ManagerIntelligenceShortcuts({
   variant = "default",
   compact = false,
 }: {
   variant?: "default" | "onSidebar";
   compact?: boolean;
 }) {
-  const physicalUrl = usePhysicalAiToolsUrl();
+  const intelligenceUrl = useCycloIntelligenceUrl();
   const base = shortcutStyle(variant, compact);
   const className = `flex shrink-0 items-center justify-center rounded-full border font-semibold transition-all duration-150 hover:border-[var(--vscode-focusBorder)] hover:bg-[var(--vscode-list-hoverBackground)] hover:scale-110 ${
     compact ? "text-xs" : "text-lg"
@@ -72,13 +72,13 @@ export default function ManagerPhysicalShortcuts({
         M
       </Link>
       <a
-        href={physicalUrl}
-        title="Physical AI Tools"
-        aria-label="Physical AI Tools"
+        href={intelligenceUrl}
+        title="Cyclo Intelligence"
+        aria-label="Cyclo Intelligence"
         className={`${className} no-underline`}
         style={{ ...base, color: "var(--vscode-foreground)" }}
       >
-        P
+        I
       </a>
     </>
   );

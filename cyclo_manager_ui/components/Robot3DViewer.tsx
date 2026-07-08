@@ -28,8 +28,6 @@ import URDFLoader from "urdf-loader";
 // -----------------------------------------------------------------------------
 // Constants
 // -----------------------------------------------------------------------------
-const CANVAS_WIDTH = 500;
-const CANVAS_HEIGHT = 400;
 /** Match VS Code–style editor backgrounds for dark / light. */
 const SCENE_BG = { dark: 0x1e1e1e, light: 0xf3f3f3 } as const;
 const GROUND_COLOR = { dark: 0x333333, light: 0xd4d4d4 } as const;
@@ -61,17 +59,6 @@ type URDFRobotRef = {
   setJointValues: (values: Record<string, number | number[]>) => boolean;
   joints?: Record<string, THREE.Object3D>;
 } | null;
-
-function getMeshesForJoint(joint: THREE.Object3D): THREE.Mesh[] {
-  const meshes: THREE.Mesh[] = [];
-  const childLink = joint.children[0];
-  if (childLink) {
-    childLink.traverse((obj) => {
-      if (obj instanceof THREE.Mesh) meshes.push(obj);
-    });
-  }
-  return meshes;
-}
 
 interface Robot3DViewerProps {
   robotDescriptionTopic?: string;
@@ -187,10 +174,7 @@ export default function Robot3DViewer({
   const groundMeshRef = useRef<THREE.Mesh | null>(null);
   const gridHelperRef = useRef<THREE.GridHelper | null>(null);
   const robotRef = useRef<URDFRobotRef>(null);
-  const highlightedMaterialsRef = useRef<Map<THREE.Mesh, { emissive: THREE.Color; emissiveIntensity: number }>>(new Map());
   const [robotDescription, setRobotDescription] = useState<string | null>(null);
-  const [jointValues, setJointValues] = useState<Record<string, number>>({});
-  const [highlightedJoint, setHighlightedJoint] = useState<string | null>(null);
 
   const { topicData: robotDescriptionData } = useROS2TopicWebSocket(robotDescriptionTopic);
   const { topicData: jointStatesData } = useROS2TopicWebSocket(jointStatesTopic);
@@ -208,14 +192,13 @@ export default function Robot3DViewer({
     }
   }, [robotDescriptionData]);
 
-  // Apply joint_states to robot and update jointValues for panel
+  // Apply joint_states to robot for 3D visualization
   useEffect(() => {
     if (!jointStatesData?.available) return;
     try {
       const payload = jointStatesData.data ?? jointStatesData;
       const values = parseJointStateToValues(payload);
       if (values && Object.keys(values).length > 0) {
-        setJointValues(values);
         if (robotRef.current) robotRef.current.setJointValues(values);
       }
     } catch {
@@ -223,60 +206,20 @@ export default function Robot3DViewer({
     }
   }, [jointStatesData]);
 
-  const HIGHLIGHT_EMISSIVE = 0xff6600;
-  const HIGHLIGHT_EMISSIVE_INTENSITY = 0.6;
-
-  // Apply or remove highlight when highlightedJoint changes
-  useEffect(() => {
-    const robot = robotRef.current;
-    if (!robot?.joints) return;
-
-    const prev = highlightedMaterialsRef.current;
-
-    // Restore previously highlighted meshes
-    prev.forEach(({ emissive, emissiveIntensity }, mesh) => {
-      const mat = Array.isArray(mesh.material) ? mesh.material[0] : mesh.material;
-      if (mat && "emissive" in mat) {
-        (mat as THREE.MeshStandardMaterial).emissive.copy(emissive);
-        (mat as THREE.MeshStandardMaterial).emissiveIntensity = emissiveIntensity;
-      }
-    });
-    prev.clear();
-
-    if (!highlightedJoint || !robot.joints[highlightedJoint]) return;
-
-    const jointObj = robot.joints[highlightedJoint];
-    const meshes = getMeshesForJoint(jointObj);
-
-    meshes.forEach((mesh) => {
-      const mat = Array.isArray(mesh.material) ? mesh.material[0] : mesh.material;
-      if (!mat || !("emissive" in mat)) return;
-
-      const m = mat as THREE.MeshStandardMaterial;
-      prev.set(mesh, {
-        emissive: m.emissive.clone(),
-        emissiveIntensity: m.emissiveIntensity,
-      });
-      m.emissive.setHex(HIGHLIGHT_EMISSIVE);
-      m.emissiveIntensity = HIGHLIGHT_EMISSIVE_INTENSITY;
-    });
-  }, [highlightedJoint]);
-
   // Init scene, camera, renderer, controls, animation loop
   useEffect(() => {
     const containerEl = containerRef.current;
     if (!containerEl || rendererRef.current) return;
 
+    const { width: initW, height: initH } = containerEl.getBoundingClientRect();
+    const w = initW || 500;
+    const h = initH || 400;
+
     const scene = new THREE.Scene();
     scene.background = new THREE.Color(SCENE_BG.dark);
     sceneRef.current = scene;
 
-    const camera = new THREE.PerspectiveCamera(
-      CAMERA_FOV,
-      CANVAS_WIDTH / CANVAS_HEIGHT,
-      CAMERA_NEAR,
-      CAMERA_FAR
-    );
+    const camera = new THREE.PerspectiveCamera(CAMERA_FOV, w / h, CAMERA_NEAR, CAMERA_FAR);
     camera.position.set(
       CAMERA_INITIAL_POSITION.x,
       CAMERA_INITIAL_POSITION.y,
@@ -285,7 +228,7 @@ export default function Robot3DViewer({
     cameraRef.current = camera;
 
     const renderer = new THREE.WebGLRenderer({ antialias: true });
-    renderer.setSize(CANVAS_WIDTH, CANVAS_HEIGHT);
+    renderer.setSize(w, h);
     containerEl.appendChild(renderer.domElement);
     rendererRef.current = renderer;
 
@@ -335,7 +278,19 @@ export default function Robot3DViewer({
     };
     animate();
 
+    const resizeObserver = new ResizeObserver((entries) => {
+      const entry = entries[0];
+      if (!entry) return;
+      const { width, height } = entry.contentRect;
+      if (width === 0 || height === 0) return;
+      renderer.setSize(width, height);
+      camera.aspect = width / height;
+      camera.updateProjectionMatrix();
+    });
+    resizeObserver.observe(containerEl);
+
     return () => {
+      resizeObserver.disconnect();
       if (animationFrameRef.current != null) {
         cancelAnimationFrame(animationFrameRef.current);
         animationFrameRef.current = null;
@@ -429,87 +384,17 @@ export default function Robot3DViewer({
     }
   }, [robotDescription]);
 
-  const jointEntries = Object.entries(jointValues);
-  const hasJointData = jointEntries.length > 0;
-  const handleJointClick = (name: string) => {
-    setHighlightedJoint((prev) => (prev === name ? null : name));
-  };
-
   return (
     <div
-      className={`flex flex-col border rounded overflow-hidden ${
-        hasJointData
-          ? "flex-none min-h-0 self-stretch h-full"
-          : "h-auto self-start flex-none"
-      } ${className}`}
+      className={`flex-1 min-w-0 min-h-0 border rounded overflow-hidden ${className}`}
       style={{
-        width: `${CANVAS_WIDTH}px`,
-        maxWidth: `${CANVAS_WIDTH}px`,
+        maxWidth: "500px",
+        maxHeight: "400px",
         backgroundColor: "var(--vscode-sidebar-background)",
         borderColor: "var(--vscode-panel-border)",
       }}
     >
-      <div
-        ref={containerRef}
-        style={{ width: CANVAS_WIDTH, height: CANVAS_HEIGHT, flexShrink: 0 }}
-      />
-      <div
-        className={hasJointData ? "flex-1 min-h-0 overflow-auto" : "flex-none overflow-hidden shrink-0"}
-        style={{
-          borderTop: "1px solid var(--vscode-panel-border)",
-          padding: "8px",
-          ...(hasJointData ? {} : { maxHeight: "5.75rem" }),
-        }}
-      >
-        <div
-          className={`text-xs font-medium ${hasJointData ? "mb-2" : "mb-1"}`}
-          style={{ color: "var(--vscode-descriptionForeground)" }}
-        >
-          Joint States
-        </div>
-        {jointEntries.length === 0 ? (
-          <p
-            className="text-xs"
-            style={{ color: "var(--vscode-descriptionForeground)" }}
-          >
-            Waiting for joint_states...
-          </p>
-        ) : (
-          <div className="space-y-1">
-            {jointEntries.map(([name, value]) => (
-              <button
-                key={name}
-                type="button"
-                onClick={() => handleJointClick(name)}
-                className="w-full text-left px-2 py-1.5 rounded text-xs font-mono transition-colors"
-                style={{
-                  backgroundColor:
-                    highlightedJoint === name
-                      ? "var(--vscode-list-activeSelectionBackground)"
-                      : "transparent",
-                  color:
-                    highlightedJoint === name
-                      ? "var(--vscode-list-activeSelectionForeground, var(--vscode-foreground))"
-                      : "var(--vscode-foreground)",
-                }}
-                onMouseEnter={(e) => {
-                  if (highlightedJoint !== name) {
-                    e.currentTarget.style.backgroundColor =
-                      "var(--vscode-list-hoverBackground)";
-                  }
-                }}
-                onMouseLeave={(e) => {
-                  if (highlightedJoint !== name) {
-                    e.currentTarget.style.backgroundColor = "transparent";
-                  }
-                }}
-              >
-                {name}: {Number(value).toFixed(3)}
-              </button>
-            ))}
-          </div>
-        )}
-      </div>
+      <div ref={containerRef} style={{ width: "100%", height: "100%" }} />
     </div>
   );
 }

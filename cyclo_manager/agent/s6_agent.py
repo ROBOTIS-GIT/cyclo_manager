@@ -20,6 +20,7 @@
 
 import logging
 
+from cyclo_manager.agent import __version__
 from cyclo_manager.agent.models import ErrorResponse
 from cyclo_manager.agent.routers import logs, scripts, services
 from fastapi import FastAPI, HTTPException
@@ -40,7 +41,7 @@ app = FastAPI(
     This agent provides endpoints to list, check status, and control
     s6-overlay services running in the container.
     """,
-    version='0.2.0',
+    version=__version__,
     docs_url=None,
     redoc_url=None,
     openapi_url=None,
@@ -59,7 +60,7 @@ async def http_exception_handler(request, exc: HTTPException):
 @app.get('/', tags=['root'])
 async def root():
     """Root endpoint."""
-    return {'message': 's6 Agent API', 'version': '0.2.0'}
+    return {'message': 's6 Agent API', 'version': __version__}
 
 # Include routers
 app.include_router(services.router)
