@@ -25,11 +25,7 @@ from typing import Any, Optional, Tuple
 
 from cyclo_manager.models import ROS2TopicDataResponse
 from cyclo_manager.routers import ros2 as ros2_router
-from cyclo_manager.state import (
-    get_any_ros2_node,
-    get_client_pool_or_none,
-    get_config_or_none,
-)
+from cyclo_manager.state import app_state, get_any_ros2_node
 from fastapi import APIRouter, HTTPException, WebSocket, WebSocketDisconnect
 from websockets.exceptions import ConnectionClosedError, ConnectionClosedOK
 
@@ -168,7 +164,7 @@ async def _setup_log_stream_client(websocket: WebSocket, container: str):
     Returns the AgentClient on success, or None after sending an error and
     closing the WebSocket.
     """
-    config = get_config_or_none()
+    config = app_state.get_config_or_none()
     if config is None:
         await _send_websocket_error(websocket, 'Configuration not loaded')
         await _close_websocket_ignoring_error(websocket)
@@ -179,7 +175,7 @@ async def _setup_log_stream_client(websocket: WebSocket, container: str):
         await _close_websocket_ignoring_error(websocket)
         return None
 
-    client_pool = get_client_pool_or_none()
+    client_pool = app_state.get_client_pool_or_none()
     if client_pool is None:
         await _send_websocket_error(websocket, 'Agent client pool not initialized')
         await _close_websocket_ignoring_error(websocket)

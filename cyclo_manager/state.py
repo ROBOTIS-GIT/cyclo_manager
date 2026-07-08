@@ -175,18 +175,6 @@ def get_agent_client(container_name: str) -> AgentClient:
     return client
 
 
-# ===========================================================================
-# Optional accessors — return None; used by WebSocket handlers (can't Depends)
-# ===========================================================================
-
-def get_config_or_none() -> Optional[SystemConfig]:
-    return app_state.get_config_or_none()
-
-
-def get_client_pool_or_none() -> Optional[AgentClientPool]:
-    return app_state.get_client_pool_or_none()
-
-
 def get_any_ros2_node() -> Optional[CycloManagerTopicSubscriber]:
     """Return the first available ROS2 node. All nodes share the same domain_id."""
     for node in app_state.get_ros2_nodes().values():
