@@ -47,5 +47,8 @@ async def root():
             'redoc': '/redoc',
             'openapi_schema': '/openapi.json',
         },
-        'description': 'Unified REST API for managing ROS2-based robot containers',
+        'description': (
+            'REST API backend for cyclo_manager — control plane for ROS2 robot '
+            'containers, s6-overlay services, Docker, and host workspace operations.'
+        ),
     }
