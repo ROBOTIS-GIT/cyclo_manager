@@ -26,7 +26,7 @@ from cyclo_manager.agent_client import AgentClientPool
 from cyclo_manager.config import load_config
 from cyclo_manager.docker_client import DockerClient
 from cyclo_manager.host_agent_client import HostAgentClient
-from cyclo_manager.ros2_node import CycloManagerTopicSubscriber
+from cyclo_manager.ros2_node import Ros2Bridge
 from cyclo_manager.state import app_state
 from cyclo_manager.terminal_session_manager import TerminalSessionManager
 from fastapi import FastAPI
@@ -77,20 +77,14 @@ async def lifespan(app: FastAPI):
             )
             app_state.set_host_agent_client(None)
 
-        # Initialize ROS2 nodes for all containers (no subscriptions yet).
+        # Initialize shared ROS2 bridge (no subscriptions yet).
         domain_id = int(os.getenv('ROS_DOMAIN_ID', '30'))
-        for container_name in config.container_sockets:
-            try:
-                node = CycloManagerTopicSubscriber(
-                    container_name=container_name, domain_id=domain_id
-                )
-                node.start()
-                app_state.set_ros2_node(container_name, node)
-                logger.info("ROS2 node initialized for container '%s'", container_name)
-            except Exception as e:
-                logger.warning(
-                    "ROS2 node initialization failed for container '%s': %s", container_name, e
-                )
+        try:
+            bridge = Ros2Bridge(domain_id=domain_id)
+            bridge.start()
+            app_state.set_ros2_bridge(bridge)
+        except Exception as e:
+            logger.warning('ROS2 bridge initialization failed: %s', e)
 
         logger.info('cyclo_manager initialized successfully')
     except Exception as e:
@@ -114,13 +108,14 @@ async def lifespan(app: FastAPI):
     if host_agent_client:
         await host_agent_client.async_close()
 
-    for container_name, node in app_state.get_ros2_nodes().items():
+    ros2_bridge = app_state.get_ros2_bridge_or_none()
+    if ros2_bridge:
         try:
-            node.stop()
-            logger.debug("Stopped ROS2 node for container '%s'", container_name)
+            ros2_bridge.stop()
+            logger.debug('Stopped ROS2 bridge')
         except Exception as e:
-            logger.error("Error stopping ROS2 node for container '%s': %s", container_name, e)
-    app_state.clear_ros2_nodes()
+            logger.error('Error stopping ROS2 bridge: %s', e)
+    app_state.clear_ros2_bridge()
 
     terminal_session_manager = app_state.get_terminal_session_manager_or_none()
     if terminal_session_manager:

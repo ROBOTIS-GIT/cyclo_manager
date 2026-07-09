@@ -24,7 +24,7 @@ from cyclo_manager.agent_client import AgentClient, AgentClientPool
 from cyclo_manager.config import SystemConfig
 from cyclo_manager.docker_client import DockerClient
 from cyclo_manager.host_agent_client import HostAgentClient
-from cyclo_manager.ros2_node import CycloManagerTopicSubscriber
+from cyclo_manager.ros2_node import Ros2Bridge
 from cyclo_manager.terminal_session_manager import TerminalSessionManager
 from fastapi import Depends, HTTPException, status
 
@@ -43,7 +43,7 @@ class AppState:
         self._client_pool: Optional[AgentClientPool] = None
         self._docker_client: Optional[DockerClient] = None
         self._host_agent_client: Optional[HostAgentClient] = None
-        self._ros2_nodes: dict[str, CycloManagerTopicSubscriber] = {}
+        self._ros2_bridge: Optional[Ros2Bridge] = None
         self._terminal_session_manager: Optional[TerminalSessionManager] = None
 
     def set_terminal_session_manager(self, manager: TerminalSessionManager) -> None:
@@ -71,14 +71,14 @@ class AppState:
     def get_host_agent_client_or_none(self) -> Optional[HostAgentClient]:
         return self._host_agent_client
 
-    def set_ros2_node(self, container_name: str, node: CycloManagerTopicSubscriber) -> None:
-        self._ros2_nodes[container_name] = node
+    def set_ros2_bridge(self, bridge: Ros2Bridge) -> None:
+        self._ros2_bridge = bridge
 
-    def get_ros2_nodes(self) -> dict[str, CycloManagerTopicSubscriber]:
-        return self._ros2_nodes
+    def get_ros2_bridge_or_none(self) -> Optional[Ros2Bridge]:
+        return self._ros2_bridge
 
-    def clear_ros2_nodes(self) -> None:
-        self._ros2_nodes.clear()
+    def clear_ros2_bridge(self) -> None:
+        self._ros2_bridge = None
 
     # ------------------------------------------------------------------
     # Accessors — return None instead of raising (used by lifespan & WebSocket)
@@ -173,22 +173,3 @@ def get_agent_client(container_name: str) -> AgentClient:
             detail=f"Agent client for container '{container_name}' not available",
         )
     return client
-
-
-# ===========================================================================
-# Optional accessors — return None; used by WebSocket handlers (can't Depends)
-# ===========================================================================
-
-def get_config_or_none() -> Optional[SystemConfig]:
-    return app_state.get_config_or_none()
-
-
-def get_client_pool_or_none() -> Optional[AgentClientPool]:
-    return app_state.get_client_pool_or_none()
-
-
-def get_any_ros2_node() -> Optional[CycloManagerTopicSubscriber]:
-    """Return the first available ROS2 node. All nodes share the same domain_id."""
-    for node in app_state.get_ros2_nodes().values():
-        return node
-    return None

@@ -55,7 +55,7 @@ export interface ServiceStatusListResponse {
 export interface ServiceActionRequest {
   action: "up" | "down" | "restart";
   launch_args?: Record<string, string>;
-  robot_type?: "sg2" | "bg2" | "sh5" | "bh5";
+  robot_type?: "sg2" | "bg2" | "sh5" | "bh5" | "mobile";
 }
 
 export interface ServiceControlResponse {
@@ -242,4 +242,10 @@ export interface ROS2TopicDataResponse {
   data: any;
   available: boolean;
   domain_id: number;
+}
+
+export interface ROS2TwistPublishRequest {
+  linear_x: number;
+  angular_z: number;
+  topic?: string;
 }

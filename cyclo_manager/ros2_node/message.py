@@ -16,14 +16,12 @@
 #
 # Author: Hyungyu Kim
 
-"""ROS2 message conversion and QoS utilities."""
+"""ROS2 message conversion utilities."""
 
 import importlib
 import logging
 import math
 from typing import Any, Callable
-
-from rclpy.qos import DurabilityPolicy, HistoryPolicy, QoSProfile, ReliabilityPolicy
 
 try:
     from rosidl_runtime_py import get_message_class
@@ -114,24 +112,3 @@ def message_to_dict(msg: Any, convert_nested: Callable[[Any], Any]) -> Any:
     except Exception as e:
         logger.warning('Failed to convert message to dict: %s', e)
         return str(msg)
-
-
-def parse_qos_profile(profile: dict[str, Any]) -> QoSProfile:
-    """Build QoSProfile from dict (depth, reliability, durability)."""
-    depth = profile.get('depth', 10)
-    reliability = (
-        ReliabilityPolicy.BEST_EFFORT
-        if profile.get('reliability') == 'best_effort'
-        else ReliabilityPolicy.RELIABLE
-    )
-    durability = (
-        DurabilityPolicy.TRANSIENT_LOCAL
-        if profile.get('durability') == 'transient_local'
-        else DurabilityPolicy.VOLATILE
-    )
-    return QoSProfile(
-        depth=depth,
-        reliability=reliability,
-        durability=durability,
-        history=HistoryPolicy.KEEP_LAST,
-    )

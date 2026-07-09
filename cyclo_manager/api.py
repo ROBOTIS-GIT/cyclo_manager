@@ -52,79 +52,34 @@ logger = logging.getLogger(__name__)
 app = FastAPI(
     title='cyclo_manager API',
     description="""
-    Unified REST API for managing ROS2-based robot containers using s6-overlay.
+    REST API backend for cyclo_manager.
 
-    This API provides a centralized control plane to manage services across multiple
-    robot containers. Each container runs an agent that exposes s6-overlay service
-    management via Unix Domain Sockets.
+    Central control plane for ROS2-based robot containers managed with
+    s6-overlay. Each container runs an agent over a Unix domain socket;
+    the cyclo_manager web UI consumes this API over HTTP.
 
-    ## Features
+    ## Capabilities
 
-    * List all managed containers
-    * List services within each container
-    * Get real-time service status
-    * Control services (start, stop, restart)
-    * Docker container management (list, status, control, logs)
-    * ROS2 topic subscription and monitoring
+    * Configured container listing and per-container settings (bashrc)
+    * s6-overlay service list, status, control, logs, and run scripts
+    * Docker container list, status, control, logs, and process management
+    * ROS2 topic discovery, subscription, streaming, and cmd_vel publish
+    * WebSocket streaming for service logs and ROS2 topic data
+    * Interactive terminal sessions inside Docker containers
+    * Host system and robot info; cyclo_manager version check
+    * ROS2 workspace repo management via the host agent (clone, update, branch)
 
-    ## Documentation
+    ## API docs
 
-    * **Swagger UI**: Available at `/docs` (interactive API testing)
-    * **ReDoc**: Available at `/redoc` (alternative documentation)
-    * **OpenAPI Schema**: Available at `/openapi.json`
+    * Swagger UI: `/docs`
+    * ReDoc: `/redoc`
+    * OpenAPI schema: `/openapi.json`
     """,
     version=__version__,
     lifespan=lifespan,
     docs_url='/docs',
     redoc_url='/redoc',
     openapi_url='/openapi.json',
-    tags_metadata=[
-        {
-            'name': 'root',
-            'description': 'Root endpoint and API information',
-        },
-        {
-            'name': 'containers',
-            'description': (
-                'Operations related to container management. '
-                'List and inspect containers.'
-            ),
-        },
-        {
-            'name': 'services',
-            'description': (
-                'Operations related to service management. '
-                'List services, check status, and control services (start/stop/restart).'
-            ),
-        },
-        {
-            'name': 'docker',
-            'description': (
-                'Docker container management operations. '
-                'List containers, get status, control containers, and view logs.'
-            ),
-        },
-        {
-            'name': 'ros2',
-            'description': 'ROS2 topic operations. Subscribe to ROS2 topics using zenoh_ros2_sdk.',
-        },
-        {
-            'name': 'container',
-            'description': 'Container-level operations (bashrc, etc.).',
-        },
-        {
-            'name': 'version',
-            'description': (
-                'cyclo_manager version check (PyPI) and update (pip + cyclo_manager up).'
-            ),
-        },
-        {
-            'name': 'host',
-            'description': (
-                'Host agent operations: ROS2 workspace repo management (clone, pull, delete).'
-            ),
-        },
-    ],
 )
 
 # Add CORS middleware to allow requests from the UI

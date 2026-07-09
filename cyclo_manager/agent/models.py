@@ -37,7 +37,10 @@ class ServiceActionRequest(BaseModel):
     )
     robot_type: str | None = Field(
         None,
-        description='Required for ai_worker_bringup up/restart. One of: sg2, bg2, sh5, bh5.',
+        description=(
+            'Required for ai_worker_bringup up/restart. '
+            'One of: sg2, bg2, sh5, bh5, mobile.'
+        ),
     )
 
 

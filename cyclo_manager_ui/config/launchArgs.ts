@@ -16,7 +16,7 @@
 
 /**
  * Launch arguments configuration for ROS2 bringup services.
- * ai_worker_bringup dispatches to the follower launch (sg2/bg2/sh5/bh5) via /run/robot_type
+ * ai_worker_bringup dispatches to the launch file (sg2/bg2/sh5/bh5/mobile) via /run/robot_type
  * and launch args from the UI.
  */
 
@@ -162,6 +162,24 @@ export const FOLLOWER_BRINGUP_BH5_CONFIG: LaunchArgsConfig = {
   ],
 };
 
+/** ai_worker_bringup - Mobile variant (ffw_mobile_base_ai.launch.py) */
+export const FOLLOWER_BRINGUP_MOBILE_CONFIG: LaunchArgsConfig = {
+  serviceId: "ai_worker_bringup",
+  storageKey: "ai_worker_bringup_mobile",
+  title: "Mobile Bringup Launch Arguments",
+  args: [
+    { key: "start_rviz", label: "Start RViz", type: "bool", default: "false" },
+    { key: "use_sim", label: "Use Simulation", type: "bool", default: "false" },
+    { key: "use_mock_hardware", label: "Use Mock Hardware", type: "bool", default: "false" },
+    { key: "mock_sensor_commands", label: "Mock Sensor Commands", type: "bool", default: "false" },
+    { key: "port_name", label: "Port Name", type: "string", default: "/dev/follower" },
+    { key: "launch_lidar", label: "Launch Lidar", type: "bool", default: "true" },
+    { key: "init_position", label: "Init Position", type: "bool", default: "true" },
+    { key: "model", label: "Model", type: "string", default: "ffw_sg2_rev1_follower" },
+    initPositionFileArg("ffw_sg2_follower_initial_positions.yaml"),
+  ],
+};
+
 /** avatar_bringup - ffw_lg2_leader_ai.launch.py */
 export const LG2_LEADER_AI_CONFIG: LaunchArgsConfig = {
   serviceId: "avatar_bringup",
@@ -172,11 +190,11 @@ export const LG2_LEADER_AI_CONFIG: LaunchArgsConfig = {
 };
 
 /** Follower model picked on the System page (maps to API `robot_type` lowercase). */
-export type FollowerRobotModel = "SG2" | "BG2" | "SH5" | "BH5";
+export type FollowerRobotModel = "SG2" | "BG2" | "SH5" | "BH5" | "Mobile";
 
-export type FollowerRobotApiType = "sg2" | "bg2" | "sh5" | "bh5";
+export type FollowerRobotApiType = "sg2" | "bg2" | "sh5" | "bh5" | "mobile";
 
-const FOLLOWER_ROBOT_MODELS: readonly FollowerRobotModel[] = ["SG2", "BG2", "SH5", "BH5"];
+const FOLLOWER_ROBOT_MODELS: readonly FollowerRobotModel[] = ["SG2", "BG2", "SH5", "BH5", "Mobile"];
 
 export function isFollowerRobotModel(v: string | null | undefined): v is FollowerRobotModel {
   if (v == null) return false;
@@ -193,6 +211,8 @@ export function followerModelToApi(kind: FollowerRobotModel): FollowerRobotApiTy
       return "sh5";
     case "BH5":
       return "bh5";
+    case "Mobile":
+      return "mobile";
   }
 }
 
@@ -206,6 +226,8 @@ export function getFollowerLaunchConfig(kind: FollowerRobotModel): LaunchArgsCon
       return FOLLOWER_BRINGUP_SH5_CONFIG;
     case "BH5":
       return FOLLOWER_BRINGUP_BH5_CONFIG;
+    case "Mobile":
+      return FOLLOWER_BRINGUP_MOBILE_CONFIG;
   }
 }
 

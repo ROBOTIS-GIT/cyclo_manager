@@ -128,7 +128,7 @@ function useServiceStatus(
     async (
       action: "up" | "down" | "restart",
       launchArgs?: Record<string, string>,
-      robotType?: "sg2" | "bg2" | "sh5" | "bh5"
+      robotType?: "sg2" | "bg2" | "sh5" | "bh5" | "mobile"
     ) => {
       if (!container) return;
       setLoading(true);

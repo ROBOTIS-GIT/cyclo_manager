@@ -24,12 +24,7 @@ import time
 from typing import Any, Optional, Tuple
 
 from cyclo_manager.models import ROS2TopicDataResponse
-from cyclo_manager.routers import ros2 as ros2_router
-from cyclo_manager.state import (
-    get_any_ros2_node,
-    get_client_pool_or_none,
-    get_config_or_none,
-)
+from cyclo_manager.state import app_state
 from fastapi import APIRouter, HTTPException, WebSocket, WebSocketDisconnect
 from websockets.exceptions import ConnectionClosedError, ConnectionClosedOK
 
@@ -168,7 +163,7 @@ async def _setup_log_stream_client(websocket: WebSocket, container: str):
     Returns the AgentClient on success, or None after sending an error and
     closing the WebSocket.
     """
-    config = get_config_or_none()
+    config = app_state.get_config_or_none()
     if config is None:
         await _send_websocket_error(websocket, 'Configuration not loaded')
         await _close_websocket_ignoring_error(websocket)
@@ -179,7 +174,7 @@ async def _setup_log_stream_client(websocket: WebSocket, container: str):
         await _close_websocket_ignoring_error(websocket)
         return None
 
-    client_pool = get_client_pool_or_none()
+    client_pool = app_state.get_client_pool_or_none()
     if client_pool is None:
         await _send_websocket_error(websocket, 'Agent client pool not initialized')
         await _close_websocket_ignoring_error(websocket)
@@ -280,13 +275,13 @@ async def _poll_fallback_logs(client, service: str) -> Tuple[str, Optional[int]]
 # ROS2 WebSocket Helper Functions
 # ============================================================================
 
-def _get_topic_msg_type(node: Any, topic: str) -> str:
+def _get_topic_msg_type(bridge: Any, topic: str) -> str:
     """
     Get message type for a topic (control, discovered, or on-demand).
 
     Args
     ----
-    node: CycloManagerTopicSubscriber instance.
+    bridge: Ros2Bridge instance.
     topic: Topic name.
 
     Returns
@@ -294,12 +289,12 @@ def _get_topic_msg_type(node: Any, topic: str) -> str:
     Message type string, or empty string if unknown.
 
     """
-    return node.get_topic_msg_type(topic) or ''
+    return bridge.get_topic_msg_type(topic) or ''
 
 
 async def _poll_and_send_single_topic_data(
     websocket: WebSocket,
-    node: Any,
+    bridge: Any,
     topic: str,
     last_send_time: float,
     last_sent_data_hash: Optional[int],
@@ -313,7 +308,7 @@ async def _poll_and_send_single_topic_data(
     Args
     ----
     websocket: WebSocket connection.
-    node: CycloManagerTopicSubscriber instance.
+    bridge: Ros2Bridge instance.
     topic: Topic name.
     last_send_time: Last send time for this topic.
     last_sent_data_hash: Last sent data hash for this topic.
@@ -331,8 +326,8 @@ async def _poll_and_send_single_topic_data(
         return True, last_send_time, last_sent_data_hash  # Throttled
 
     # Get latest cached data
-    cached_data = node.get_topic_data(topic)
-    available = node.is_topic_available(topic)
+    cached_data = bridge.get_topic_data(topic)
+    available = bridge.is_topic_receiving(topic)
 
     if cached_data:
         data = cached_data.get('data')
@@ -341,13 +336,13 @@ async def _poll_and_send_single_topic_data(
 
         if data_hash != last_sent_data_hash or not available:
             # Data changed or became unavailable, send update
-            msg_type = _get_topic_msg_type(node, topic)
+            msg_type = _get_topic_msg_type(bridge, topic)
             response = ROS2TopicDataResponse(
                 topic=topic,
                 msg_type=msg_type,
                 data=data,
                 available=available,
-                domain_id=node.domain_id,
+                domain_id=bridge.domain_id,
             )
 
             success = await _send_websocket_data(websocket, response.model_dump())
@@ -358,13 +353,13 @@ async def _poll_and_send_single_topic_data(
         # or if we had data before (last_sent_data_hash is not None)
         if last_sent_data_hash is None:
             # First time checking - send initial unavailable status
-            msg_type = _get_topic_msg_type(node, topic)
+            msg_type = _get_topic_msg_type(bridge, topic)
             response = ROS2TopicDataResponse(
                 topic=topic,
                 msg_type=msg_type,
                 data=None,
                 available=False,
-                domain_id=node.domain_id,
+                domain_id=bridge.domain_id,
             )
 
             success = await _send_websocket_data(websocket, response.model_dump())
@@ -372,13 +367,13 @@ async def _poll_and_send_single_topic_data(
             return success, current_time, -1
         elif last_sent_data_hash != -1:
             # We had data before, now it's unavailable - send notification
-            msg_type = _get_topic_msg_type(node, topic)
+            msg_type = _get_topic_msg_type(bridge, topic)
             response = ROS2TopicDataResponse(
                 topic=topic,
                 msg_type=msg_type,
                 data=None,
                 available=False,
-                domain_id=node.domain_id,
+                domain_id=bridge.domain_id,
             )
 
             success = await _send_websocket_data(websocket, response.model_dump())
@@ -498,25 +493,21 @@ async def websocket_ros2_topic_data(websocket: WebSocket, topic: str):
     logger.info(f'WebSocket connection established for ros2/{topic}')
 
     try:
-        node = get_any_ros2_node()
-        if node is None:
-            await _send_websocket_error(websocket, 'No ROS2 node available.')
-            await _close_websocket_ignoring_error(websocket)
-            return
-        if topic not in node.list_topics():
-            await _send_websocket_error(websocket, f"Topic '{topic}' not found")
+        bridge = app_state.get_ros2_bridge_or_none()
+        if bridge is None:
+            await _send_websocket_error(websocket, 'No ROS2 bridge available.')
             await _close_websocket_ignoring_error(websocket)
             return
 
-        msg_type = node.get_topic_msg_type(topic)
+        msg_type = bridge.get_topic_msg_type(topic)
         if msg_type:
-            qos_profile = ros2_router.resolve_qos_profile_for_topic(topic, node)
-            node.add_topic_subscription(topic, msg_type, qos_profile=qos_profile)
+            qos_profile = bridge.get_qos_profile_for_topic(topic)
+            bridge.add_topic_subscription(topic, msg_type, qos_profile=qos_profile)
             # Give TRANSIENT_LOCAL callback time to receive the last message (DDS is async)
-            if node.is_topic_transient_local_subscription(topic):
+            if bridge.is_topic_transient_local_subscription(topic):
                 for _ in range(5):
                     await asyncio.sleep(0.1)
-                    if node.get_topic_data(topic):
+                    if bridge.is_topic_receiving(topic):
                         break
 
         last_send_time: float = 0.0
@@ -524,25 +515,25 @@ async def websocket_ros2_topic_data(websocket: WebSocket, topic: str):
         min_interval = 1.0 / ROS2_TOPIC_MAX_SEND_RATE
 
         try:
-            cached_data = node.get_topic_data(topic)
-            available = node.is_topic_available(topic)
+            cached_data = bridge.get_topic_data(topic)
+            available = bridge.is_topic_receiving(topic)
 
             if cached_data:
                 data = cached_data.get('data')
                 data_hash = hash(str(data)) if data is not None else None
-                msg_type = _get_topic_msg_type(node, topic)
+                msg_type = _get_topic_msg_type(bridge, topic)
                 response = ROS2TopicDataResponse(
                     topic=topic, msg_type=msg_type,
-                    data=data, available=available, domain_id=node.domain_id,
+                    data=data, available=available, domain_id=bridge.domain_id,
                 )
                 if await _send_websocket_data(websocket, response.model_dump()):
                     last_send_time = time.time()
                     last_sent_data_hash = data_hash
             elif not available:
-                msg_type = _get_topic_msg_type(node, topic)
+                msg_type = _get_topic_msg_type(bridge, topic)
                 response = ROS2TopicDataResponse(
                     topic=topic, msg_type=msg_type,
-                    data=None, available=False, domain_id=node.domain_id,
+                    data=None, available=False, domain_id=bridge.domain_id,
                 )
                 if await _send_websocket_data(websocket, response.model_dump()):
                     last_send_time = time.time()
@@ -553,7 +544,7 @@ async def websocket_ros2_topic_data(websocket: WebSocket, topic: str):
 
                 connection_alive, new_last_send_time, new_last_sent_data_hash = (
                     await _poll_and_send_single_topic_data(
-                        websocket, node, topic,
+                        websocket, bridge, topic,
                         last_send_time, last_sent_data_hash, min_interval
                     )
                 )
