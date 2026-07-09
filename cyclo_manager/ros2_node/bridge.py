@@ -75,7 +75,8 @@ def _ensure_rclpy_init() -> None:
     global _rclpy_initialized
     with _rclpy_init_lock:
         if not _rclpy_initialized:
-            rclpy.init()
+            if not rclpy.ok():
+                rclpy.init()
             _rclpy_initialized = True
 
 
@@ -346,7 +347,7 @@ class Ros2Bridge:
         processed = self._request_available.wait(timeout=timeout)
         if not processed:
             logger.warning(
-                "Request processing timeout: op=%s",
+                'Request processing timeout: op=%s',
                 op[0],
             )
 
@@ -356,7 +357,8 @@ class Ros2Bridge:
 
     def _handle_run_discovery(self) -> None:
         try:
-            names_and_types = self._rclpy_node.get_topic_names_and_types()  # type: ignore[union-attr]
+            names_and_types = self._rclpy_node.get_topic_names_and_types(
+            )  # type: ignore[union-attr]
             with self._lock:
                 self._discovered_topics = dict(names_and_types)
         except Exception as e:
