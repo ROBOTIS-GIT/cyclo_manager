@@ -327,7 +327,7 @@ async def _poll_and_send_single_topic_data(
 
     # Get latest cached data
     cached_data = bridge.get_topic_data(topic)
-    available = bridge.is_topic_available(topic)
+    available = bridge.is_topic_receiving(topic)
 
     if cached_data:
         data = cached_data.get('data')
@@ -507,7 +507,7 @@ async def websocket_ros2_topic_data(websocket: WebSocket, topic: str):
             if bridge.is_topic_transient_local_subscription(topic):
                 for _ in range(5):
                     await asyncio.sleep(0.1)
-                    if bridge.get_topic_data(topic):
+                    if bridge.is_topic_receiving(topic):
                         break
 
         last_send_time: float = 0.0
@@ -516,7 +516,7 @@ async def websocket_ros2_topic_data(websocket: WebSocket, topic: str):
 
         try:
             cached_data = bridge.get_topic_data(topic)
-            available = bridge.is_topic_available(topic)
+            available = bridge.is_topic_receiving(topic)
 
             if cached_data:
                 data = cached_data.get('data')

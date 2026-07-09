@@ -127,7 +127,7 @@ async def get_ros2_topic_data(topic: str) -> ROS2TopicDataResponse:
     """Get the latest data from a specific ROS2 topic. On-demand subscription if needed."""
     bridge = _require_bridge()
     msg_type = bridge.get_topic_msg_type(topic)
-    if msg_type and not bridge.is_topic_available(topic):
+    if msg_type and not bridge.is_topic_receiving(topic):
         qos_profile = bridge.get_qos_profile_for_topic(topic)
         bridge.add_topic_subscription(topic, msg_type, qos_profile=qos_profile)
     cached_data = bridge.get_topic_data(topic)

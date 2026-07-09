@@ -236,10 +236,11 @@ class Ros2Bridge:
                 del self._msg_cache[topic]
                 return None
             raw = cached.get('raw_message')
+            received_at = cached.get('received_at')
             if raw is None:
                 return None
-            data = message_to_dict(raw, convert_value_for_json)
-            return {'data': data, 'received_at': cached.get('received_at')}
+        data = message_to_dict(raw, convert_value_for_json)
+        return {'data': data, 'received_at': received_at}
 
     def get_topic_msg_type(self, topic: str) -> Optional[str]:
         """Message type for topic (known fallback or discovered)."""
@@ -247,14 +248,11 @@ class Ros2Bridge:
             msg_type = self._resolve_topic_msg_type_locked(topic)
         return msg_type or None
 
-    def is_topic_available(self, topic: str) -> bool:
-        return self.get_topic_data(topic) is not None
-
     def is_topic_receiving(self, topic: str) -> bool:
         """
         Cheaply check whether fresh data has been received for a topic.
 
-        Unlike is_topic_available(), this never converts the cached message to a
+        Unlike get_topic_data(), this never converts the cached message to a
         dict, so it's safe to poll frequently even for large payloads (e.g. compressed
         images).
         """
