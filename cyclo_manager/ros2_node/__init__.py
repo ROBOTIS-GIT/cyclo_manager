@@ -16,8 +16,8 @@
 #
 # Author: Hyungyu Kim
 
-"""ROS2 node package for per-container node and page-based subscriptions."""
+"""ROS2 bridge package for API-to-topic subscribe/publish."""
 
-from cyclo_manager.ros2_node.node import CycloManagerTopicSubscriber
+from cyclo_manager.ros2_node.bridge import Ros2Bridge
 
-__all__ = ['CycloManagerTopicSubscriber']
+__all__ = ['Ros2Bridge']
