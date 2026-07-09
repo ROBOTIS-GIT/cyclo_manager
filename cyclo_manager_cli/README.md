@@ -125,8 +125,8 @@ Defined in [`cyclo_manager_cli/docker/docker-compose.yml`](cyclo_manager_cli/doc
 
 | Compose service | Container name | `cyclo_manager up` | Image (example) |
 |-----------------|----------------|--------------------|-----------------|
-| `cyclo_manager` | `cyclo_manager` | **Started** | `robotis/cyclo-manager:0.2.1` |
-| `ui` | `cyclo_manager_ui` | **Started** | `robotis/cyclo-manager-ui:0.2.1` |
+| `cyclo_manager` | `cyclo_manager` | **Started** | `robotis/cyclo-manager:0.3.0` |
+| `ui` | `cyclo_manager_ui` | **Started** | `robotis/cyclo-manager-ui:0.3.0` |
 | `rmw_zenoh` | `zenoh_daemon` | **Created only** | `robotis/zenoh-daemon:latest` |
 | `novnc-server` | `novnc-server` | **Created only** | `robotis/novnc-server:latest` |
 
