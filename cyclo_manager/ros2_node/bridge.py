@@ -364,20 +364,6 @@ class Ros2Bridge:
         except Exception as e:
             logger.warning('Discovery failed: %s', e)
 
-    def _handle_get_publisher_qos(self, topic: str) -> dict[str, Any]:
-        if not self._rclpy_node:
-            return get_default_qos_profile()
-        try:
-            publisher_infos = self._rclpy_node.get_publishers_info_by_topic(topic)
-        except Exception as e:
-            logger.warning(
-                'Publisher QoS lookup failed: topic=%s error=%s',
-                topic,
-                e,
-            )
-            return get_default_qos_profile()
-        return resolve_qos_from_publisher_info(publisher_infos)
-
     def _handle_add_subscription(self, topic: str, msg_type: str, qos_profile: dict) -> None:
         with self._lock:
             if topic in self._subs:
@@ -394,6 +380,20 @@ class Ros2Bridge:
                 topic,
                 msg_type,
             )
+
+    def _handle_get_publisher_qos(self, topic: str) -> dict[str, Any]:
+        if not self._rclpy_node:
+            return get_default_qos_profile()
+        try:
+            publisher_infos = self._rclpy_node.get_publishers_info_by_topic(topic)
+        except Exception as e:
+            logger.warning(
+                'Publisher QoS lookup failed: topic=%s error=%s',
+                topic,
+                e,
+            )
+            return get_default_qos_profile()
+        return resolve_qos_from_publisher_info(publisher_infos)
 
     def _handle_remove_subscription(self, topic: str) -> None:
         with self._lock:

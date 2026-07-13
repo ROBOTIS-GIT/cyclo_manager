@@ -133,10 +133,8 @@ async def get_ros2_topic_data(topic: str) -> ROS2TopicDataResponse:
     cached_data = bridge.get_topic_data(topic)
     available = cached_data is not None
     data = cached_data.get('data') if cached_data else None
-    if msg_type is None:
-        msg_type = bridge.get_topic_msg_type(topic) or ''
     return ROS2TopicDataResponse(
-        topic=topic, msg_type=msg_type,
+        topic=topic, msg_type=msg_type or '',
         data=data, available=available, domain_id=bridge.domain_id,
     )
 
