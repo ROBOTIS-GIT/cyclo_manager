@@ -150,8 +150,7 @@ async def ros2_topic_subscribe(
     if not msg_type:
         msg_type = bridge.get_topic_msg_type(topic)
     if not msg_type:
-        bridge.request_discovery()
-        bridge.wait_discovery()
+        bridge.run_discovery()
         msg_type = bridge.get_topic_msg_type(topic)
     if not msg_type:
         raise HTTPException(
@@ -167,5 +166,5 @@ async def ros2_topic_subscribe(
 async def ros2_topic_unsubscribe(topic: str):
     """Unsubscribe from a ROS2 topic."""
     bridge = _require_bridge()
-    bridge.remove_topic_subscription(topic)
-    return {'ok': True}
+    ok = bridge.remove_topic_subscription(topic)
+    return {'ok': ok}

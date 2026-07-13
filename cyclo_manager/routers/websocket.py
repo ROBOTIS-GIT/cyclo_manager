@@ -516,7 +516,7 @@ async def websocket_ros2_topic_data(websocket: WebSocket, topic: str):
 
         try:
             cached_data = bridge.get_topic_data(topic)
-            available = bridge.is_topic_receiving(topic)
+            available = cached_data is not None
 
             if cached_data:
                 data = cached_data.get('data')
