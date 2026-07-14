@@ -17,7 +17,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { useROS2TopicWebSocket } from "@/lib/websocket";
+import { useROS2TopicWebSocket } from "@/hooks/useROS2TopicWebSocket";
 import { useTheme } from "@/contexts/ThemeContext";
 import * as THREE from "three";
 // @ts-ignore

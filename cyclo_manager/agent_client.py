@@ -18,8 +18,9 @@
 
 """Async HTTP client for communicating with agents via Unix Domain Sockets."""
 
+import json
 import logging
-from typing import Optional, TYPE_CHECKING
+from typing import Any, AsyncIterator, Optional, TYPE_CHECKING
 
 import httpx
 
@@ -274,6 +275,67 @@ class AgentClient:
             raise
         except Exception as e:
             logger.error(f"Agent returned error status for service '{service_name}': {e}")
+            raise
+
+    async def stream_service_logs(
+        self,
+        service_name: str,
+        tail: int = 100,
+        cursor: Optional[int] = None,
+        strip_ansi: bool = False,
+    ) -> AsyncIterator[dict[str, Any]]:
+        """
+        Stream logs for a service from agent as NDJSON events.
+
+        Each yielded event contains ``logs`` and ``cursor`` fields.
+        """
+        client = await self._ensure_httpx_client()
+        logger.debug(
+            f'Streaming logs for service {service_name!r} from agent at {self.socket_path} '
+            f'(cursor={cursor}, tail={tail if cursor is None else None})'
+        )
+        params: dict[str, object] = {
+            'tail': tail,
+            'strip_ansi': strip_ansi,
+        }
+        if cursor is not None:
+            params['cursor'] = cursor
+
+        timeout = httpx.Timeout(
+            connect=self.timeout,
+            read=None,
+            write=self.timeout,
+            pool=self.timeout,
+        )
+        try:
+            async with client.stream(
+                'GET',
+                f'/services/{service_name}/logs/stream',
+                params=params,
+                timeout=timeout,
+            ) as response:
+                response.raise_for_status()
+                async for line in response.aiter_lines():
+                    if not line:
+                        continue
+                    try:
+                        event = json.loads(line)
+                    except json.JSONDecodeError:
+                        logger.warning(
+                            "Failed to decode log stream event for service '%s': %r",
+                            service_name,
+                            line,
+                        )
+                        continue
+                    yield event
+        except httpx.RequestError as e:
+            logger.error(f'Failed to stream logs from agent at {self.socket_path}: {e}')
+            raise
+        except httpx.HTTPStatusError as e:
+            logger.error(f"Agent returned error status for log stream '{service_name}': {e}")
+            raise
+        except Exception as e:
+            logger.error(f"Agent log stream failed for service '{service_name}': {e}")
             raise
 
     async def clear_service_logs(self, service_name: str) -> dict:

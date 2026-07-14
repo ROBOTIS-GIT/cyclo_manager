@@ -16,10 +16,8 @@
 
 "use client";
 
-import { useState, useRef, useEffect, useCallback } from "react";
 import LogViewer from "./LogViewer";
-import { createLogsWebSocket } from "@/lib/websocket";
-import { clearServiceLogs } from "@/lib/api";
+import { useServiceLogStream } from "@/hooks/useServiceLogStream";
 
 interface FixedLogPanelProps {
   container: string;
@@ -27,168 +25,12 @@ interface FixedLogPanelProps {
   onClose: () => void;
 }
 
-const LOG_UPDATE_DEBOUNCE_MS = 200;
-const RECONNECT_DELAY_MS = 3000;
-const WS_CLOSE_CODE_NORMAL = 1000;
-const WS_CLOSE_CODE_GOING_AWAY = 1001;
-const MAX_LOG_LINES = 1000;
-
 export default function FixedLogPanel({
   container,
   service,
   onClose,
 }: FixedLogPanelProps) {
-  const [lines, setLines] = useState<string[]>([]);
-  const [isConnected, setIsConnected] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [clearLoading, setClearLoading] = useState(false);
-
-  const wsRef = useRef<WebSocket | null>(null);
-  const reconnectTimeoutRef = useRef<NodeJS.Timeout | null>(null);
-  const isMountedRef = useRef(true);
-  const shouldReconnectRef = useRef(true);
-  // Accumulates raw incoming text between flushes
-  const pendingRef = useRef<string>("");
-  // Holds an incomplete line (chunk that didn't end with \n)
-  const partialLineRef = useRef<string>("");
-  const logUpdateTimeoutRef = useRef<NodeJS.Timeout | null>(null);
-  const isEmptyLogsRef = useRef(true);
-
-  const appendPending = useCallback(() => {
-    const raw = partialLineRef.current + pendingRef.current;
-    pendingRef.current = "";
-
-    const parts = raw.split("\n");
-    // If raw ends with \n, the last element is "" — discard it and clear partial.
-    // Otherwise the last element is an incomplete line — save it for next flush.
-    if (raw.endsWith("\n")) {
-      partialLineRef.current = "";
-    } else {
-      partialLineRef.current = parts.pop() ?? "";
-    }
-
-    if (parts.length === 0) return;
-
-    setLines((prev) => {
-      const combined = [...prev, ...parts];
-      return combined.length <= MAX_LOG_LINES
-        ? combined
-        : combined.slice(-MAX_LOG_LINES);
-    });
-  }, []);
-
-  const connectWebSocket = useCallback(() => {
-    if (!isMountedRef.current) return;
-
-    if (wsRef.current) {
-      wsRef.current.close(WS_CLOSE_CODE_NORMAL, "Reconnecting");
-      wsRef.current = null;
-    }
-
-    if (reconnectTimeoutRef.current) {
-      clearTimeout(reconnectTimeoutRef.current);
-      reconnectTimeoutRef.current = null;
-    }
-
-    setError(null);
-    setIsConnected(false);
-    shouldReconnectRef.current = true;
-
-    try {
-      const ws = createLogsWebSocket(container, service, {
-        onMessage: (data: string) => {
-          if (!isMountedRef.current) return;
-
-          pendingRef.current += data;
-
-          if (isEmptyLogsRef.current) {
-            // Flush immediately on first message so the panel doesn't appear blank
-            appendPending();
-            isEmptyLogsRef.current = false;
-            setIsConnected(true);
-          } else {
-            if (logUpdateTimeoutRef.current) {
-              clearTimeout(logUpdateTimeoutRef.current);
-            }
-            logUpdateTimeoutRef.current = setTimeout(() => {
-              if (!isMountedRef.current) return;
-              appendPending();
-            }, LOG_UPDATE_DEBOUNCE_MS);
-          }
-        },
-        onError: (err: Error) => {
-          if (!isMountedRef.current) return;
-          setError(err.message);
-          setIsConnected(false);
-
-          if (err.message.includes("stopped") || err.message.includes("both stopped")) {
-            shouldReconnectRef.current = false;
-          }
-        },
-        onOpen: () => {
-          if (!isMountedRef.current) return;
-          setIsConnected(true);
-          setError(null);
-        },
-        onClose: (event?: CloseEvent) => {
-          if (!isMountedRef.current) return;
-          setIsConnected(false);
-
-          const shouldReconnect =
-            isMountedRef.current &&
-            wsRef.current === ws &&
-            shouldReconnectRef.current &&
-            event?.code !== WS_CLOSE_CODE_NORMAL &&
-            event?.code !== WS_CLOSE_CODE_GOING_AWAY;
-
-          if (shouldReconnect) {
-            reconnectTimeoutRef.current = setTimeout(() => {
-              if (isMountedRef.current && shouldReconnectRef.current) {
-                connectWebSocket();
-              }
-            }, RECONNECT_DELAY_MS);
-          }
-        },
-      });
-
-      wsRef.current = ws;
-    } catch (err) {
-      if (!isMountedRef.current) return;
-      setError(err instanceof Error ? err.message : "Failed to connect to WebSocket");
-    }
-  }, [container, service, appendPending]);
-
-  useEffect(() => {
-    isMountedRef.current = true;
-    shouldReconnectRef.current = true;
-    isEmptyLogsRef.current = true;
-    connectWebSocket();
-
-    return () => {
-      isMountedRef.current = false;
-      shouldReconnectRef.current = false;
-
-      if (wsRef.current) {
-        wsRef.current.close(WS_CLOSE_CODE_NORMAL, "Component unmounting");
-        wsRef.current = null;
-      }
-
-      if (reconnectTimeoutRef.current) {
-        clearTimeout(reconnectTimeoutRef.current);
-        reconnectTimeoutRef.current = null;
-      }
-
-      if (logUpdateTimeoutRef.current) {
-        clearTimeout(logUpdateTimeoutRef.current);
-        logUpdateTimeoutRef.current = null;
-      }
-
-      // Flush any remaining pending text on unmount
-      if (pendingRef.current) {
-        appendPending();
-      }
-    };
-  }, [connectWebSocket]);
+  const { lines, error, isClearing, clearLogs } = useServiceLogStream(container, service);
 
   return (
     <div
@@ -228,40 +70,26 @@ export default function FixedLogPanel({
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
           <button
-            onClick={async () => {
-              setClearLoading(true);
-              setError(null);
-              try {
-                await clearServiceLogs(container, service);
-                setLines([]);
-                pendingRef.current = "";
-                partialLineRef.current = "";
-                isEmptyLogsRef.current = true;
-              } catch (e) {
-                setError(e instanceof Error ? e.message : "Failed to clear logs");
-              } finally {
-                setClearLoading(false);
-              }
-            }}
-            disabled={clearLoading}
+            onClick={clearLogs}
+            disabled={isClearing}
             style={{
               background: "none",
               border: "none",
               color: "var(--vscode-foreground)",
-              cursor: clearLoading ? "not-allowed" : "pointer",
+              cursor: isClearing ? "not-allowed" : "pointer",
               fontSize: "12px",
               padding: "4px 8px",
               borderRadius: "2px",
-              opacity: clearLoading ? 0.6 : 1,
+              opacity: isClearing ? 0.6 : 1,
             }}
             onMouseEnter={(e) => {
-              if (!clearLoading) e.currentTarget.style.backgroundColor = "var(--vscode-toolbar-hoverBackground)";
+              if (!isClearing) e.currentTarget.style.backgroundColor = "var(--vscode-toolbar-hoverBackground)";
             }}
             onMouseLeave={(e) => {
               e.currentTarget.style.backgroundColor = "transparent";
             }}
           >
-            {clearLoading ? "Clearing…" : "Clear"}
+            {isClearing ? "Clearing…" : "Clear"}
           </button>
           <button
             onClick={onClose}
