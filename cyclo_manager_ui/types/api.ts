@@ -65,14 +65,6 @@ export interface ServiceControlResponse {
   result: string;
 }
 
-export interface ServiceLogsResponse {
-  container: string;
-  service: string;
-  logs: string;
-  tail: number;
-  log_path: string | null;
-}
-
 export interface ServiceLogsClearResponse {
   container: string;
   service: string;

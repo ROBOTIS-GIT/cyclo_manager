@@ -224,59 +224,6 @@ class AgentClient:
             logger.error(f"Agent returned error status for service '{service_name}': {e}")
             raise
 
-    async def get_service_logs(
-        self, service_name: str, tail: int = 100, cursor: Optional[int] = None
-    ) -> dict:
-        """
-        Get logs for a service from agent.
-
-        Args
-        ----
-        service_name: Name of the service.
-        tail: Number of log lines to return from the end. Defaults to 100.
-            Ignored if cursor is provided.
-        cursor: Byte offset in the log file. If provided, returns logs from this offset
-            to the end of the file. This is more efficient for streaming logs.
-
-        Returns
-        -------
-        Response JSON from agent's /services/{name}/logs endpoint.
-        Contains 'logs', 'cursor' (current file size), and optionally 'tail'.
-
-        Raises
-        ------
-        httpx.RequestError: If request fails.
-        httpx.HTTPStatusError: If agent returns error status (e.g., 404).
-
-        """
-        client = await self._ensure_httpx_client()
-        logger.debug(
-            f'Requesting logs for service {service_name!r} from agent at {self.socket_path} '
-            f'(cursor={cursor}, tail={tail if cursor is None else None})'
-        )
-        try:
-            params = {}
-            if cursor is not None:
-                params['cursor'] = cursor
-            else:
-                params['tail'] = tail
-
-            response = await client.get(
-                f'/services/{service_name}/logs',
-                params=params,
-            )
-            response.raise_for_status()
-            return response.json()
-        except httpx.RequestError as e:
-            logger.error(f'Failed to communicate with agent at {self.socket_path}: {e}')
-            raise
-        except httpx.HTTPStatusError as e:
-            logger.error(f"Agent returned error status for service '{service_name}': {e}")
-            raise
-        except Exception as e:
-            logger.error(f"Agent returned error status for service '{service_name}': {e}")
-            raise
-
     async def stream_service_logs(
         self,
         service_name: str,

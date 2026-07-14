@@ -26,7 +26,6 @@ import type {
   ServiceStatusResponse,
   ServiceStatusListResponse,
   ServiceControlResponse,
-  ServiceLogsResponse,
   ServiceLogsClearResponse,
   ServiceActionRequest,
   DockerContainerListResponse,
@@ -163,24 +162,6 @@ export async function controlService(
     const response = await apiClient.post<ServiceControlResponse>(
       `/${container}/services/${service}`,
       request
-    );
-    return response.data;
-  } catch (error) {
-    handleError(error);
-  }
-}
-
-export async function getServiceLogs(
-  container: string,
-  service: string,
-  tail: number = 100
-): Promise<ServiceLogsResponse> {
-  try {
-    const response = await apiClient.get<ServiceLogsResponse>(
-      `/${container}/services/${service}/logs`,
-      {
-        params: { tail },
-      }
     );
     return response.data;
   } catch (error) {

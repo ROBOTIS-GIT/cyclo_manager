@@ -26,7 +26,6 @@ from cyclo_manager.models import (
     ServiceInfo,
     ServiceListResponse,
     ServiceLogsClearResponse,
-    ServiceLogsResponse,
     ServiceRunScriptResponse,
     ServiceRunScriptUpdateRequest,
     ServiceStatusListResponse,
@@ -156,32 +155,6 @@ async def get_all_services_status(
         )
 
     return ServiceStatusListResponse(container=container, statuses=statuses)
-
-
-@router.get('/{service}/logs', response_model=ServiceLogsResponse)
-async def get_service_logs(
-    service: str,
-    tail: int = 100,
-    container: str = Depends(get_validated_container),
-) -> ServiceLogsResponse:
-    """Get logs for a service in a container."""
-    try:
-        client = get_agent_client(container)
-        agent_response = await client.get_service_logs(service, tail=tail)
-        logger.info(
-            f'Successfully retrieved logs for service {service!r} in container {container!r}'
-        )
-    except Exception as e:
-        logger.error(f'Failed to get service logs from agent: {e}')
-        _raise_mapped_service_exception(container, e)
-
-    return ServiceLogsResponse(
-        container=container,
-        service=service,
-        logs=agent_response.get('logs', ''),
-        tail=agent_response.get('tail', tail),
-        log_path=agent_response.get('log_path'),
-    )
 
 
 @router.delete('/{service}/logs', response_model=ServiceLogsClearResponse)
