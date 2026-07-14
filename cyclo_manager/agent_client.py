@@ -285,6 +285,38 @@ class AgentClient:
             logger.error(f"Agent log stream failed for service '{service_name}': {e}")
             raise
 
+    async def open_service_log_download(self, service_name: str) -> httpx.Response:
+        """
+        Open a streaming response for a service's downloadable current log file.
+
+        The caller is responsible for closing the returned response.
+        """
+        client = await self._ensure_httpx_client()
+        logger.debug(
+            f'Downloading log file for service {service_name!r} from agent at {self.socket_path}'
+        )
+        response: httpx.Response | None = None
+        try:
+            request = client.build_request(
+                'GET',
+                f'/services/{service_name}/logs/download',
+            )
+            response = await client.send(request, stream=True)
+            response.raise_for_status()
+            return response
+        except httpx.RequestError as e:
+            logger.error(f'Failed to download logs from agent at {self.socket_path}: {e}')
+            raise
+        except httpx.HTTPStatusError as e:
+            await e.response.aclose()
+            logger.error(f"Agent returned error status for log download '{service_name}': {e}")
+            raise
+        except Exception as e:
+            if response is not None:
+                await response.aclose()
+            logger.error(f"Agent log download failed for service '{service_name}': {e}")
+            raise
+
     async def clear_service_logs(self, service_name: str) -> dict:
         """
         Clear logs for a service from agent.

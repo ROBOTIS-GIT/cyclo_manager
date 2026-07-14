@@ -7,6 +7,7 @@ Changelog for package cyclo_manager
 * Improved ROS 2 bridge request synchronization with per-request response queues for discovery, subscription, QoS lookup, publishing, and unsubscribe results.
 * Changed service log delivery from polling to streaming and refactored related WebSocket and UI code.
 * Changed Jog robot readiness checks from parsing bringup logs to using robot service status and the selected robot model.
+* Added service log file download support with a Download button in the log panel.
 * Contributors: Hyungyu Kim
 
 0.3.0 (2026-07-09)

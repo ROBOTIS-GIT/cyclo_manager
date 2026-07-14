@@ -18,6 +18,7 @@
 
 import LogViewer from "./LogViewer";
 import { useServiceLogStream } from "@/hooks/useServiceLogStream";
+import { getServiceLogDownloadUrl } from "@/lib/api";
 
 interface FixedLogPanelProps {
   container: string;
@@ -31,6 +32,15 @@ export default function FixedLogPanel({
   onClose,
 }: FixedLogPanelProps) {
   const { lines, error, isClearing, clearLogs } = useServiceLogStream(container, service);
+
+  const downloadLogs = () => {
+    const link = document.createElement("a");
+    link.href = getServiceLogDownloadUrl(container, service);
+    link.download = `${container}_${service}_current.log`;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+  };
 
   return (
     <div
@@ -69,6 +79,26 @@ export default function FixedLogPanel({
           </span>
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+          <button
+            onClick={downloadLogs}
+            style={{
+              background: "none",
+              border: "none",
+              color: "var(--vscode-foreground)",
+              cursor: "pointer",
+              fontSize: "12px",
+              padding: "4px 8px",
+              borderRadius: "2px",
+            }}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.backgroundColor = "var(--vscode-toolbar-hoverBackground)";
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.backgroundColor = "transparent";
+            }}
+          >
+            Download
+          </button>
           <button
             onClick={clearLogs}
             disabled={isClearing}

@@ -35,6 +35,17 @@ router = APIRouter(prefix='/services', tags=['services'])
 
 LOG_STREAM_POLL_INTERVAL = 0.1
 LOG_STREAM_HEARTBEAT_INTERVAL = 15.0
+LOG_BASE_PATH = Path('/var/log')
+
+
+def _get_service_log_path(name: str) -> Path:
+    """Return the s6 current log path for a service name."""
+    if name in {'', '.', '..'} or '/' in name or '\\' in name:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f'Invalid service name: {name!r}',
+        )
+    return LOG_BASE_PATH / name / 'current'
 
 
 def _tail_log_file(log_path: Path, tail: int, strip_ansi: bool) -> tuple[str, int, int]:
@@ -87,6 +98,13 @@ def _encode_log_stream_event(
     return (json.dumps(payload) + '\n').encode('utf-8')
 
 
+def _iter_stripped_log_file(log_path: Path):
+    """Yield log file lines with ANSI escape codes removed."""
+    with log_path.open('r', encoding='utf-8', errors='replace') as f:
+        for line in f:
+            yield strip_ansi_codes(line).encode('utf-8')
+
+
 @router.get(
     '/{name}/logs/stream',
     summary='Stream service logs',
@@ -104,7 +122,7 @@ async def stream_service_logs(
     Each event has ``logs`` and ``cursor`` fields. The cursor is a byte offset in
     /var/log/{service_name}/current and can be passed back on reconnect.
     """
-    log_path = Path(f'/var/log/{name}/current')
+    log_path = _get_service_log_path(name)
 
     async def generate():
         current_cursor = cursor
@@ -201,6 +219,30 @@ async def stream_service_logs(
     )
 
 
+@router.get(
+    '/{name}/logs/download',
+    summary='Download service log',
+    description='Download the current s6 log file with ANSI escape codes removed.',
+)
+async def download_service_log(name: str):
+    """Download /var/log/{service_name}/current as a plain text log file."""
+    log_path = _get_service_log_path(name)
+
+    if not log_path.exists():
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=(
+                f'Log file not found for service {name!r}. '
+                "Service may not have logging enabled or log directory doesn't exist."
+            ),
+        )
+
+    return StreamingResponse(
+        _iter_stripped_log_file(log_path),
+        media_type='text/plain; charset=utf-8',
+    )
+
+
 @router.delete(
     '/{name}/logs',
     summary='Clear service logs',
@@ -226,8 +268,7 @@ async def clear_service_logs(name: str):
     HTTPException: 404 if service not found or logs unavailable, 500 on other errors.
 
     """
-    # s6-overlay logs are stored in /var/log/{service_name}/current
-    log_path = Path(f'/var/log/{name}/current')
+    log_path = _get_service_log_path(name)
 
     if not log_path.exists():
         raise HTTPException(

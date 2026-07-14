@@ -133,7 +133,7 @@ Interactive docs: `http://<host>:8081/docs`
 | Services | `GET /{container}/services` | List s6 services |
 | | `GET /{container}/services/status` | All statuses |
 | | `POST /{container}/services/{service}` | `up` / `down` / `restart`; optional `launch_args`, `robot_type` |
-| | `GET`, `DELETE /{container}/services/{service}/logs` | s6 log files |
+| | `GET /{container}/services/{service}/logs/download`, `DELETE /{container}/services/{service}/logs` | s6 log files |
 | | `GET`, `PUT /{container}/services/{service}/run` | s6 run script |
 | Container | `GET`, `PUT /{container}/bashrc` | Via `docker exec` |
 | Docker | `GET /docker/containers` | Optional `?all=true` |

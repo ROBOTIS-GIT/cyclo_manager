@@ -19,6 +19,7 @@
 """Service endpoints router."""
 
 import logging
+import re
 
 from cyclo_manager.models import (
     ServiceActionRequest,
@@ -33,11 +34,17 @@ from cyclo_manager.models import (
 )
 from cyclo_manager.state import get_agent_client, get_validated_container
 from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi.responses import StreamingResponse
 import httpx
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix='/{container}/services', tags=['services'])
+
+
+def _service_log_download_filename(container: str, service: str) -> str:
+    """Build a conservative ASCII filename for service log downloads."""
+    return re.sub(r'[^A-Za-z0-9_.-]+', '_', f'{container}_{service}_current.log')
 
 
 def _get_upstream_error_detail(exc: httpx.HTTPStatusError) -> str:
@@ -155,6 +162,41 @@ async def get_all_services_status(
         )
 
     return ServiceStatusListResponse(container=container, statuses=statuses)
+
+
+@router.get('/{service}/logs/download')
+async def download_service_log(
+    service: str,
+    container: str = Depends(get_validated_container),
+):
+    """Download the current log file for a service in a container."""
+    agent_response: httpx.Response | None = None
+    try:
+        client = get_agent_client(container)
+        agent_response = await client.open_service_log_download(service)
+        logger.info(
+            f'Starting log download for service {service!r} in container {container!r}'
+        )
+    except Exception as e:
+        if agent_response is not None:
+            await agent_response.aclose()
+        logger.error(f'Failed to download service log from agent: {e}')
+        _raise_mapped_service_exception(container, e)
+
+    async def iter_log_bytes():
+        assert agent_response is not None
+        try:
+            async for chunk in agent_response.aiter_bytes():
+                yield chunk
+        finally:
+            await agent_response.aclose()
+
+    filename = _service_log_download_filename(container, service)
+    return StreamingResponse(
+        iter_log_bytes(),
+        media_type=agent_response.headers.get('content-type', 'text/plain; charset=utf-8'),
+        headers={'Content-Disposition': f'attachment; filename="{filename}"'},
+    )
 
 
 @router.delete('/{service}/logs', response_model=ServiceLogsClearResponse)

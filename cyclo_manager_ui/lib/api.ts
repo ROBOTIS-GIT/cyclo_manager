@@ -74,6 +74,10 @@ export function getDockerTerminalWsUrl(containerName: string, sessionId: string)
   return `${wsBase}/terminal/${containerName}/ws?session_id=${encodeURIComponent(sessionId)}`;
 }
 
+export function getServiceLogDownloadUrl(container: string, service: string): string {
+  return `${API_BASE_URL}/${encodeURIComponent(container)}/services/${encodeURIComponent(service)}/logs/download`;
+}
+
 // Create axios instance with default config
 const apiClient = axios.create({
   baseURL: API_BASE_URL,
