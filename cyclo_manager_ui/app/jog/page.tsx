@@ -18,23 +18,24 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { getServiceLogs, getServiceStatus, publishCmdVel } from "@/lib/api";
+import { getServiceStatus, publishCmdVel } from "@/lib/api";
 import StatusBadge from "@/components/StatusBadge";
+import {
+  getStoredFollowerRobotModel,
+  type FollowerRobotModel,
+} from "@/config/launchArgs";
 
 const JOG_CONTAINER = "ai_worker";
 const ROBOT_SERVICE_NAME = "ai_worker_bringup";
 const CMD_VEL_TOPIC = "/cmd_vel";
 const MOBILE_ROBOT_MODEL = "Mobile";
-const BRINGUP_START_LOG = "[ai_worker_bringup] Starting service...";
-const CONTROLLER_CONFIGURED_LOG =
-  "[spawner_swerve_drive_controller]: Configured and activated swerve_drive_controller";
 const DEFAULT_LINEAR_SPEED = 0.3;
 const DEFAULT_ANGULAR_SPEED = 0.6;
 const SPEED_STEP = 0.1;
 const REPEAT_INTERVAL_MS = 120;
 const STATUS_POLL_INTERVAL_MS = 2000;
-const READY_LOG_TAIL_LINES = 3000;
 const ZERO_VELOCITY = { linearX: 0, angularZ: 0 };
+const JOG_SUPPORTED_ROBOT_MODELS = new Set<FollowerRobotModel>(["SG2", "SH5", "Mobile"]);
 
 type JogCommand = {
   id: "forward" | "left" | "stop" | "right" | "backward";
@@ -215,7 +216,7 @@ export default function JogPage() {
   const router = useRouter();
   const [activeCommand, setActiveCommand] = useState<JogCommand["id"] | null>(null);
   const [robotRunning, setRobotRunning] = useState(false);
-  const [controllerReady, setControllerReady] = useState(false);
+  const [robotType, setRobotType] = useState<FollowerRobotModel>(() => getStoredFollowerRobotModel(JOG_CONTAINER));
   const [statusText, setStatusText] = useState("Ready");
   const [error, setError] = useState<string | null>(null);
   const [linearSpeed, setLinearSpeed] = useState(DEFAULT_LINEAR_SPEED);
@@ -225,18 +226,24 @@ export default function JogPage() {
   const jogGenerationRef = useRef(0);
   const stopGenerationRef = useRef(0);
   const speedRef = useRef({ linearSpeed: DEFAULT_LINEAR_SPEED, angularSpeed: DEFAULT_ANGULAR_SPEED });
-  const warmedUpRef = useRef(false);
+  const initialStopSentRef = useRef(false);
   const statusPollInFlightRef = useRef(false);
-  const robotReady = robotRunning && controllerReady;
-
-  const resetControllerReady = useCallback(() => {
-    warmedUpRef.current = false;
-    setControllerReady(false);
-  }, []);
+  const robotTypeSupported = JOG_SUPPORTED_ROBOT_MODELS.has(robotType);
+  const robotReady = robotRunning && robotTypeSupported;
 
   useEffect(() => {
     speedRef.current = { linearSpeed, angularSpeed };
   }, [angularSpeed, linearSpeed]);
+
+  useEffect(() => {
+    const refreshRobotType = () => setRobotType(getStoredFollowerRobotModel(JOG_CONTAINER));
+    window.addEventListener("focus", refreshRobotType);
+    window.addEventListener("storage", refreshRobotType);
+    return () => {
+      window.removeEventListener("focus", refreshRobotType);
+      window.removeEventListener("storage", refreshRobotType);
+    };
+  }, []);
 
   useEffect(() => {
     let disposed = false;
@@ -247,27 +254,9 @@ export default function JogPage() {
         const serviceStatus = await getServiceStatus(JOG_CONTAINER, ROBOT_SERVICE_NAME);
         if (disposed) return;
         setRobotRunning(serviceStatus.is_up);
-        if (!serviceStatus.is_up) {
-          resetControllerReady();
-          return;
-        }
-        if (warmedUpRef.current) {
-          setControllerReady(true);
-          return;
-        }
-        const logs = await getServiceLogs(JOG_CONTAINER, ROBOT_SERVICE_NAME, READY_LOG_TAIL_LINES);
-        if (disposed) return;
-        const startIndex = logs.logs.lastIndexOf(BRINGUP_START_LOG);
-        const currentRunLogs = startIndex >= 0 ? logs.logs.slice(startIndex) : "";
-        if (currentRunLogs.includes(CONTROLLER_CONFIGURED_LOG)) {
-          setControllerReady(true);
-        } else {
-          resetControllerReady();
-        }
       } catch {
         if (!disposed) {
           setRobotRunning(false);
-          resetControllerReady();
         }
       } finally {
         statusPollInFlightRef.current = false;
@@ -280,7 +269,7 @@ export default function JogPage() {
       statusPollInFlightRef.current = false;
       clearInterval(interval);
     };
-  }, [resetControllerReady]);
+  }, []);
 
   const sendCmdVel = useCallback(async (linearX: number, angularZ: number) => {
     await publishCmdVel({ topic: CMD_VEL_TOPIC, linear_x: linearX, angular_z: angularZ });
@@ -346,16 +335,21 @@ export default function JogPage() {
 
   useEffect(() => {
     if (!robotReady) {
+      const hadActiveCommand = activeCommandRef.current !== null;
       stopJog(false);
-      setStatusText("Robot off");
+      if (hadActiveCommand && robotRunning) {
+        sendCmdVel(ZERO_VELOCITY.linearX, ZERO_VELOCITY.angularZ).catch(() => { });
+      }
+      initialStopSentRef.current = false;
+      setStatusText(robotRunning ? `Jog is not supported for ${robotType}` : "Robot off");
     } else if (!activeCommand) {
       setStatusText("Ready");
     }
-  }, [activeCommand, robotReady, stopJog]);
+  }, [activeCommand, robotReady, robotRunning, robotType, sendCmdVel, stopJog]);
 
   useEffect(() => {
-    if (!robotReady || warmedUpRef.current) return;
-    warmedUpRef.current = true;
+    if (!robotReady || initialStopSentRef.current) return;
+    initialStopSentRef.current = true;
     void publish(0, 0);
   }, [publish, robotReady]);
 
@@ -423,7 +417,11 @@ export default function JogPage() {
   }, [router]);
 
   const controlsProps = { commands: JOG_COMMANDS, activeCommand, disabled: !robotReady, startJog, stopJog };
-  const statusMessage = robotReady ? error ?? statusText : "Robot off";
+  const statusMessage = robotReady
+    ? error ?? statusText
+    : robotRunning
+      ? `Jog is not supported for ${robotType}`
+      : "Robot off";
 
   return (
     <div className="h-full min-h-[320px] flex flex-col overflow-hidden">
@@ -442,6 +440,7 @@ export default function JogPage() {
           <div className="h-8 px-2.5 border flex items-center gap-2 text-sm" style={{ color: "var(--vscode-foreground)", backgroundColor: "var(--vscode-sidebar-background)", borderColor: "var(--vscode-panel-border)" }}>
             <StatusBadge status={robotReady} dotOnly />
             <span className="font-medium">{JOG_CONTAINER}</span>
+            <span style={{ color: "var(--vscode-descriptionForeground)" }}>{robotType}</span>
           </div>
         </div>
       </header>
