@@ -22,35 +22,33 @@ import {
   stringifyMessageData,
   type WebSocketLifecycleOptions,
 } from "@/lib/websocketUtils";
+import type { ROS2TopicDataResponse } from "@/types/api";
 
 type WebSocketErrorMessage = {
   type: "error";
   data: unknown;
 };
 
-export type ROS2TopicData = {
-  topic?: string;
-  msg_type?: string;
-  data?: unknown;
-  available?: boolean;
-  domain_id?: number;
-  [key: string]: unknown;
-};
-
 export type ROS2WebSocketMessage = WebSocketErrorMessage | {
   type: "data";
-  data: ROS2TopicData;
+  data: ROS2TopicDataResponse;
 };
 
 export type ROS2TopicWebSocketOptions = WebSocketLifecycleOptions & {
-  onMessage?: (data: ROS2TopicData) => void;
+  onMessage?: (data: ROS2TopicDataResponse) => void;
 };
 
-function toROS2TopicData(data: unknown): ROS2TopicData {
+function toROS2TopicDataResponse(data: unknown): ROS2TopicDataResponse {
   if (isRecord(data)) {
-    return data as ROS2TopicData;
+    return data as ROS2TopicDataResponse;
   }
-  return { data };
+  return {
+    topic: "",
+    msg_type: "",
+    data,
+    available: false,
+    domain_id: 0,
+  };
 }
 
 function parseROS2TopicMessage(
@@ -61,7 +59,7 @@ function parseROS2TopicMessage(
     const message = parseJsonMessage(event.data);
 
     if (message.type === "data") {
-      options.onMessage?.(toROS2TopicData(message.data));
+      options.onMessage?.(toROS2TopicDataResponse(message.data));
     } else if (message.type === "error") {
       options.onError?.(new Error(stringifyMessageData(message.data)));
     }

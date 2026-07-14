@@ -18,7 +18,7 @@
 
 import { useState, useEffect, useCallback } from "react";
 import { useROS2TopicWebSocket } from "@/hooks/useROS2TopicWebSocket";
-import type { ROS2TopicData } from "@/lib/ros2Websocket";
+import type { ROS2TopicDataResponse } from "@/types/api";
 import { ros2Unsubscribe, getROS2TopicInfo } from "@/lib/api";
 
 const PANEL_STYLES: React.CSSProperties = {
@@ -249,7 +249,7 @@ function ErrorMessage({ message }: ErrorMessageProps) {
 }
 
 interface TopicContentProps {
-  topicData: ROS2TopicData | null;
+  topicData: ROS2TopicDataResponse | null;
   status: string;
 }
 

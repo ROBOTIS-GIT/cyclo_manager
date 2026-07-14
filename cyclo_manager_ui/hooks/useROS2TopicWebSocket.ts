@@ -19,9 +19,9 @@
 import { useEffect, useState } from "react";
 import {
   createROS2TopicWebSocket,
-  type ROS2TopicData,
   type ROS2TopicWebSocketOptions,
 } from "@/lib/ros2Websocket";
+import type { ROS2TopicDataResponse } from "@/types/api";
 import type { WebSocketStatus } from "@/lib/websocketUtils";
 
 export function useROS2TopicWebSocket(
@@ -30,7 +30,7 @@ export function useROS2TopicWebSocket(
 ) {
   const [ws, setWs] = useState<WebSocket | null>(null);
   const [status, setStatus] = useState<WebSocketStatus>("disconnected");
-  const [topicData, setTopicData] = useState<ROS2TopicData | null>(null);
+  const [topicData, setTopicData] = useState<ROS2TopicDataResponse | null>(null);
 
   useEffect(() => {
     if (!topic) {
@@ -48,7 +48,7 @@ export function useROS2TopicWebSocket(
           options.onOpen?.();
         }
       },
-      onMessage: (data: ROS2TopicData) => {
+      onMessage: (data: ROS2TopicDataResponse) => {
         if (!isMounted) return;
         setTopicData(data);
         options.onMessage?.(data);

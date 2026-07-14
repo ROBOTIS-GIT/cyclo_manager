@@ -178,6 +178,12 @@ export interface UpdateRequest {
   preserve_files: string[];
 }
 
+export interface UpdateStatusResponse {
+  phase: string;
+  output: string;
+  error: string;
+}
+
 export interface UpdateResponse {
   name: string;
   success: boolean;
@@ -239,9 +245,14 @@ export interface ROS2TopicsListResponse {
 export interface ROS2TopicDataResponse {
   topic: string;
   msg_type: string;
-  data: any;
+  data: unknown;
   available: boolean;
   domain_id: number;
+}
+
+export interface ROS2TopicInfoResponse {
+  topic: string;
+  info: string;
 }
 
 export interface ROS2TwistPublishRequest {

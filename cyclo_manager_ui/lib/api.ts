@@ -19,7 +19,9 @@ import type {
   ConfiguredContainerListResponse,
   ContainerScriptResponse,
   RepoStatusResponse,
+  UpdateRequest,
   UpdateResponse,
+  UpdateStatusResponse,
   ServiceListResponse,
   ServiceStatusResponse,
   ServiceStatusListResponse,
@@ -39,6 +41,7 @@ import type {
   RepoUpdatesResponse,
   RepoBranchCheckResponse,
   CycloManagerVersionResponse,
+  ROS2TopicInfoResponse,
   ROS2TopicsListResponse,
   ROS2TopicDataResponse,
   ROS2TwistPublishRequest,
@@ -368,13 +371,9 @@ export async function updateCycloManager(): Promise<void> {
   }
 }
 
-export async function getUpdateStatus(): Promise<{
-  phase: string;
-  output: string;
-  error: string;
-}> {
+export async function getUpdateStatus(): Promise<UpdateStatusResponse> {
   try {
-    const response = await apiClient.get("/host/update/status");
+    const response = await apiClient.get<UpdateStatusResponse>("/host/update/status");
     return response.data;
   } catch (error) {
     handleError(error);
@@ -401,11 +400,6 @@ export async function getROS2TopicData(topic: string): Promise<ROS2TopicDataResp
   } catch (error) {
     handleError(error);
   }
-}
-
-export interface ROS2TopicInfoResponse {
-  topic: string;
-  info: string;
 }
 
 export async function getROS2TopicInfo(topic: string): Promise<ROS2TopicInfoResponse> {
@@ -503,10 +497,14 @@ export async function updateRepo(
   preserveFiles: string[] = []
 ): Promise<UpdateResponse> {
   try {
-    const response = await apiClient.post<UpdateResponse>(`/host/repos/${name}/update`, {
+    const request: UpdateRequest = {
       strategy,
       preserve_files: preserveFiles,
-    });
+    };
+    const response = await apiClient.post<UpdateResponse>(
+      `/host/repos/${name}/update`,
+      request
+    );
     return response.data;
   } catch (error) {
     handleError(error);
