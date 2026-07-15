@@ -261,60 +261,6 @@ class AgentClient(SocketHttpClient):
         logger.debug(f"Clearing logs for service '{service_name}' via agent at {self.socket_path}")
         return await self.request_json('DELETE', f'/services/{service_name}/logs')
 
-    async def get_service_run_script(self, service_name: str) -> dict:
-        """
-        Get run script for a service from agent.
-
-        Args
-        ----
-        service_name: Name of the service.
-
-        Returns
-        -------
-        Response JSON from agent's /services/{name}/run endpoint.
-
-        Raises
-        ------
-        httpx.RequestError: If request fails.
-        httpx.HTTPStatusError: If agent returns error status (e.g., 404).
-
-        """
-        logger.debug(
-            f'Requesting run script for service {service_name!r} '
-            f'from agent at {self.socket_path}'
-        )
-        return await self.request_json('GET', f'/services/{service_name}/run')
-
-    async def update_service_run_script(self, service_name: str, content: str) -> dict:
-        """
-        Update run script for a service via agent.
-
-        Args
-        ----
-        service_name: Name of the service.
-        content: New content for the run script.
-
-        Returns
-        -------
-        Response JSON from agent's PUT /services/{name}/run endpoint.
-
-        Raises
-        ------
-        httpx.RequestError: If request fails.
-        httpx.HTTPStatusError: If agent returns error status.
-
-        """
-        logger.debug(
-            f'Updating run script for service {service_name!r} '
-            f'via agent at {self.socket_path}'
-        )
-        return await self.request_json(
-            'PUT',
-            f'/services/{service_name}/run',
-            json={'content': content},
-        )
-
-
 class AgentClientPool:
     """
     Pool of async agent clients, one per container.

@@ -79,17 +79,3 @@ class ErrorResponse(BaseModel):
 
     error: str = Field(..., description='Error message')
     detail: Optional[str] = Field(None, description='Additional error details')
-
-
-class ServiceRunScriptResponse(BaseModel):
-    """Response for GET /services/{name}/run."""
-
-    service: str = Field(..., description='Service name')
-    path: str = Field(..., description='Filesystem path to the service run script')
-    content: str = Field(..., description='Contents of the run script')
-
-
-class ServiceRunScriptUpdateRequest(BaseModel):
-    """Request body for updating a service run script."""
-
-    content: str = Field(..., description='New contents of the run script')

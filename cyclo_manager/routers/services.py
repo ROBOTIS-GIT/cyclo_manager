@@ -27,8 +27,6 @@ from cyclo_manager.models import (
     ServiceInfo,
     ServiceListResponse,
     ServiceLogsClearResponse,
-    ServiceRunScriptResponse,
-    ServiceRunScriptUpdateRequest,
     ServiceStatusListResponse,
     ServiceStatusResponse,
 )
@@ -220,63 +218,6 @@ async def clear_service_logs(
         service=service,
         message=agent_response.get('message', 'Logs cleared successfully'),
         log_path=agent_response.get('log_path'),
-    )
-
-
-@router.get('/{service}/run', response_model=ServiceRunScriptResponse)
-async def get_service_run_script(
-    service: str,
-    container: str = Depends(get_validated_container),
-) -> ServiceRunScriptResponse:
-    """Get the run script for a service."""
-    try:
-        client = get_agent_client(container)
-        agent_response = await client.get_service_run_script(service)
-        logger.info(
-            f'Successfully retrieved run script for service {service!r} '
-            f'in container {container!r}'
-        )
-    except Exception as e:
-        logger.error(f'Failed to get run script from agent: {e}')
-        _raise_mapped_service_exception(container, e)
-
-    return ServiceRunScriptResponse(
-        container=container,
-        service=service,
-        path=agent_response.get('path', ''),
-        content=agent_response.get('content', ''),
-    )
-
-
-@router.put('/{service}/run', response_model=ServiceRunScriptResponse)
-async def update_service_run_script(
-    service: str,
-    request: ServiceRunScriptUpdateRequest,
-    container: str = Depends(get_validated_container),
-) -> ServiceRunScriptResponse:
-    """Update the run script for a service."""
-    if not request.content or not request.content.strip():
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail='Content must not be empty',
-        )
-
-    try:
-        client = get_agent_client(container)
-        agent_response = await client.update_service_run_script(service, request.content)
-        logger.info(
-            f'Successfully updated run script for service {service!r} '
-            f'in container {container!r}'
-        )
-    except Exception as e:
-        logger.error(f'Failed to update run script via agent: {e}')
-        _raise_mapped_service_exception(container, e)
-
-    return ServiceRunScriptResponse(
-        container=container,
-        service=service,
-        path=agent_response.get('path', ''),
-        content=agent_response.get('content', ''),
     )
 
 

@@ -93,13 +93,6 @@ export interface ServiceLogsClearResponse {
   log_path: string | null;
 }
 
-export interface ServiceRunScriptResponse {
-  container: string;
-  service: string;
-  path: string;
-  content: string;
-}
-
 export interface BashrcResponse {
   container: string;
   path: string;

@@ -37,7 +37,6 @@ import type {
   DockerContainerLogsResponse,
   DockerTopResponse,
   ErrorResponse,
-  ServiceRunScriptResponse,
   BashrcResponse,
   RepoUpdatesResponse,
   RepoBranchCheckResponse,
@@ -202,36 +201,6 @@ export async function clearServiceLogs(
   try {
     const response = await apiClient.delete<ServiceLogsClearResponse>(
       `/${container}/services/${service}/logs`
-    );
-    return response.data;
-  } catch (error) {
-    handleError(error);
-  }
-}
-
-export async function getServiceRunScript(
-  container: string,
-  service: string
-): Promise<ServiceRunScriptResponse> {
-  try {
-    const response = await apiClient.get<ServiceRunScriptResponse>(
-      `/${container}/services/${service}/run`
-    );
-    return response.data;
-  } catch (error) {
-    handleError(error);
-  }
-}
-
-export async function updateServiceRunScript(
-  container: string,
-  service: string,
-  content: string
-): Promise<ServiceRunScriptResponse> {
-  try {
-    const response = await apiClient.put<ServiceRunScriptResponse>(
-      `/${container}/services/${service}/run`,
-      { content }
     );
     return response.data;
   } catch (error) {
