@@ -8,6 +8,7 @@ Changelog for package cyclo_manager
 * Changed service log delivery from polling to streaming and refactored related WebSocket and UI code.
 * Changed Jog robot readiness checks from parsing bringup logs to using robot service status and the selected robot model.
 * Added service log file download support with a Download button in the log panel.
+* Added s6 agent compatibility checks and update support in Version Management.
 * Contributors: Hyungyu Kim
 
 0.3.0 (2026-07-09)
