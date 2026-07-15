@@ -129,6 +129,8 @@ Interactive docs: `http://<host>:8081/docs`
 |------|----------------|-------|
 | Root | `GET /` | API metadata |
 | Config | `GET /containers` | Configured containers + `robot_container` |
+| | `GET /containers/agents/status` | Container s6 agent version compatibility |
+| | `POST /containers/{container}/agent/update` | Git pull agent code and restart the container |
 | System | `GET /system/info`, `GET /system/status` | Hostname, internet, CPU/memory/disk |
 | Services | `GET /{container}/services` | List s6 services |
 | | `GET /{container}/services/status` | All statuses |

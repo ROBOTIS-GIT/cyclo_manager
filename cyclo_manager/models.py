@@ -122,6 +122,37 @@ class ConfiguredContainerListResponse(BaseModel):
     robot_container: str = Field(..., description='Name of the robot container')
 
 
+class S6AgentStatusResponse(BaseModel):
+    """Container s6 agent status and compatibility."""
+
+    container: str = Field(..., description='Container name')
+    status: Literal['ok', 'outdated', 'unreachable', 'unknown_version'] = Field(
+        ..., description='Agent compatibility status'
+    )
+    version: Optional[str] = Field(None, description='Installed s6 agent version')
+    minimum_required_version: str = Field(
+        ..., description='Minimum s6 agent version supported by this manager'
+    )
+    update_required: bool = Field(..., description='Whether the agent must be updated')
+    message: Optional[str] = Field(None, description='User-facing status message')
+
+
+class S6AgentStatusListResponse(BaseModel):
+    """Response for GET /containers/agents/status."""
+
+    agents: list[S6AgentStatusResponse] = Field(..., description='Container agent statuses')
+
+
+class S6AgentUpdateResponse(BaseModel):
+    """Response for POST /containers/{container}/agent/update."""
+
+    container: str = Field(..., description='Container name')
+    target_ref: str = Field(..., description='Git ref used to update the container agent')
+    success: bool = Field(..., description='Whether the update command succeeded')
+    exit_code: int = Field(..., description='Docker exec command exit code')
+    output: str = Field(..., description='Command output')
+
+
 class ServiceListResponse(BaseModel):
     """Response for GET /containers/{container}/services."""
 

@@ -102,6 +102,26 @@ class AgentClient:
             logger.error(f'Agent returned error: {e}')
             raise
 
+    async def get_agent_version(self) -> dict:
+        """
+        Get agent version metadata from the root endpoint.
+        """
+        client = await self._ensure_httpx_client()
+        logger.debug(f'Requesting agent version from {self.socket_path}')
+        try:
+            response = await client.get('/')
+            response.raise_for_status()
+            return response.json()
+        except httpx.RequestError as e:
+            logger.error(f'Failed to communicate with agent at {self.socket_path}: {e}')
+            raise
+        except httpx.HTTPStatusError as e:
+            logger.error(f'Agent returned error status for version request: {e}')
+            raise
+        except Exception as e:
+            logger.error(f'Agent returned error for version request: {e}')
+            raise
+
     async def get_service_status(self, service_name: str) -> dict:
         """
         Get status of a specific service from agent.

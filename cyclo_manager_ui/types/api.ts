@@ -31,6 +31,27 @@ export interface ConfiguredContainerListResponse {
   robot_container: string;
 }
 
+export interface S6AgentStatusResponse {
+  container: string;
+  status: "ok" | "outdated" | "unreachable" | "unknown_version";
+  version: string | null;
+  minimum_required_version: string;
+  update_required: boolean;
+  message: string | null;
+}
+
+export interface S6AgentStatusListResponse {
+  agents: S6AgentStatusResponse[];
+}
+
+export interface S6AgentUpdateResponse {
+  container: string;
+  target_ref: string;
+  success: boolean;
+  exit_code: number;
+  output: string;
+}
+
 export interface ServiceListResponse {
   container: string;
   services: ServiceInfo[];

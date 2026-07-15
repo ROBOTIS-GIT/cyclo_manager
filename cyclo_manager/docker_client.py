@@ -20,6 +20,7 @@
 
 import io
 import logging
+import shlex
 import tarfile
 
 import docker
@@ -33,6 +34,8 @@ _ALLOWED_SIGNALS = frozenset({
     'SIGTERM', 'SIGKILL', 'SIGINT', 'SIGHUP', 'SIGQUIT',
     'SIGSTOP', 'SIGCONT', 'SIGUSR1', 'SIGUSR2',
 })
+
+S6_AGENT_REPO_PATH = '/opt/cyclo_manager'
 
 
 class DockerClient:
@@ -410,6 +413,73 @@ class DockerClient:
         except DockerException as e:
             logger.error(
                 "Failed to kill pid %d in container '%s': %s", pid, container_name, e
+            )
+            raise
+
+    def update_s6_agent(self, container_name: str, target_ref: str) -> dict:
+        """
+        Update the in-container s6 agent checkout to a target ref and restart it.
+
+        The command runs inside the target container via Docker exec.
+        """
+        try:
+            container = self.get_container(container_name)
+            quoted_target_ref = shlex.quote(target_ref)
+            command = [
+                '/bin/sh',
+                '-lc',
+                (
+                    'set -eu\n'
+                    'export GIT_TERMINAL_PROMPT=0\n'
+                    f'TARGET_REF={quoted_target_ref}\n'
+                    f'if [ ! -d {S6_AGENT_REPO_PATH}/.git ]; then\n'
+                    f'  echo "Repository not found: {S6_AGENT_REPO_PATH}" >&2\n'
+                    '  exit 1\n'
+                    'fi\n'
+                    'echo "Updating s6 agent to ${TARGET_REF}"\n'
+                    f'git -C {S6_AGENT_REPO_PATH} fetch --tags --force origin\n'
+                    f'if ! git -C {S6_AGENT_REPO_PATH} rev-parse '
+                    '--verify --quiet "${TARGET_REF}^{commit}" >/dev/null; then\n'
+                    '  echo "Target ref not found: ${TARGET_REF}" >&2\n'
+                    '  exit 1\n'
+                    'fi\n'
+                    f'git -C {S6_AGENT_REPO_PATH} checkout --force --detach "$TARGET_REF"\n'
+                    f'git -C {S6_AGENT_REPO_PATH} reset --hard "$TARGET_REF"\n'
+                ),
+            ]
+            result = container.exec_run(command)
+            output = (result.output or b'').decode('utf-8', errors='replace')
+            success = result.exit_code == 0
+            if success:
+                container.restart(timeout=10)
+                output += 'Container restarted.\n'
+                logger.info(
+                    "Updated s6 agent in container '%s' to '%s'",
+                    container_name,
+                    target_ref,
+                )
+            else:
+                logger.warning(
+                    "Failed to update s6 agent in container '%s' to '%s': %s",
+                    container_name,
+                    target_ref,
+                    output.strip(),
+                )
+            return {
+                'container': container_name,
+                'target_ref': target_ref,
+                'success': success,
+                'exit_code': result.exit_code,
+                'output': output,
+            }
+        except NotFound:
+            raise
+        except DockerException as e:
+            logger.error(
+                "Failed to update s6 agent in container '%s' to '%s': %s",
+                container_name,
+                target_ref,
+                e,
             )
             raise
 

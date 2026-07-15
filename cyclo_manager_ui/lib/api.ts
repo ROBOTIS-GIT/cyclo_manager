@@ -19,6 +19,8 @@ import type {
   ConfiguredContainerListResponse,
   ContainerScriptResponse,
   RepoStatusResponse,
+  S6AgentStatusListResponse,
+  S6AgentUpdateResponse,
   UpdateRequest,
   UpdateResponse,
   UpdateStatusResponse,
@@ -104,6 +106,26 @@ function handleError(error: unknown): never {
 export async function getConfiguredContainers(): Promise<ConfiguredContainerListResponse> {
   try {
     const response = await apiClient.get<ConfiguredContainerListResponse>("/containers");
+    return response.data;
+  } catch (error) {
+    handleError(error);
+  }
+}
+
+export async function getS6AgentStatuses(): Promise<S6AgentStatusListResponse> {
+  try {
+    const response = await apiClient.get<S6AgentStatusListResponse>("/containers/agents/status");
+    return response.data;
+  } catch (error) {
+    handleError(error);
+  }
+}
+
+export async function updateS6Agent(container: string): Promise<S6AgentUpdateResponse> {
+  try {
+    const response = await apiClient.post<S6AgentUpdateResponse>(
+      `/containers/${encodeURIComponent(container)}/agent/update`
+    );
     return response.data;
   } catch (error) {
     handleError(error);

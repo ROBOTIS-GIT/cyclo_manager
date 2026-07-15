@@ -28,8 +28,16 @@ import {
   getBashrc,
   updateBashrc,
   getRepoUpdates,
+  getS6AgentStatuses,
+  updateS6Agent,
 } from "@/lib/api";
-import type { HostSystemStatsResponse, RobotInfoResponse, DockerContainerInfo, RepoUpdateStatus } from "@/types/api";
+import type {
+  HostSystemStatsResponse,
+  RobotInfoResponse,
+  DockerContainerInfo,
+  RepoUpdateStatus,
+  S6AgentStatusResponse,
+} from "@/types/api";
 import StatusBadge from "@/components/StatusBadge";
 import UpdateWizard from "@/components/UpdateWizard";
 import { useTheme } from "@/contexts/ThemeContext";
@@ -161,6 +169,186 @@ function UpdatableRepoRow({ repo, onUpdate }: {
             Update
           </button>
         )}
+      </div>
+    </div>
+  );
+}
+
+function AgentStatusRow({
+  agent,
+  updating,
+  onUpdate,
+}: {
+  agent: S6AgentStatusResponse;
+  updating: boolean;
+  onUpdate: () => void;
+}) {
+  const statusLabel =
+    agent.status === "outdated" ? "Update required" :
+      agent.status === "unreachable" ? "Unreachable" :
+        agent.status === "unknown_version" ? "Unknown version" :
+          "OK";
+
+  return (
+    <div className="px-5 py-3" style={{ borderTop: "1px solid var(--vscode-panel-border)" }}>
+      <div className="flex items-center gap-3">
+        <div className="flex-1 min-w-0">
+          <div className="text-base font-medium truncate" style={{ color: "var(--vscode-foreground)" }}>
+            {agent.container} s6 agent
+          </div>
+          <div className="text-xs truncate" style={{ color: "var(--vscode-descriptionForeground)" }}>
+            Installed {agent.version ?? "unknown"} · Required {agent.minimum_required_version}
+          </div>
+        </div>
+        <div className="shrink-0 flex items-center gap-3">
+          <span
+            className="text-xs font-semibold"
+            style={{ color: agent.update_required ? "var(--vscode-errorForeground)" : "#3fb950" }}
+          >
+            {statusLabel}
+          </span>
+          {agent.update_required && (
+            <button
+              onClick={onUpdate}
+              disabled={updating}
+              style={btnStyle(true, updating)}
+            >
+              {updating ? "Updating…" : "Update"}
+            </button>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+type AgentUpdateModalState = {
+  container: string;
+  status: "confirm" | "running" | "waiting" | "done" | "error";
+  message: string;
+  output: string;
+};
+
+function AgentUpdateModal({
+  state,
+  onClose,
+  onConfirm,
+}: {
+  state: AgentUpdateModalState;
+  onClose: () => void;
+  onConfirm: (container: string) => void;
+}) {
+  const running = state.status === "running" || state.status === "waiting";
+  const confirming = state.status === "confirm";
+  const statusColor =
+    state.status === "done" ? "#3fb950" :
+      state.status === "error" ? "var(--vscode-errorForeground)" :
+        "var(--vscode-descriptionForeground)";
+  const detail =
+    state.status === "confirm" ? `The s6 agent in ${state.container} container will be updated to the manager version and the container will restart.` :
+      state.status === "running" ? "Updating repository checkout and restarting the container." :
+        state.status === "waiting" ? "Container restarted. Waiting for the container agent to return." :
+          state.status === "done" ? "Agent update completed." :
+            "Agent update failed.";
+
+  return (
+    <div style={{
+      position: "fixed", inset: 0, zIndex: 100,
+      backgroundColor: "rgba(0,0,0,0.55)",
+      display: "flex", alignItems: "center", justifyContent: "center",
+    }}>
+      <div
+        style={{
+          width: "min(620px, 95vw)",
+          maxHeight: "88vh",
+          display: "flex",
+          flexDirection: "column",
+          borderRadius: "6px",
+          border: "1px solid var(--vscode-panel-border)",
+          backgroundColor: "var(--vscode-editor-background)",
+          overflow: "hidden",
+        }}
+      >
+        <div
+          className="px-5 pt-4 pb-3 flex items-start justify-between"
+          style={{ borderBottom: "1px solid var(--vscode-panel-border)", flexShrink: 0 }}
+        >
+          <div>
+            <div className="text-sm font-bold" style={{ color: "var(--vscode-foreground)" }}>
+              {state.container} s6 agent
+            </div>
+            <div className="text-xs mt-0.5" style={{ color: statusColor }}>
+              {state.message}
+            </div>
+          </div>
+          {!confirming && (
+            <button
+              onClick={onClose}
+              disabled={running}
+              style={{
+                background: "none",
+                border: "none",
+                cursor: running ? "not-allowed" : "pointer",
+                opacity: running ? 0.5 : 1,
+                padding: "0 0 0 8px",
+                lineHeight: 1,
+                color: "var(--vscode-descriptionForeground)",
+              }}
+              title="Close"
+            >
+              ✕
+            </button>
+          )}
+        </div>
+        <div
+          style={{
+            flex: 1,
+            overflowY: "auto",
+            padding: "16px 20px",
+            display: "grid",
+            gap: 12,
+          }}
+        >
+          <div className="text-sm" style={{ color: "var(--vscode-descriptionForeground)" }}>
+            {detail}
+          </div>
+          {state.output && (
+            <pre
+              className="text-xs p-3 rounded font-mono whitespace-pre-wrap break-words overflow-auto"
+              style={{
+                maxHeight: 260,
+                backgroundColor: "var(--vscode-textCodeBlock-background)",
+                color: state.status === "error" ? "var(--vscode-errorForeground)" : "var(--vscode-foreground)",
+                border: "1px solid var(--vscode-panel-border)",
+              }}
+            >
+              {state.output}
+            </pre>
+          )}
+        </div>
+        <div style={{
+          padding: "12px 20px",
+          borderTop: "1px solid var(--vscode-panel-border)",
+          display: "flex",
+          justifyContent: "flex-end",
+          gap: 8,
+          flexShrink: 0,
+        }}>
+          {confirming ? (
+            <>
+              <button onClick={onClose} style={btnStyle(false)}>
+                Cancel
+              </button>
+              <button onClick={() => onConfirm(state.container)} style={btnStyle(true)}>
+                Update
+              </button>
+            </>
+          ) : (
+            <button onClick={onClose} disabled={running} style={btnStyle(false, running)}>
+              Close
+            </button>
+          )}
+        </div>
       </div>
     </div>
   );
@@ -308,6 +496,10 @@ export default function HomePage() {
   const [containers, setContainers] = useState<DockerContainerInfo[]>([]);
   const [updatableRepos, setUpdatableRepos] = useState<RepoUpdateStatus[]>([]);
   const [repoCheckState, setRepoCheckState] = useState<"loading" | "error" | "done">("loading");
+  const [agentStatuses, setAgentStatuses] = useState<S6AgentStatusResponse[]>([]);
+  const [agentCheckState, setAgentCheckState] = useState<"loading" | "error" | "done">("loading");
+  const [updatingAgent, setUpdatingAgent] = useState<string | null>(null);
+  const [agentUpdateModal, setAgentUpdateModal] = useState<AgentUpdateModalState | null>(null);
   const [wizardRepo, setWizardRepo] = useState<RepoUpdateStatus | null>(null);
   const [actionLoading, setActionLoading] = useState<{ container: string; action: string } | null>(null);
 
@@ -352,6 +544,99 @@ export default function HomePage() {
     }
   }, []);
 
+  const loadAgentStatuses = useCallback(async () => {
+    setAgentCheckState("loading");
+    try {
+      const { agents } = await getS6AgentStatuses();
+      setAgentStatuses(agents);
+      setAgentCheckState("done");
+    } catch {
+      setAgentCheckState("error");
+    }
+  }, []);
+
+  const loadVersionManagement = useCallback(() => {
+    loadRepoUpdates();
+    loadAgentStatuses();
+  }, [loadAgentStatuses, loadRepoUpdates]);
+
+  const openAgentUpdateConfirm = useCallback((container: string) => {
+    setAgentUpdateModal({
+      container,
+      status: "confirm",
+      message: "s6 agent will be updated and container will be restarted.",
+      output: "",
+    });
+  }, []);
+
+  const handleAgentUpdate = useCallback(async (container: string) => {
+    setUpdatingAgent(container);
+    setAgentUpdateModal({
+      container,
+      status: "running",
+      message: "Updating agent repository and restarting container...",
+      output: "",
+    });
+    try {
+      const result = await updateS6Agent(container);
+      if (!result.success) {
+        const message = result.output || `Update failed with exit code ${result.exit_code}`;
+        setAgentUpdateModal({
+          container,
+          status: "error",
+          message: "Update failed.",
+          output: message,
+        });
+        return;
+      }
+
+      setAgentUpdateModal({
+        container,
+        status: "waiting",
+        message: `Container restarted after updating to ${result.target_ref}. Waiting for agent status...`,
+        output: result.output,
+      });
+
+      let latestAgents: S6AgentStatusResponse[] = [];
+      for (let attempt = 0; attempt < 10; attempt += 1) {
+        await new Promise((resolve) => setTimeout(resolve, 1000));
+        const { agents } = await getS6AgentStatuses();
+        latestAgents = agents;
+        setAgentStatuses(agents);
+        setAgentCheckState("done");
+        const updatedAgent = agents.find((agent) => agent.container === container);
+        if (updatedAgent && updatedAgent.status !== "unreachable") {
+          setAgentUpdateModal({
+            container,
+            status: updatedAgent.update_required ? "error" : "done",
+            message: updatedAgent.update_required
+              ? updatedAgent.message ?? "Agent still requires update."
+              : "Agent is reachable and compatible.",
+            output: result.output,
+          });
+          return;
+        }
+      }
+
+      setAgentStatuses(latestAgents);
+      setAgentUpdateModal({
+        container,
+        status: "error",
+        message: "Agent did not become reachable after restart.",
+        output: result.output,
+      });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Failed to update s6 agent";
+      setAgentUpdateModal({
+        container,
+        status: "error",
+        message: "Update failed.",
+        output: message,
+      });
+    } finally {
+      setUpdatingAgent(null);
+    }
+  }, []);
 
   const loadAll = useCallback(async () => {
     await Promise.allSettled([
@@ -363,10 +648,10 @@ export default function HomePage() {
 
   useEffect(() => {
     loadAll();
-    loadRepoUpdates();
+    loadVersionManagement();
     const interval = setInterval(loadAll, POLL_INTERVAL);
     return () => clearInterval(interval);
-  }, [loadAll, loadRepoUpdates]);
+  }, [loadAll, loadVersionManagement]);
 
   const handleAction = useCallback(async (name: string, action: "start" | "stop" | "restart") => {
     setActionLoading({ container: name, action });
@@ -437,6 +722,11 @@ export default function HomePage() {
   const memPct = systemStats ? pct(systemStats.memory_used_mb, systemStats.memory_total_mb) : 0;
   const diskPct = systemStats ? pct(systemStats.disk_used_gb, systemStats.disk_total_gb) : 0;
   const settingsDocker = containers.find((c) => c.name === settingsContainer) ?? null;
+  const agentIssues = agentStatuses.filter((agent) => agent.update_required);
+  const versionManagementLoading = repoCheckState === "loading" || agentCheckState === "loading";
+  const versionManagementError = repoCheckState === "error" && agentCheckState === "error";
+  const hasRepoUpdates = updatableRepos.length > 0;
+  const hasAgentIssues = agentIssues.length > 0;
 
   return (
     <>
@@ -445,6 +735,13 @@ export default function HomePage() {
           repo={wizardRepo}
           onClose={() => setWizardRepo(null)}
           onDone={() => { setWizardRepo(null); loadRepoUpdates(); }}
+        />
+      )}
+      {agentUpdateModal && (
+        <AgentUpdateModal
+          state={agentUpdateModal}
+          onClose={() => setAgentUpdateModal(null)}
+          onConfirm={handleAgentUpdate}
         />
       )}
       <div className="flex flex-col gap-6">
@@ -534,39 +831,73 @@ export default function HomePage() {
             title="Version Management"
             action={
               <button
-                onClick={loadRepoUpdates}
-                disabled={repoCheckState === "loading"}
-                style={{ ...btnStyle(false, repoCheckState === "loading"), padding: "2px 8px", fontSize: 11 }}
+                onClick={loadVersionManagement}
+                disabled={versionManagementLoading}
+                style={{ ...btnStyle(false, versionManagementLoading), padding: "2px 8px", fontSize: 11 }}
               >
                 Refresh
               </button>
             }
           >
-            {!robotInfo?.internet_connected ? (
-              <div className="p-4 text-sm" style={{ color: "var(--vscode-descriptionForeground)" }}>
-                Internet connection required
-              </div>
-            ) : repoCheckState === "loading" ? (
+            {versionManagementLoading ? (
               <div className="p-4 text-sm" style={{ color: "var(--vscode-descriptionForeground)" }}>
                 Checking for updates…
               </div>
-            ) : repoCheckState === "error" ? (
+            ) : versionManagementError ? (
               <div className="p-4 text-sm" style={{ color: "var(--vscode-descriptionForeground)" }}>
-                Host agent is not running
-              </div>
-            ) : updatableRepos.length === 0 ? (
-              <div className="p-4 text-sm" style={{ color: "var(--vscode-descriptionForeground)" }}>
-                No managed repositories found
+                Update status unavailable
               </div>
             ) : (
-              updatableRepos.map((repo, i) => (
-                <div key={repo.name} style={i === 0 ? { borderTop: "none" } : {}}>
-                  <UpdatableRepoRow
-                    repo={repo}
-                    onUpdate={() => setWizardRepo(repo)}
-                  />
-                </div>
-              ))
+              <>
+                {hasAgentIssues && (
+                  <div>
+                    <div className="px-5 pt-4 pb-1 text-xs font-bold uppercase tracking-widest"
+                      style={{ color: "var(--vscode-descriptionForeground)" }}>
+                      Container Agents
+                    </div>
+                    {agentIssues.map((agent, i) => (
+                      <div key={agent.container} style={i === 0 ? { borderTop: "none" } : {}}>
+                        <AgentStatusRow
+                          agent={agent}
+                          updating={updatingAgent === agent.container}
+                          onUpdate={() => openAgentUpdateConfirm(agent.container)}
+                        />
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {hasRepoUpdates && (
+                  <div>
+                    <div className="px-5 pt-4 pb-1 text-xs font-bold uppercase tracking-widest"
+                      style={{ color: "var(--vscode-descriptionForeground)" }}>
+                      Repositories
+                    </div>
+                    {updatableRepos.map((repo, i) => (
+                      <div key={repo.name} style={i === 0 ? { borderTop: "none" } : {}}>
+                        <UpdatableRepoRow
+                          repo={repo}
+                          onUpdate={() => setWizardRepo(repo)}
+                        />
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {!hasAgentIssues && !hasRepoUpdates && (
+                  <div className="p-4 text-sm" style={{ color: "var(--vscode-descriptionForeground)" }}>
+                    {robotInfo?.internet_connected === false || repoCheckState === "error"
+                      ? "Repository update status unavailable"
+                      : "No updates available"}
+                  </div>
+                )}
+
+                {agentCheckState === "error" && !hasAgentIssues && (
+                  <div className="px-5 pb-4 text-xs" style={{ color: "var(--vscode-errorForeground)" }}>
+                    Container agent status unavailable
+                  </div>
+                )}
+              </>
             )}
           </Card>
         </section>
