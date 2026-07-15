@@ -18,90 +18,50 @@
 
 """Async HTTP client for communicating with the cyclo_host_agent via Unix Domain Socket."""
 
-import logging
-from typing import Optional
-
-import httpx
-
-logger = logging.getLogger(__name__)
+from cyclo_manager.socket_http_client import SocketHttpClient
 
 
-class HostAgentClient:
+class HostAgentClient(SocketHttpClient):
 
     def __init__(self, socket_path: str, timeout: float = 30.0) -> None:
-        self.socket_path = socket_path
-        self.timeout = timeout
-        self._client: Optional[httpx.AsyncClient] = None
-
-    async def _ensure_client(self) -> httpx.AsyncClient:
-        if self._client is None:
-            transport = httpx.AsyncHTTPTransport(uds=self.socket_path)
-            self._client = httpx.AsyncClient(
-                base_url='http://host-agent',
-                transport=transport,
-                timeout=self.timeout,
-            )
-        return self._client
-
-    async def async_close(self) -> None:
-        if self._client is not None:
-            await self._client.aclose()
-            self._client = None
+        super().__init__(socket_path, base_url='http://host-agent', timeout=timeout)
 
     async def list_repos(self) -> dict:
-        client = await self._ensure_client()
-        response = await client.get('/repos')
-        response.raise_for_status()
-        return response.json()
+        return await self.request_json('GET', '/repos')
 
     async def get_repo_updates(self) -> dict:
-        client = await self._ensure_client()
-        response = await client.get('/repos/updates')
-        response.raise_for_status()
-        return response.json()
+        return await self.request_json('GET', '/repos/updates')
 
     async def get_repo_branch(self, name: str) -> dict:
-        client = await self._ensure_client()
-        response = await client.get(f'/repos/{name}/branch')
-        response.raise_for_status()
-        return response.json()
+        return await self.request_json('GET', f'/repos/{name}/branch')
 
     async def get_repo_status(self, name: str) -> dict:
-        client = await self._ensure_client()
-        response = await client.get(f'/repos/{name}/status')
-        response.raise_for_status()
-        return response.json()
+        return await self.request_json('GET', f'/repos/{name}/status')
 
     async def update_repo(self, name: str, strategy: str, preserve_files: list[str]) -> dict:
-        client = await self._ensure_client()
-        response = await client.post(
+        return await self.request_json(
+            'POST',
             f'/repos/{name}/update',
             json={'strategy': strategy, 'preserve_files': preserve_files},
             timeout=180.0,
         )
-        response.raise_for_status()
-        return response.json()
 
     async def stop_repo_container(self, name: str) -> dict:
-        client = await self._ensure_client()
-        response = await client.post(f'/repos/{name}/container/stop', timeout=120.0)
-        response.raise_for_status()
-        return response.json()
+        return await self.request_json(
+            'POST',
+            f'/repos/{name}/container/stop',
+            timeout=120.0,
+        )
 
     async def start_repo_container(self, name: str) -> dict:
-        client = await self._ensure_client()
-        response = await client.post(f'/repos/{name}/container/start', timeout=300.0)
-        response.raise_for_status()
-        return response.json()
+        return await self.request_json(
+            'POST',
+            f'/repos/{name}/container/start',
+            timeout=300.0,
+        )
 
     async def update_cyclo_manager(self) -> dict:
-        client = await self._ensure_client()
-        response = await client.post('/system/update', timeout=60.0)
-        response.raise_for_status()
-        return response.json()
+        return await self.request_json('POST', '/system/update', timeout=60.0)
 
     async def get_update_status(self) -> dict:
-        client = await self._ensure_client()
-        response = await client.get('/system/update/status', timeout=10.0)
-        response.raise_for_status()
-        return response.json()
+        return await self.request_json('GET', '/system/update/status', timeout=10.0)

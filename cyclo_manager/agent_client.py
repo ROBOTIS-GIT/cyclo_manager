@@ -22,6 +22,7 @@ import json
 import logging
 from typing import Any, AsyncIterator, Optional, TYPE_CHECKING
 
+from cyclo_manager.socket_http_client import SocketHttpClient
 import httpx
 
 if TYPE_CHECKING:
@@ -30,7 +31,7 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
-class AgentClient:
+class AgentClient(SocketHttpClient):
     """
     Async HTTP client for agent communication over Unix Domain Socket.
 
@@ -40,37 +41,7 @@ class AgentClient:
 
     def __init__(self, socket_path: str, timeout: float = 5.0):
         """Initialize agent client."""
-        self.socket_path = socket_path
-        self.timeout = timeout
-        self._client: Optional[httpx.AsyncClient] = None
-
-    async def _ensure_httpx_client(self) -> httpx.AsyncClient:
-        """
-        Ensure httpx async client is initialized and return it.
-
-        Creates the client if it doesn't exist (lazy initialization).
-
-        Returns
-        -------
-        httpx.AsyncClient configured for Unix domain socket communication.
-
-        """
-        if self._client is None:
-            # httpx supports Unix Domain Sockets via uds parameter in AsyncHTTPTransport
-            # base_url="http://agent" is a dummy URL (not used for DNS lookup since UDS is used)
-            transport = httpx.AsyncHTTPTransport(uds=self.socket_path)
-            self._client = httpx.AsyncClient(
-                base_url='http://agent',  # Dummy base URL (UDS is used, so no DNS lookup)
-                transport=transport,
-                timeout=self.timeout,
-            )
-        return self._client
-
-    async def async_close(self) -> None:
-        """Close the HTTP client asynchronously."""
-        if self._client is not None:
-            await self._client.aclose()
-            self._client = None
+        super().__init__(socket_path, base_url='http://agent', timeout=timeout)
 
     async def get_services(self) -> dict:
         """
@@ -86,41 +57,15 @@ class AgentClient:
         httpx.HTTPStatusError: If agent returns error status.
 
         """
-        client = await self._ensure_httpx_client()
         logger.debug(f'Requesting services from agent at {self.socket_path}')
-        try:
-            response = await client.get('/services')
-            response.raise_for_status()
-            return response.json()
-        except httpx.RequestError as e:
-            logger.error(f'Failed to communicate with agent at {self.socket_path}: {e}')
-            raise
-        except httpx.HTTPStatusError as e:
-            logger.error(f'Agent returned error status: {e}')
-            raise
-        except Exception as e:
-            logger.error(f'Agent returned error: {e}')
-            raise
+        return await self.request_json('GET', '/services')
 
     async def get_agent_version(self) -> dict:
         """
         Get agent version metadata from the root endpoint.
         """
-        client = await self._ensure_httpx_client()
         logger.debug(f'Requesting agent version from {self.socket_path}')
-        try:
-            response = await client.get('/')
-            response.raise_for_status()
-            return response.json()
-        except httpx.RequestError as e:
-            logger.error(f'Failed to communicate with agent at {self.socket_path}: {e}')
-            raise
-        except httpx.HTTPStatusError as e:
-            logger.error(f'Agent returned error status for version request: {e}')
-            raise
-        except Exception as e:
-            logger.error(f'Agent returned error for version request: {e}')
-            raise
+        return await self.request_json('GET', '/')
 
     async def get_service_status(self, service_name: str) -> dict:
         """
@@ -140,23 +85,10 @@ class AgentClient:
         httpx.HTTPStatusError: If agent returns error status (e.g., 404).
 
         """
-        client = await self._ensure_httpx_client()
         logger.debug(
             f'Requesting status for service {service_name!r} from agent at {self.socket_path}'
         )
-        try:
-            response = await client.get(f'/services/{service_name}/status')
-            response.raise_for_status()
-            return response.json()
-        except httpx.RequestError as e:
-            logger.error(f'Failed to communicate with agent at {self.socket_path}: {e}')
-            raise
-        except httpx.HTTPStatusError as e:
-            logger.error(f"Agent returned error status for service '{service_name}': {e}")
-            raise
-        except Exception as e:
-            logger.error(f"Agent returned error status for service '{service_name}': {e}")
-            raise
+        return await self.request_json('GET', f'/services/{service_name}/status')
 
     async def get_all_services_status(self) -> dict:
         """
@@ -174,21 +106,8 @@ class AgentClient:
         httpx.HTTPStatusError: If agent returns error status.
 
         """
-        client = await self._ensure_httpx_client()
         logger.debug(f'Requesting status for all services from agent at {self.socket_path}')
-        try:
-            response = await client.get('/services/status')
-            response.raise_for_status()
-            return response.json()
-        except httpx.RequestError as e:
-            logger.error(f'Failed to communicate with agent at {self.socket_path}: {e}')
-            raise
-        except httpx.HTTPStatusError as e:
-            logger.error(f'Agent returned error status for all services: {e}')
-            raise
-        except Exception as e:
-            logger.error(f'Agent returned error status for all services: {e}')
-            raise
+        return await self.request_json('GET', '/services/status')
 
     async def control_service(
         self,
@@ -217,7 +136,6 @@ class AgentClient:
         httpx.HTTPStatusError: If agent returns error status.
 
         """
-        client = await self._ensure_httpx_client()
         logger.debug(
             f'Sending action {action!r} to service {service_name!r} '
             f'via agent at {self.socket_path}'
@@ -227,22 +145,7 @@ class AgentClient:
             payload['launch_args'] = launch_args
         if robot_type is not None:
             payload['robot_type'] = robot_type
-        try:
-            response = await client.post(
-                f'/services/{service_name}',
-                json=payload,
-            )
-            response.raise_for_status()
-            return response.json()
-        except httpx.RequestError as e:
-            logger.error(f'Failed to communicate with agent at {self.socket_path}: {e}')
-            raise
-        except httpx.HTTPStatusError as e:
-            logger.error(f"Agent returned error status for service '{service_name}': {e}")
-            raise
-        except Exception as e:
-            logger.error(f"Agent returned error status for service '{service_name}': {e}")
-            raise
+        return await self.request_json('POST', f'/services/{service_name}', json=payload)
 
     async def stream_service_logs(
         self,
@@ -355,21 +258,8 @@ class AgentClient:
         httpx.HTTPStatusError: If agent returns error status (e.g., 404).
 
         """
-        client = await self._ensure_httpx_client()
         logger.debug(f"Clearing logs for service '{service_name}' via agent at {self.socket_path}")
-        try:
-            response = await client.delete(f'/services/{service_name}/logs')
-            response.raise_for_status()
-            return response.json()
-        except httpx.RequestError as e:
-            logger.error(f'Failed to communicate with agent at {self.socket_path}: {e}')
-            raise
-        except httpx.HTTPStatusError as e:
-            logger.error(f"Agent returned error status for service '{service_name}': {e}")
-            raise
-        except Exception as e:
-            logger.error(f"Agent returned error status for service '{service_name}': {e}")
-            raise
+        return await self.request_json('DELETE', f'/services/{service_name}/logs')
 
     async def get_service_run_script(self, service_name: str) -> dict:
         """
@@ -389,24 +279,11 @@ class AgentClient:
         httpx.HTTPStatusError: If agent returns error status (e.g., 404).
 
         """
-        client = await self._ensure_httpx_client()
         logger.debug(
             f'Requesting run script for service {service_name!r} '
             f'from agent at {self.socket_path}'
         )
-        try:
-            response = await client.get(f'/services/{service_name}/run')
-            response.raise_for_status()
-            return response.json()
-        except httpx.RequestError as e:
-            logger.error(f'Failed to communicate with agent at {self.socket_path}: {e}')
-            raise
-        except httpx.HTTPStatusError as e:
-            logger.error(f"Agent returned error status for service '{service_name}': {e}")
-            raise
-        except Exception as e:
-            logger.error(f"Agent returned error status for service '{service_name}': {e}")
-            raise
+        return await self.request_json('GET', f'/services/{service_name}/run')
 
     async def update_service_run_script(self, service_name: str, content: str) -> dict:
         """
@@ -427,27 +304,15 @@ class AgentClient:
         httpx.HTTPStatusError: If agent returns error status.
 
         """
-        client = await self._ensure_httpx_client()
         logger.debug(
             f'Updating run script for service {service_name!r} '
             f'via agent at {self.socket_path}'
         )
-        try:
-            response = await client.put(
-                f'/services/{service_name}/run',
-                json={'content': content},
-            )
-            response.raise_for_status()
-            return response.json()
-        except httpx.RequestError as e:
-            logger.error(f'Failed to communicate with agent at {self.socket_path}: {e}')
-            raise
-        except httpx.HTTPStatusError as e:
-            logger.error(f"Agent returned error status for service '{service_name}': {e}")
-            raise
-        except Exception as e:
-            logger.error(f"Agent returned error status for service '{service_name}': {e}")
-            raise
+        return await self.request_json(
+            'PUT',
+            f'/services/{service_name}/run',
+            json={'content': content},
+        )
 
 
 class AgentClientPool:
