@@ -17,7 +17,12 @@
 import Link from "next/link";
 import type { CSSProperties, ReactNode } from "react";
 import StatusBadge from "@/components/StatusBadge";
-import type { DockerContainerInfo, RepoUpdateStatus, S6AgentStatusResponse } from "@/types/api";
+import type {
+  CycloManagerVersionResponse,
+  DockerContainerInfo,
+  RepoUpdateStatus,
+  S6AgentStatusResponse,
+} from "@/types/api";
 
 export function formatUptime(seconds: number): string {
   const d = Math.floor(seconds / 86400);
@@ -179,12 +184,17 @@ export function CircleGauge({
 export function UpdatableRepoRow({
   repo,
   onUpdate,
+  bordered = true,
 }: {
   repo: RepoUpdateStatus;
   onUpdate: () => void;
+  bordered?: boolean;
 }) {
   return (
-    <div className="px-5 py-3" style={{ borderTop: "1px solid var(--vscode-panel-border)" }}>
+    <div
+      className="px-4 py-3"
+      style={bordered ? { borderTop: "1px solid var(--vscode-panel-border)" } : undefined}
+    >
       <div className="flex items-center gap-3">
         <div className="flex-1 min-w-0">
           <div className="text-base font-medium truncate" style={{ color: "var(--vscode-foreground)" }}>
@@ -198,12 +208,95 @@ export function UpdatableRepoRow({
             </div>
           )}
         </div>
-        {repo.has_update && (
-          <button onClick={onUpdate} style={btnStyle(true)}>
-            Update
-          </button>
-        )}
+        <div className="shrink-0 flex items-center gap-3">
+          <span
+            className="text-xs font-semibold"
+            style={{ color: repo.has_update ? "var(--vscode-errorForeground)" : "#3fb950" }}
+          >
+            {repo.has_update ? "Update available" : "Up to date"}
+          </span>
+          {repo.has_update && (
+            <button onClick={onUpdate} style={btnStyle(true)}>
+              Update
+            </button>
+          )}
+        </div>
       </div>
+    </div>
+  );
+}
+
+export function CycloManagerStatusRow({
+  version,
+  onUpdate,
+  bordered = true,
+}: {
+  version: CycloManagerVersionResponse;
+  onUpdate: () => void;
+  bordered?: boolean;
+}) {
+  const statusLabel = !version.pypi_available
+    ? "Check unavailable"
+    : version.update_available
+      ? "Update available"
+      : "Up to date";
+  const statusColor = !version.pypi_available
+    ? "var(--vscode-descriptionForeground)"
+    : version.update_available
+      ? "var(--vscode-errorForeground)"
+      : "#3fb950";
+
+  return (
+    <div
+      className="px-4 py-3"
+      style={bordered ? { borderTop: "1px solid var(--vscode-panel-border)" } : undefined}
+    >
+      <div className="flex items-center gap-3">
+        <div className="flex-1 min-w-0">
+          <div className="text-base font-medium truncate" style={{ color: "var(--vscode-foreground)" }}>
+            Cyclo Manager
+          </div>
+          <div className="text-xs truncate" style={{ color: "var(--vscode-descriptionForeground)" }}>
+            Current {version.current} / Latest {version.latest}
+          </div>
+        </div>
+        <div className="shrink-0 flex items-center gap-3">
+          <span className="text-xs font-semibold" style={{ color: statusColor }}>
+            {statusLabel}
+          </span>
+          {version.update_available && (
+            <button onClick={onUpdate} style={btnStyle(true)}>
+              Update
+            </button>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+export function VersionGroup({
+  title,
+  children,
+}: {
+  title: string;
+  children: ReactNode;
+}) {
+  return (
+    <div
+      className="mx-4 my-3 rounded-md border overflow-hidden"
+      style={{
+        borderColor: "var(--vscode-panel-border)",
+        backgroundColor: "transparent",
+      }}
+    >
+      <div
+        className="px-3 pt-2 pb-1 text-[11px] font-bold uppercase tracking-widest"
+        style={{ color: "var(--vscode-descriptionForeground)" }}
+      >
+        {title}
+      </div>
+      <div>{children}</div>
     </div>
   );
 }
@@ -212,10 +305,12 @@ export function AgentStatusRow({
   agent,
   updating,
   onUpdate,
+  bordered = true,
 }: {
   agent: S6AgentStatusResponse;
   updating: boolean;
   onUpdate: () => void;
+  bordered?: boolean;
 }) {
   const statusLabel =
     agent.status === "outdated" ? "Update required" :
@@ -224,7 +319,10 @@ export function AgentStatusRow({
           "OK";
 
   return (
-    <div className="px-5 py-3" style={{ borderTop: "1px solid var(--vscode-panel-border)" }}>
+    <div
+      className="px-4 py-3"
+      style={bordered ? { borderTop: "1px solid var(--vscode-panel-border)" } : undefined}
+    >
       <div className="flex items-center gap-3">
         <div className="flex-1 min-w-0">
           <div className="text-base font-medium truncate" style={{ color: "var(--vscode-foreground)" }}>
@@ -464,6 +562,7 @@ export function ContainerRow({
   onOpenBashrc,
   busy,
   busyAction,
+  bordered = true,
 }: {
   container: DockerContainerInfo;
   onAction: (action: "start" | "stop" | "restart") => void;
@@ -471,11 +570,15 @@ export function ContainerRow({
   onOpenBashrc: () => void;
   busy: boolean;
   busyAction: string | null;
+  bordered?: boolean;
 }) {
   const running = container.status.toLowerCase() === "running";
 
   return (
-    <div className="flex items-center gap-3 px-5 py-3" style={{ borderTop: "1px solid var(--vscode-panel-border)" }}>
+    <div
+      className="flex items-center gap-3 px-4 py-3"
+      style={bordered ? { borderTop: "1px solid var(--vscode-panel-border)" } : undefined}
+    >
       <div className="flex-1 min-w-0">
         <div className="text-base font-medium truncate" style={{ color: "var(--vscode-foreground)" }}>
           {container.name}

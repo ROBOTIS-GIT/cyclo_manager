@@ -19,7 +19,6 @@
 import type { CSSProperties } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useAppsHubBanner } from "@/contexts/AppsHubBannerContext";
 import ThemeToggle from "@/components/ThemeToggle";
 
 const INSET_FROM_EDGE = "1.75rem";
@@ -88,20 +87,17 @@ export function AppsHubButton({
 /** Floating on /app only; sidebar pages use AppsHubButton in VSCodeLayout. */
 export default function AppsHubLink() {
   const pathname = usePathname();
-  const { updateBannerVisible } = useAppsHubBanner();
 
   if (pathname !== "/app") {
     return null;
   }
-
-  const top = updateBannerVisible ? "4.75rem" : INSET_FROM_EDGE;
 
   return (
     <div
       className="fixed z-[60]"
       style={{
         left: INSET_FROM_EDGE,
-        top,
+        top: INSET_FROM_EDGE,
       }}
     >
       <div className="w-[9rem]">

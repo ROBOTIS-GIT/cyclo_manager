@@ -27,12 +27,15 @@ import {
   Card,
   CircleGauge,
   ContainerRow,
+  CycloManagerStatusRow,
   formatUptime,
   InfoRow,
   InfoStatusRow,
   pct,
   UpdatableRepoRow,
+  VersionGroup,
 } from "@/components/dashboard/DashboardComponents";
+import CycloManagerUpdateModal from "@/components/dashboard/CycloManagerUpdateModal";
 import DockerImagesModal from "@/components/dashboard/DockerImagesModal";
 import {
   getSystemStats,
@@ -45,8 +48,10 @@ import {
   getRepoUpdates,
   getS6AgentStatuses,
   updateS6Agent,
+  getCycloManagerVersion,
 } from "@/lib/api";
 import type {
+  CycloManagerVersionResponse,
   HostSystemStatsResponse,
   RobotInfoResponse,
   DockerContainerInfo,
@@ -65,6 +70,8 @@ export default function HomePage() {
   const [robotInfo, setRobotInfo] = useState<RobotInfoResponse | null>(null);
   const [systemStats, setSystemStats] = useState<HostSystemStatsResponse | null>(null);
   const [containers, setContainers] = useState<DockerContainerInfo[]>([]);
+  const [managerVersion, setManagerVersion] = useState<CycloManagerVersionResponse | null>(null);
+  const [managerCheckState, setManagerCheckState] = useState<"loading" | "error" | "done">("loading");
   const [updatableRepos, setUpdatableRepos] = useState<RepoUpdateStatus[]>([]);
   const [repoCheckState, setRepoCheckState] = useState<"loading" | "error" | "done">("loading");
   const [agentStatuses, setAgentStatuses] = useState<S6AgentStatusResponse[]>([]);
@@ -72,6 +79,7 @@ export default function HomePage() {
   const [updatingAgent, setUpdatingAgent] = useState<string | null>(null);
   const [agentUpdateModal, setAgentUpdateModal] = useState<AgentUpdateModalState | null>(null);
   const [wizardRepo, setWizardRepo] = useState<RepoUpdateStatus | null>(null);
+  const [showManagerUpdateModal, setShowManagerUpdateModal] = useState(false);
   const [showDockerImages, setShowDockerImages] = useState(false);
   const [actionLoading, setActionLoading] = useState<{ container: string; action: string } | null>(null);
 
@@ -116,6 +124,18 @@ export default function HomePage() {
     }
   }, []);
 
+  const loadManagerVersion = useCallback(async () => {
+    setManagerCheckState("loading");
+    try {
+      const version = await getCycloManagerVersion();
+      setManagerVersion(version);
+      setManagerCheckState("done");
+    } catch {
+      setManagerVersion(null);
+      setManagerCheckState("error");
+    }
+  }, []);
+
   const loadAgentStatuses = useCallback(async () => {
     setAgentCheckState("loading");
     try {
@@ -128,9 +148,10 @@ export default function HomePage() {
   }, []);
 
   const loadVersionManagement = useCallback(() => {
+    loadManagerVersion();
     loadRepoUpdates();
     loadAgentStatuses();
-  }, [loadAgentStatuses, loadRepoUpdates]);
+  }, [loadAgentStatuses, loadManagerVersion, loadRepoUpdates]);
 
   const openAgentUpdateConfirm = useCallback((container: string) => {
     setAgentUpdateModal({
@@ -299,11 +320,21 @@ export default function HomePage() {
   const hasSsdStats = systemStats?.ssd_used_gb != null && systemStats.ssd_total_gb != null;
   const systemGaugeSize = hasSsdStats ? 96 : 110;
   const settingsDocker = containers.find((c) => c.name === settingsContainer) ?? null;
-  const agentIssues = agentStatuses.filter((agent) => agent.update_required);
-  const versionManagementLoading = repoCheckState === "loading" || agentCheckState === "loading";
-  const versionManagementError = repoCheckState === "error" && agentCheckState === "error";
-  const hasRepoUpdates = updatableRepos.length > 0;
-  const hasAgentIssues = agentIssues.length > 0;
+  const hasRepos = updatableRepos.length > 0;
+  const hasAgents = agentStatuses.length > 0;
+  const versionManagementChecking =
+    managerCheckState === "loading" ||
+    repoCheckState === "loading" ||
+    agentCheckState === "loading";
+  const versionManagementLoading =
+    versionManagementChecking &&
+    !managerVersion &&
+    !hasRepos &&
+    !hasAgents;
+  const versionManagementError =
+    managerCheckState === "error" &&
+    repoCheckState === "error" &&
+    agentCheckState === "error";
 
   return (
     <>
@@ -319,6 +350,12 @@ export default function HomePage() {
           state={agentUpdateModal}
           onClose={() => setAgentUpdateModal(null)}
           onConfirm={handleAgentUpdate}
+        />
+      )}
+      {showManagerUpdateModal && managerVersion && (
+        <CycloManagerUpdateModal
+          version={managerVersion}
+          onClose={() => setShowManagerUpdateModal(false)}
         />
       )}
       {showDockerImages && (
@@ -441,10 +478,17 @@ export default function HomePage() {
                 No containers found
               </div>
             ) : (
-              containers.map((c, i) => {
+              containers.map((c) => {
                 const busy = actionLoading?.container === c.name;
                 return (
-                  <div key={c.id} style={i === 0 ? { borderTop: "none" } : {}}>
+                  <div
+                    key={c.id}
+                    className="mx-4 my-1 rounded-md border overflow-hidden"
+                    style={{
+                      borderColor: "var(--vscode-panel-border)",
+                      backgroundColor: "transparent",
+                    }}
+                  >
                     <ContainerRow
                       container={c}
                       onAction={(action) => handleAction(c.name, action)}
@@ -452,6 +496,7 @@ export default function HomePage() {
                       onOpenBashrc={() => openBashrc(c.name)}
                       busy={busy}
                       busyAction={busy ? actionLoading!.action : null}
+                      bordered={false}
                     />
                   </div>
                 );
@@ -467,8 +512,8 @@ export default function HomePage() {
             action={
               <button
                 onClick={loadVersionManagement}
-                disabled={versionManagementLoading}
-                style={{ ...btnStyle(false, versionManagementLoading), padding: "2px 8px", fontSize: 11 }}
+                disabled={versionManagementChecking}
+                style={{ ...btnStyle(false, versionManagementChecking), padding: "2px 8px", fontSize: 11 }}
               >
                 Refresh
               </button>
@@ -484,54 +529,58 @@ export default function HomePage() {
               </div>
             ) : (
               <>
-                {hasAgentIssues && (
-                  <div>
-                    <div className="px-5 pt-4 pb-1 text-xs font-bold uppercase tracking-widest"
-                      style={{ color: "var(--vscode-descriptionForeground)" }}>
-                      Container Agents
+                <VersionGroup title="Repositories">
+                  {hasRepos ? (
+                    updatableRepos.map((repo) => (
+                      <UpdatableRepoRow
+                        key={repo.name}
+                        repo={repo}
+                        onUpdate={() => setWizardRepo(repo)}
+                        bordered={false}
+                      />
+                    ))
+                  ) : (
+                    <div className="px-4 py-3 text-sm" style={{ color: "var(--vscode-descriptionForeground)" }}>
+                      {robotInfo?.internet_connected === false || repoCheckState === "error"
+                        ? "Repository update status unavailable"
+                        : "No repositories found"}
                     </div>
-                    {agentIssues.map((agent, i) => (
-                      <div key={agent.container} style={i === 0 ? { borderTop: "none" } : {}}>
-                        <AgentStatusRow
-                          agent={agent}
-                          updating={updatingAgent === agent.container}
-                          onUpdate={() => openAgentUpdateConfirm(agent.container)}
-                        />
-                      </div>
-                    ))}
-                  </div>
-                )}
+                  )}
+                </VersionGroup>
 
-                {hasRepoUpdates && (
-                  <div>
-                    <div className="px-5 pt-4 pb-1 text-xs font-bold uppercase tracking-widest"
-                      style={{ color: "var(--vscode-descriptionForeground)" }}>
-                      Repositories
+                <VersionGroup title="Container Agents">
+                  {hasAgents ? (
+                    agentStatuses.map((agent) => (
+                      <AgentStatusRow
+                        key={agent.container}
+                        agent={agent}
+                        updating={updatingAgent === agent.container}
+                        onUpdate={() => openAgentUpdateConfirm(agent.container)}
+                        bordered={false}
+                      />
+                    ))
+                  ) : (
+                    <div className="px-4 py-3 text-sm" style={{ color: "var(--vscode-descriptionForeground)" }}>
+                      {agentCheckState === "error"
+                        ? "Container agent status unavailable"
+                        : "No container agents found"}
                     </div>
-                    {updatableRepos.map((repo, i) => (
-                      <div key={repo.name} style={i === 0 ? { borderTop: "none" } : {}}>
-                        <UpdatableRepoRow
-                          repo={repo}
-                          onUpdate={() => setWizardRepo(repo)}
-                        />
-                      </div>
-                    ))}
-                  </div>
-                )}
+                  )}
+                </VersionGroup>
 
-                {!hasAgentIssues && !hasRepoUpdates && (
-                  <div className="p-4 text-sm" style={{ color: "var(--vscode-descriptionForeground)" }}>
-                    {robotInfo?.internet_connected === false || repoCheckState === "error"
-                      ? "Repository update status unavailable"
-                      : "No updates available"}
-                  </div>
-                )}
-
-                {agentCheckState === "error" && !hasAgentIssues && (
-                  <div className="px-5 pb-4 text-xs" style={{ color: "var(--vscode-errorForeground)" }}>
-                    Container agent status unavailable
-                  </div>
-                )}
+                <VersionGroup title="Cyclo Manager">
+                  {managerVersion ? (
+                    <CycloManagerStatusRow
+                      version={managerVersion}
+                      onUpdate={() => setShowManagerUpdateModal(true)}
+                      bordered={false}
+                    />
+                  ) : (
+                    <div className="px-4 py-3 text-sm" style={{ color: "var(--vscode-descriptionForeground)" }}>
+                      Cyclo Manager version unavailable
+                    </div>
+                  )}
+                </VersionGroup>
               </>
             )}
           </Card>
