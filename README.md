@@ -109,8 +109,9 @@ Bundled copy for pip installs: `cyclo_manager_cli/cyclo_manager_cli/config/confi
 | Page | Path | Notes |
 |------|------|-------|
 | Apps hub | `/app` | Links to Cyclo Manager (dashboard) and Cyclo Intelligence (port 7080) |
-| Dashboard | `/dashboard` | Host stats, Docker containers, logs, bashrc, version management (host git repos) |
-| System | `/{robot_container}/system` | s6 bringup, launch args, URDF viewer, service logs, robot status (bringup/battery/camera) |
+| Dashboard | `/dashboard` | Host stats, Docker containers/images, logs, bashrc, version management (host git repos + s6 agent compatibility) |
+| System | `/{robot_container}/system` | s6 bringup, launch args, URDF viewer, streaming service logs (download/clear), robot status |
+| Jog | `/jog` | `/cmd_vel` teleop for supported robot models (e.g. SG2, SH5, Mobile) |
 | Topics | `/topics` | ROS 2 topic browser; live data via WebSocket |
 | Terminal | `/terminal` | Multi-tab bash into running containers (`?container={name}` optional) |
 | noVNC | `/novnc` | Remote display (when `novnc-server` is running) |
@@ -130,16 +131,17 @@ Interactive docs: `http://<host>:8081/docs`
 | Root | `GET /` | API metadata |
 | Config | `GET /containers` | Configured containers + `robot_container` |
 | | `GET /containers/agents/status` | Container s6 agent version compatibility |
-| | `POST /containers/{container}/agent/update` | Git pull agent code and restart the container |
+| | `POST /containers/{container}/agent/update` | Checkout agent code to the manager version and restart the container |
 | System | `GET /system/info`, `GET /system/status` | Hostname, internet, CPU/memory/disk |
-| Services | `GET /{container}/services` | List s6 services |
-| | `GET /{container}/services/status` | All statuses |
+| Services | `GET /{container}/services/{service}/status` | Single s6 service status |
 | | `POST /{container}/services/{service}` | `up` / `down` / `restart`; optional `launch_args`, `robot_type` |
-| | `GET /{container}/services/{service}/logs/download`, `DELETE /{container}/services/{service}/logs` | s6 log files |
-| | `GET`, `PUT /{container}/services/{service}/run` | s6 run script |
+| | `GET /{container}/services/{service}/logs/download` | Download current s6 log file (ANSI stripped) |
+| | `DELETE /{container}/services/{service}/logs` | Truncate s6 log file |
 | Container | `GET`, `PUT /{container}/bashrc` | Via `docker exec` |
 | Docker | `GET /docker/containers` | Optional `?all=true` |
-| | `GET /docker/{name}/status` | |
+| | `GET /docker/images` | List images with size, tags, and container usage |
+| | `POST /docker/images/prune` | Remove dangling images |
+| | `DELETE /docker/images/{image_id}` | Delete an unused image |
 | | `POST /docker/{name}` | start / stop / restart |
 | | `GET /docker/{name}/logs` | Engine logs |
 | | `GET /docker/{name}/top` | Process list |
@@ -152,12 +154,18 @@ Interactive docs: `http://<host>:8081/docs`
 | | `GET /ros2/topics/{topic}/info` | `ros2 topic info -v` output |
 | | `POST /ros2/topics/{topic}/subscribe` | Subscribe; optional `{"msg_type": "..."}` body |
 | | `POST /ros2/topics/{topic}/unsubscribe` | Remove subscription |
-| Host | `GET /host/repos/updates` | Managed `ROBOTIS-GIT/*` repos on host |
+| | `POST /ros2/cmd_vel` | Publish Twist (`linear_x`, `angular_z`; optional `topic`) |
+| Host | `GET /host/repos`, `GET /host/repos/updates` | Managed host git repos |
+| | `GET /host/repos/{name}/branch`, `GET /host/repos/{name}/status` | Branch check and local-change status |
 | | `POST /host/repos/{name}/update` | git pull workflow |
+| | `POST /host/repos/{name}/container/stop`, `.../start` | Stop/start related containers during update |
 | | `POST /host/update` | `pip install -U cyclo-manager` + `docker compose pull` + stack restart |
+| | `GET /host/update/status` | Background package-update status |
 | Version | `GET /version` | Installed vs PyPI `cyclo-manager` |
-| WebSocket | `/ws/{container}/services/{service}/logs` | Live s6 logs |
+| WebSocket | `/ws/{container}/services/{service}/logs` | Live s6 logs (agent NDJSON stream → browser) |
 | | `/ws/ros2/topics/{topic}` | Live topic data (see below) |
+
+**Service logs:** Live logs are streamed over WebSocket (not polled). Opening a new browser session re-tails recent lines from the agent, then follows new output. Download returns the current `/var/log/{service}/current` file with ANSI codes removed.
 
 **ROS 2 WebSocket behavior:** On connect, the API resolves the topic message type (known types, discovery, or existing subscription), calls `add_topic_subscription` if needed, then polls the in-memory cache and pushes `{topic, msg_type, data, available}` when data changes (throttled). The Topics UI uses this path without a prior REST subscribe. Disconnecting the WebSocket does not unsubscribe; use `POST /ros2/topics/{topic}/unsubscribe` or page cleanup.
 
