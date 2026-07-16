@@ -39,8 +39,21 @@ export type ROS2TopicWebSocketOptions = WebSocketLifecycleOptions & {
 };
 
 function toROS2TopicDataResponse(data: unknown): ROS2TopicDataResponse {
-  if (isRecord(data)) {
-    return data as ROS2TopicDataResponse;
+  if (
+    isRecord(data) &&
+    typeof data.topic === "string" &&
+    typeof data.msg_type === "string" &&
+    typeof data.available === "boolean" &&
+    typeof data.domain_id === "number" &&
+    "data" in data
+  ) {
+    return {
+      topic: data.topic,
+      msg_type: data.msg_type,
+      data: data.data,
+      available: data.available,
+      domain_id: data.domain_id,
+    };
   }
   return {
     topic: "",
