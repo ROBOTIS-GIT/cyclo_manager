@@ -23,19 +23,6 @@ from typing import Any, Literal, Optional
 from pydantic import BaseModel, Field, model_validator
 
 
-class ServiceInfo(BaseModel):
-    """Service information from configuration."""
-
-    id: str = Field(  # noqa: A003
-        ...,
-        description='Service identifier (matches s6 service name)',
-        examples=['ai_worker_bringup'],
-    )
-    label: str = Field(
-        ..., description='Human-readable service label', examples=['AI Worker Bringup']
-    )
-
-
 class SystemConfig(BaseModel):
     """Root configuration model."""
 
@@ -153,13 +140,6 @@ class S6AgentUpdateResponse(BaseModel):
     output: str = Field(..., description='Command output')
 
 
-class ServiceListResponse(BaseModel):
-    """Response for GET /containers/{container}/services."""
-
-    container: str = Field(..., description='Container name')
-    services: list[ServiceInfo] = Field(..., description='List of services in the container')
-
-
 class ServiceStatusResponse(BaseModel):
     """
     Response for GET /containers/{container}/services/{service}/status.
@@ -176,17 +156,6 @@ class ServiceStatusResponse(BaseModel):
     is_up: bool = Field(..., description='Whether service is running')
     pid: Optional[int] = Field(None, description='Process ID if running')
     uptime_seconds: Optional[int] = Field(None, description='Uptime in seconds if running')
-
-
-class ServiceStatusListResponse(BaseModel):
-    """
-    Response for GET /containers/{container}/services/status.
-
-    Returns status for all services in a container in a single request.
-    """
-
-    container: str = Field(..., description='Container name')
-    statuses: list[ServiceStatusResponse] = Field(..., description='List of service statuses')
 
 
 class ServiceControlResponse(BaseModel):
@@ -216,23 +185,6 @@ class DockerContainerInfo(BaseModel):
     status: str = Field(..., description='Container status', examples=['running'])
     image: str = Field(..., description='Container image', examples=['robotis/ai-worker:latest'])
     created: str = Field(..., description='Container creation timestamp')
-
-
-class DockerContainerStatus(BaseModel):
-    """Detailed Docker container status."""
-
-    id: str = Field(..., description='Container ID')  # noqa: A003
-    name: str = Field(..., description='Container name')
-    status: str = Field(..., description='Container status')
-    state: str = Field(..., description='Container state (running, stopped, etc.)')
-    running: bool = Field(..., description='Whether container is running')
-    restarting: bool = Field(..., description='Whether container is restarting')
-    paused: bool = Field(..., description='Whether container is paused')
-    image: str = Field(..., description='Container image')
-    created: str = Field(..., description='Container creation timestamp')
-    started_at: Optional[str] = Field(None, description='Container start timestamp')
-    finished_at: Optional[str] = Field(None, description='Container finish timestamp')
-    exit_code: Optional[int] = Field(None, description='Container exit code if stopped')
 
 
 class DockerContainerListResponse(BaseModel):

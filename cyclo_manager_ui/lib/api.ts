@@ -24,14 +24,11 @@ import type {
   UpdateRequest,
   UpdateResponse,
   UpdateStatusResponse,
-  ServiceListResponse,
   ServiceStatusResponse,
-  ServiceStatusListResponse,
   ServiceControlResponse,
   ServiceLogsClearResponse,
   ServiceActionRequest,
   DockerContainerListResponse,
-  DockerContainerStatus,
   DockerContainerActionRequest,
   DockerContainerActionResponse,
   DockerContainerLogsResponse,
@@ -131,19 +128,6 @@ export async function updateS6Agent(container: string): Promise<S6AgentUpdateRes
   }
 }
 
-export async function getServices(
-  container: string
-): Promise<ServiceListResponse> {
-  try {
-    const response = await apiClient.get<ServiceListResponse>(
-      `/${container}/services`
-    );
-    return response.data;
-  } catch (error) {
-    handleError(error);
-  }
-}
-
 export async function getServiceStatus(
   container: string,
   service: string
@@ -151,19 +135,6 @@ export async function getServiceStatus(
   try {
     const response = await apiClient.get<ServiceStatusResponse>(
       `/${container}/services/${service}/status`
-    );
-    return response.data;
-  } catch (error) {
-    handleError(error);
-  }
-}
-
-export async function getServiceStatuses(
-  container: string
-): Promise<ServiceStatusListResponse> {
-  try {
-    const response = await apiClient.get<ServiceStatusListResponse>(
-      `/${container}/services/status`
     );
     return response.data;
   } catch (error) {
@@ -242,19 +213,6 @@ export async function getDockerContainers(
       {
         params: { all },
       }
-    );
-    return response.data;
-  } catch (error) {
-    handleError(error);
-  }
-}
-
-export async function getDockerContainerStatus(
-  name: string
-): Promise<DockerContainerStatus> {
-  try {
-    const response = await apiClient.get<DockerContainerStatus>(
-      `/docker/${name}/status`
     );
     return response.data;
   } catch (error) {

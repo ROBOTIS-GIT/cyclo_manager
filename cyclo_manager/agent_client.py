@@ -43,23 +43,6 @@ class AgentClient(SocketHttpClient):
         """Initialize agent client."""
         super().__init__(socket_path, base_url='http://agent', timeout=timeout)
 
-    async def get_services(self) -> dict:
-        """
-        Get list of services from agent.
-
-        Returns
-        -------
-        Response JSON from agent's /services endpoint.
-
-        Raises
-        ------
-        httpx.RequestError: If request fails (socket missing, agent down, etc.)
-        httpx.HTTPStatusError: If agent returns error status.
-
-        """
-        logger.debug(f'Requesting services from agent at {self.socket_path}')
-        return await self.request_json('GET', '/services')
-
     async def get_agent_version(self) -> dict:
         """
         Get agent version metadata from the root endpoint.
@@ -89,25 +72,6 @@ class AgentClient(SocketHttpClient):
             f'Requesting status for service {service_name!r} from agent at {self.socket_path}'
         )
         return await self.request_json('GET', f'/services/{service_name}/status')
-
-    async def get_all_services_status(self) -> dict:
-        """
-        Get status of all services from agent in a single request.
-
-        This is more efficient than calling get_service_status() for each service.
-
-        Returns
-        -------
-        Response JSON from agent's /services/status endpoint.
-
-        Raises
-        ------
-        httpx.RequestError: If request fails.
-        httpx.HTTPStatusError: If agent returns error status.
-
-        """
-        logger.debug(f'Requesting status for all services from agent at {self.socket_path}')
-        return await self.request_json('GET', '/services/status')
 
     async def control_service(
         self,

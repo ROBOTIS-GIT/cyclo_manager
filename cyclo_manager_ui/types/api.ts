@@ -16,11 +16,6 @@
 
 // TypeScript types matching the cyclo_manager API Pydantic models
 
-export interface ServiceInfo {
-  id: string;
-  label: string;
-}
-
 export interface ConfiguredContainerInfo {
   name: string;
   socket_path: string;
@@ -52,11 +47,6 @@ export interface S6AgentUpdateResponse {
   output: string;
 }
 
-export interface ServiceListResponse {
-  container: string;
-  services: ServiceInfo[];
-}
-
 export interface ServiceStatusResponse {
   container: string;
   service: string;
@@ -66,11 +56,6 @@ export interface ServiceStatusResponse {
   is_up: boolean;
   pid: number | null;
   uptime_seconds: number | null;
-}
-
-export interface ServiceStatusListResponse {
-  container: string;
-  statuses: ServiceStatusResponse[];
 }
 
 export interface ServiceActionRequest {
@@ -109,21 +94,6 @@ export interface DockerContainerInfo {
 
 export interface DockerContainerListResponse {
   containers: DockerContainerInfo[];
-}
-
-export interface DockerContainerStatus {
-  id: string;
-  name: string;
-  status: string;
-  state: string;
-  running: boolean;
-  restarting: boolean;
-  paused: boolean;
-  image: string;
-  created: string;
-  started_at: string | null;
-  finished_at: string | null;
-  exit_code: number | null;
 }
 
 export interface DockerContainerActionRequest {

@@ -33,40 +33,6 @@ logger = logging.getLogger(__name__)
 S6_SERVICE_DIR = Path('/run/service')
 
 
-def list_services() -> list[str]:
-    """
-    List all available s6 services.
-
-    Returns
-    -------
-    List of service names found in /run/service.
-
-    Raises
-    ------
-    OSError: If /run/service directory cannot be accessed.
-
-    """
-    try:
-        if not S6_SERVICE_DIR.exists():
-            logger.warning(f'Service directory {S6_SERVICE_DIR} does not exist')
-            return []
-
-        services = []
-        for item in S6_SERVICE_DIR.iterdir():
-            if item.is_dir():
-                # Check if it looks like an s6 service directory
-                # s6 services typically have a 'run' file
-                if (item / 'run').exists() or (item / 'type').exists():
-                    services.append(item.name)
-
-        logger.debug(f'Found {len(services)} services: {services}')
-        return sorted(services)
-
-    except OSError as e:
-        logger.error(f'Failed to list services: {e}')
-        raise
-
-
 def get_service_status(name: str) -> ServiceStatus:
     """
     Get status of an s6 service.
@@ -140,40 +106,6 @@ def get_service_status(name: str) -> ServiceStatus:
         raise
     except subprocess.TimeoutExpired:
         logger.error(f"Timeout getting status for service '{name}'")
-        raise
-
-
-def get_all_services_status() -> list[ServiceStatus]:
-    """
-    Get status of all s6 services.
-
-    This is more efficient than calling get_service_status() for each service
-    individually, as it processes all services in a single pass.
-
-    Returns
-    -------
-    List of ServiceStatus objects for all available services.
-
-    Note
-    ----
-    Services that fail to get status are skipped (logged but not included).
-
-    """
-    try:
-        services = list_services()
-        statuses: list[ServiceStatus] = []
-
-        for service_name in services:
-            try:
-                status = get_service_status(service_name)
-                statuses.append(status)
-            except Exception as e:
-                # Log but don't fail - continue with other services
-                logger.warning(f"Failed to get status for service '{service_name}': {e}")
-
-        return statuses
-    except Exception as e:
-        logger.error(f'Failed to get all services status: {e}')
         raise
 
 

@@ -24,10 +24,7 @@ import re
 from cyclo_manager.models import (
     ServiceActionRequest,
     ServiceControlResponse,
-    ServiceInfo,
-    ServiceListResponse,
     ServiceLogsClearResponse,
-    ServiceStatusListResponse,
     ServiceStatusResponse,
 )
 from cyclo_manager.state import get_agent_client, get_validated_container
@@ -82,28 +79,6 @@ def _raise_mapped_service_exception(container: str, exc: Exception) -> None:
     )
 
 
-@router.get('', response_model=ServiceListResponse)
-async def list_services(
-    container: str = Depends(get_validated_container),
-) -> ServiceListResponse:
-    """Get list of services for a specific container."""
-    try:
-        client = get_agent_client(container)
-        agent_response = await client.get_services()
-        agent_services = agent_response.get('services', [])
-
-        services = [
-            ServiceInfo(id=service_id, label=service_id)
-            for service_id in agent_services
-        ]
-
-    except Exception as e:
-        logger.error(f"Failed to get services from agent for container '{container}': {e}")
-        _raise_mapped_service_exception(container, e)
-
-    return ServiceListResponse(container=container, services=services)
-
-
 @router.get('/{service}/status', response_model=ServiceStatusResponse)
 async def get_service_status(
     service: str,
@@ -127,39 +102,6 @@ async def get_service_status(
         pid=agent_response.get('pid'),
         uptime_seconds=agent_response.get('uptime_seconds'),
     )
-
-
-@router.get('/status', response_model=ServiceStatusListResponse)
-async def get_all_services_status(
-    container: str = Depends(get_validated_container),
-) -> ServiceStatusListResponse:
-    """Get status of all services in a container."""
-    try:
-        client = get_agent_client(container)
-        agent_response = await client.get_all_services_status()
-        agent_statuses = agent_response.get('statuses', [])
-    except Exception as e:
-        logger.error(f'Failed to get services status from agent: {e}')
-        _raise_mapped_service_exception(container, e)
-
-    statuses: list[ServiceStatusResponse] = []
-    for agent_status in agent_statuses:
-        service_id = agent_status.get('name', '')
-
-        statuses.append(
-            ServiceStatusResponse(
-                container=container,
-                service=service_id,
-                service_label=service_id,
-                name=agent_status.get('name', service_id),
-                raw=agent_status.get('raw', ''),
-                is_up=agent_status.get('is_up', False),
-                pid=agent_status.get('pid'),
-                uptime_seconds=agent_status.get('uptime_seconds'),
-            )
-        )
-
-    return ServiceStatusListResponse(container=container, statuses=statuses)
 
 
 @router.get('/{service}/logs/download')

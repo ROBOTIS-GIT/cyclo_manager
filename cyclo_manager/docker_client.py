@@ -107,47 +107,6 @@ class DockerClient:
             logger.error(f"Failed to get container '{container_name}': {e}")
             raise
 
-    def get_container_status(self, container_name: str) -> dict:
-        """
-        Get detailed status of a container.
-
-        Args
-        ----
-        container_name: Container name or ID.
-
-        Returns
-        -------
-        Dictionary with container status information.
-
-        Raises
-        ------
-        NotFound: If container not found.
-
-        """
-        try:
-            container = self.get_container(container_name)
-            container.reload()  # Refresh container state
-
-            return {
-                'id': container.id,
-                'name': container.name,
-                'status': container.status,
-                'state': container.attrs['State']['Status'],
-                'running': container.status == 'running',
-                'restarting': container.attrs['State'].get('Restarting', False),
-                'paused': container.attrs['State'].get('Paused', False),
-                'image': container.image.tags[0] if container.image.tags else '',
-                'created': container.attrs['Created'],
-                'started_at': container.attrs['State'].get('StartedAt', ''),
-                'finished_at': container.attrs['State'].get('FinishedAt', ''),
-                'exit_code': container.attrs['State'].get('ExitCode'),
-            }
-        except NotFound:
-            raise
-        except DockerException as e:
-            logger.error(f"Failed to get container status for '{container_name}': {e}")
-            raise
-
     def start_container(self, container_name: str) -> dict:
         """
         Start a container.
@@ -301,36 +260,6 @@ class DockerClient:
             raise
         except DockerException as e:
             logger.error("Failed to update bashrc for container '%s': %s", container_name, e)
-            raise
-
-    def get_container_file_content(self, container_name: str, path: str) -> str:
-        """
-        Read file content from container via docker exec.
-
-        Args
-        ----
-        container_name: Container name or ID.
-        path: Absolute path to file inside container.
-
-        Returns
-        -------
-        File content as string.
-
-        Raises
-        ------
-        NotFound: If container not found.
-
-        """
-        try:
-            container = self.get_container(container_name)
-            result = container.exec_run(f'cat {path}')
-            if result.exit_code != 0 or not result.output:
-                return ''
-            return result.output.decode('utf-8', errors='replace')
-        except NotFound:
-            raise
-        except DockerException as e:
-            logger.error("Failed to read file from container '%s': %s", container_name, e)
             raise
 
     def get_container_top(self, container_name: str) -> dict:

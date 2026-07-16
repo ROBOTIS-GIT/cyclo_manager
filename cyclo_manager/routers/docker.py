@@ -26,7 +26,6 @@ from cyclo_manager.models import (
     DockerContainerInfo,
     DockerContainerListResponse,
     DockerContainerLogsResponse,
-    DockerContainerStatus,
     DockerTopResponse,
 )
 from cyclo_manager.state import get_docker_client
@@ -59,28 +58,6 @@ async def list_docker_containers(
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail=f'Failed to list containers: {str(e)}',
-        )
-
-
-@router.get('/{name}/status', response_model=DockerContainerStatus)
-async def get_docker_container_status(
-    name: str,
-    docker_client=Depends(get_docker_client),
-) -> DockerContainerStatus:
-    """Get detailed status of a Docker container."""
-    try:
-        status_info = docker_client.get_container_status(name)
-        return DockerContainerStatus(**status_info)
-    except docker.errors.NotFound:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Docker container '{name}' not found",
-        )
-    except Exception as e:
-        logger.error(f"Failed to get container status for '{name}': {e}")
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail=f'Failed to get container status: {str(e)}',
         )
 
 
