@@ -18,6 +18,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
+import { usePolling } from "@/hooks/usePolling";
 import { getServiceStatus, publishCmdVel } from "@/lib/api";
 import StatusBadge from "@/components/StatusBadge";
 import {
@@ -245,31 +246,23 @@ export default function JogPage() {
     };
   }, []);
 
-  useEffect(() => {
-    let disposed = false;
-    const loadRobotStatus = async () => {
-      if (statusPollInFlightRef.current) return;
-      statusPollInFlightRef.current = true;
-      try {
-        const serviceStatus = await getServiceStatus(JOG_CONTAINER, ROBOT_SERVICE_NAME);
-        if (disposed) return;
-        setRobotRunning(serviceStatus.is_up);
-      } catch {
-        if (!disposed) {
-          setRobotRunning(false);
-        }
-      } finally {
-        statusPollInFlightRef.current = false;
+  const loadRobotStatus = useCallback(async (isActive: () => boolean) => {
+    if (statusPollInFlightRef.current) return;
+    statusPollInFlightRef.current = true;
+    try {
+      const serviceStatus = await getServiceStatus(JOG_CONTAINER, ROBOT_SERVICE_NAME);
+      if (!isActive()) return;
+      setRobotRunning(serviceStatus.is_up);
+    } catch {
+      if (isActive()) {
+        setRobotRunning(false);
       }
-    };
-    void loadRobotStatus();
-    const interval = setInterval(loadRobotStatus, STATUS_POLL_INTERVAL_MS);
-    return () => {
-      disposed = true;
+    } finally {
       statusPollInFlightRef.current = false;
-      clearInterval(interval);
-    };
+    }
   }, []);
+
+  usePolling(loadRobotStatus, STATUS_POLL_INTERVAL_MS);
 
   const sendCmdVel = useCallback(async (linearX: number, angularZ: number) => {
     await publishCmdVel({ topic: CMD_VEL_TOPIC, linear_x: linearX, angular_z: angularZ });

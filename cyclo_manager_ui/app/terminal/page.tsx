@@ -18,6 +18,7 @@
 
 import { useEffect, useState, useCallback, useRef, Suspense } from "react";
 import { useSearchParams } from "next/navigation";
+import { usePolling } from "@/hooks/usePolling";
 import {
   getDockerContainers,
   getDockerContainerTop,
@@ -98,8 +99,6 @@ function TerminalContent() {
   const [topError, setTopError] = useState<string | null>(null);
   const [killLoadingPid, setKillLoadingPid] = useState<number | null>(null);
   const [killError, setKillError] = useState<string | null>(null);
-  const topIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
-
   useEffect(() => {
     return () => {
       closeAllTerminalConnections();
@@ -141,11 +140,17 @@ function TerminalContent() {
     if (!selectedContainer) return;
     setTop(null);
     setTopError(null);
-    fetchTop(selectedContainer);
-    if (topIntervalRef.current) clearInterval(topIntervalRef.current);
-    topIntervalRef.current = setInterval(() => fetchTop(selectedContainer), 3000);
-    return () => { if (topIntervalRef.current) clearInterval(topIntervalRef.current); };
-  }, [selectedContainer, fetchTop]);
+  }, [selectedContainer]);
+
+  usePolling(
+    () => {
+      if (selectedContainer) {
+        void fetchTop(selectedContainer);
+      }
+    },
+    3000,
+    { enabled: Boolean(selectedContainer), resetKey: selectedContainer }
+  );
 
   function ensureTabsLoaded(name: string) {
     if (tabsMapRef.current[name]) return;

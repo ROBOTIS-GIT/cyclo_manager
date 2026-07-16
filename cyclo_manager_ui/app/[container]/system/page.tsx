@@ -20,6 +20,7 @@ import { useEffect, useState, useCallback, useMemo } from "react";
 import { useParams } from "next/navigation";
 import Link from "next/link";
 import Convert from "ansi-to-html";
+import { usePolling } from "@/hooks/usePolling";
 import { controlService, getServiceStatus, getDockerContainers, controlDockerContainer, getDockerContainerLogs, ros2Subscribe, ros2Unsubscribe, getROS2TopicAvailability, getROS2TopicData } from "@/lib/api";
 import type { ServiceStatusResponse } from "@/types/api";
 import {
@@ -226,16 +227,7 @@ export default function SystemPage() {
     };
   }, []);
 
-  useEffect(() => {
-    cycloIntelligenceService.loadStatus();
-  }, [CYCLO_INTELLIGENCE_CONTAINER, cycloIntelligenceService.loadStatus]);
-
-  useEffect(() => {
-    const interval = setInterval(() => {
-      cycloIntelligenceService.loadStatus();
-    }, STATUS_POLL_INTERVAL);
-    return () => clearInterval(interval);
-  }, [cycloIntelligenceService.loadStatus]);
+  usePolling(cycloIntelligenceService.loadStatus, STATUS_POLL_INTERVAL);
 
   const loadZenohDaemon = useCallback(async () => {
     try {
@@ -247,14 +239,7 @@ export default function SystemPage() {
     }
   }, []);
 
-  useEffect(() => {
-    loadZenohDaemon();
-  }, [loadZenohDaemon]);
-
-  useEffect(() => {
-    const interval = setInterval(loadZenohDaemon, STATUS_POLL_INTERVAL);
-    return () => clearInterval(interval);
-  }, [loadZenohDaemon]);
+  usePolling(loadZenohDaemon, STATUS_POLL_INTERVAL);
 
   useEffect(() => {
     if (!container) return;
@@ -340,21 +325,14 @@ export default function SystemPage() {
     }
   }, [container, leaderBringupArgs]);
 
-  useEffect(() => {
-    if (container) {
+  usePolling(
+    () => {
       robotService.loadStatus();
       leaderService.loadStatus();
-    }
-  }, [container, robotType, robotService, leaderService]);
-
-  useEffect(() => {
-    if (!container) return;
-    const interval = setInterval(() => {
-      robotService.loadStatus();
-      leaderService.loadStatus();
-    }, STATUS_POLL_INTERVAL);
-    return () => clearInterval(interval);
-  }, [container, robotType, robotService, leaderService]);
+    },
+    STATUS_POLL_INTERVAL,
+    { enabled: Boolean(container), resetKey: `${container ?? ""}:${robotType}` }
+  );
 
   if (!container) {
     return (

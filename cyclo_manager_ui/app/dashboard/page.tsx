@@ -19,6 +19,7 @@
 import { useEffect, useState, useCallback, useMemo } from "react";
 import Link from "next/link";
 import Convert from "ansi-to-html";
+import { usePolling } from "@/hooks/usePolling";
 import {
   getSystemStats,
   getRobotInfo,
@@ -646,12 +647,11 @@ export default function HomePage() {
     ]);
   }, [loadContainers]);
 
+  usePolling(loadAll, POLL_INTERVAL);
+
   useEffect(() => {
-    loadAll();
     loadVersionManagement();
-    const interval = setInterval(loadAll, POLL_INTERVAL);
-    return () => clearInterval(interval);
-  }, [loadAll, loadVersionManagement]);
+  }, [loadVersionManagement]);
 
   const handleAction = useCallback(async (name: string, action: "start" | "stop" | "restart") => {
     setActionLoading({ container: name, action });

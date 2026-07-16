@@ -18,6 +18,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Convert from "ansi-to-html";
+import { usePolling } from "@/hooks/usePolling";
 import { controlDockerContainer, getDockerContainers, getDockerContainerLogs } from "@/lib/api";
 import { SIDEBAR_WIDTH_PX } from "@/lib/layout";
 import StatusBadge from "@/components/StatusBadge";
@@ -107,14 +108,7 @@ export default function NoVNCPage() {
     }
   }, []);
 
-  useEffect(() => {
-    loadNovncContainer();
-  }, [loadNovncContainer]);
-
-  useEffect(() => {
-    const interval = setInterval(loadNovncContainer, STATUS_POLL_INTERVAL);
-    return () => clearInterval(interval);
-  }, [loadNovncContainer]);
+  usePolling(loadNovncContainer, STATUS_POLL_INTERVAL);
 
   const handleNovncDocker = useCallback(async () => {
     const isRunning = novncContainer?.status?.toLowerCase() === "running";
