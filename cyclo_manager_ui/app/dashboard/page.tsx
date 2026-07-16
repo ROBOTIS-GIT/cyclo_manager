@@ -292,6 +292,12 @@ export default function HomePage() {
 
   const memPct = systemStats ? pct(systemStats.memory_used_mb, systemStats.memory_total_mb) : 0;
   const diskPct = systemStats ? pct(systemStats.disk_used_gb, systemStats.disk_total_gb) : 0;
+  const ssdPct =
+    systemStats?.ssd_used_gb != null && systemStats.ssd_total_gb != null
+      ? pct(systemStats.ssd_used_gb, systemStats.ssd_total_gb)
+      : 0;
+  const hasSsdStats = systemStats?.ssd_used_gb != null && systemStats.ssd_total_gb != null;
+  const systemGaugeSize = hasSsdStats ? 96 : 110;
   const settingsDocker = containers.find((c) => c.name === settingsContainer) ?? null;
   const agentIssues = agentStatuses.filter((agent) => agent.update_required);
   const versionManagementLoading = repoCheckState === "loading" || agentCheckState === "loading";
@@ -320,7 +326,7 @@ export default function HomePage() {
       )}
       <div className="flex flex-col gap-6">
 
-        <div className="grid gap-4 items-stretch" style={{ gridTemplateColumns: "1fr 1.5fr 1fr" }}>
+        <div className="grid gap-4 items-stretch" style={{ gridTemplateColumns: "1fr 2fr 1fr" }}>
 
           {/* Robot Information */}
           <section>
@@ -346,21 +352,39 @@ export default function HomePage() {
                   Unavailable
                 </div>
               ) : (
-                <div className="p-6 flex gap-6 justify-around">
-                  <CircleGauge fill={systemStats.cpu_percent} label="CPU" />
+                <div
+                  className="p-6 flex flex-nowrap justify-around overflow-hidden"
+                  style={{ gap: hasSsdStats ? 12 : 24 }}
+                >
+                  <CircleGauge
+                    fill={systemStats.cpu_percent}
+                    label="CPU"
+                    size={systemGaugeSize}
+                  />
                   <CircleGauge
                     fill={memPct} label="Memory"
                     sub={`${(systemStats.memory_used_mb / 1024).toFixed(1)} / ${(systemStats.memory_total_mb / 1024).toFixed(1)} GB`}
+                    size={systemGaugeSize}
                   />
                   <CircleGauge
                     fill={diskPct} label="Disk"
                     sub={`${systemStats.disk_used_gb} / ${systemStats.disk_total_gb} GB`}
+                    size={systemGaugeSize}
                   />
+                  {hasSsdStats && (
+                    <CircleGauge
+                      fill={ssdPct}
+                      label="SSD"
+                      sub={`${systemStats.ssd_used_gb} / ${systemStats.ssd_total_gb} GB`}
+                      size={systemGaugeSize}
+                    />
+                  )}
                   {systemStats.temperature_celsius != null && (
                     <CircleGauge
                       fill={Math.round(systemStats.temperature_celsius)}
                       label="Temp"
                       display={`${systemStats.temperature_celsius}°C`}
+                      size={systemGaugeSize}
                     />
                   )}
                 </div>

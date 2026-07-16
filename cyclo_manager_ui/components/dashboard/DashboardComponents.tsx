@@ -95,20 +95,24 @@ export function CircleGauge({
   label,
   display,
   sub,
+  size = 110,
 }: {
   fill: number;
   label: string;
   display?: string;
   sub?: string;
+  size?: number;
 }) {
-  const size = 110;
-  const stroke = 8;
+  const stroke = Math.max(6, Math.round(size * 0.073));
   const r = (size - stroke) / 2;
   const circumference = 2 * Math.PI * r;
   const offset = circumference - (Math.min(fill, 100) / 100) * circumference;
   const color = gaugeColor(fill);
   const cx = size / 2;
   const cy = size / 2;
+  const labelFontSize = Math.max(10, Math.round(size * 0.109));
+  const valueFontSize = Math.max(13, Math.round(size * 0.136));
+  const labelOffset = Math.round(size * 0.09);
 
   return (
     <div className="flex flex-col items-center gap-1">
@@ -136,10 +140,10 @@ export function CircleGauge({
         />
         <text
           x={cx}
-          y={cy - 10}
+          y={cy - labelOffset}
           textAnchor="middle"
           dominantBaseline="middle"
-          fontSize="12"
+          fontSize={labelFontSize}
           fontWeight="500"
           fill="var(--vscode-descriptionForeground)"
         >
@@ -147,10 +151,10 @@ export function CircleGauge({
         </text>
         <text
           x={cx}
-          y={cy + 10}
+          y={cy + labelOffset}
           textAnchor="middle"
           dominantBaseline="middle"
-          fontSize="15"
+          fontSize={valueFontSize}
           fontWeight="700"
           fill={color}
         >
@@ -158,7 +162,13 @@ export function CircleGauge({
         </text>
       </svg>
       {sub && (
-        <div className="text-sm text-center" style={{ color: "var(--vscode-descriptionForeground)" }}>
+        <div
+          className="text-center"
+          style={{
+            color: "var(--vscode-descriptionForeground)",
+            fontSize: size < 110 ? 12 : 14,
+          }}
+        >
           {sub}
         </div>
       )}

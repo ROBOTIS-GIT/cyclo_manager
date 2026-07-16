@@ -35,6 +35,7 @@ router = APIRouter(prefix='/system', tags=['system'])
 # Host filesystem mounted read-only at this path in docker-compose.
 # Used to read host disk usage and host OS info.
 _HOST_ROOT = '/host_root'
+_SSD_MOUNT_PATH = '/mnt/ssd'
 
 
 async def _check_internet() -> bool:
@@ -83,6 +84,24 @@ def _temperature() -> float | None:
     return None
 
 
+def _mounted_disk_usage(path: str):
+    """Return disk usage for a mounted path, or None when unavailable."""
+    path_obj = Path(path)
+    if not path_obj.is_mount():
+        return None
+    try:
+        return psutil.disk_usage(path)
+    except OSError:
+        return None
+
+
+def _ssd_disk_usage():
+    """Return SSD disk usage when the host /mnt/ssd mount is visible."""
+    if not Path(_HOST_ROOT).is_mount():
+        return None
+    return _mounted_disk_usage(f'{_HOST_ROOT}{_SSD_MOUNT_PATH}')
+
+
 # ── Endpoints ─────────────────────────────────────────────────────────────────
 
 @router.get('/info', response_model=RobotInfoResponse)
@@ -128,6 +147,7 @@ async def get_system_stats() -> SystemStatsResponse:
     mem = psutil.virtual_memory()
     disk_path = _HOST_ROOT if Path(_HOST_ROOT).is_mount() else '/'
     disk = psutil.disk_usage(disk_path)
+    ssd_disk = _ssd_disk_usage()
     uptime_seconds = int(time.time() - psutil.boot_time())
     return SystemStatsResponse(
         cpu_percent=round(cpu_percent, 1),
@@ -135,6 +155,8 @@ async def get_system_stats() -> SystemStatsResponse:
         memory_total_mb=mem.total // (1024 * 1024),
         disk_used_gb=round(disk.used / (1024 ** 3), 1),
         disk_total_gb=round(disk.total / (1024 ** 3), 1),
+        ssd_used_gb=round(ssd_disk.used / (1024 ** 3), 1) if ssd_disk else None,
+        ssd_total_gb=round(ssd_disk.total / (1024 ** 3), 1) if ssd_disk else None,
         uptime_seconds=uptime_seconds,
         temperature_celsius=_temperature(),
     )

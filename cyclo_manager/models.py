@@ -370,5 +370,7 @@ class SystemStatsResponse(BaseModel):
     memory_total_mb: int
     disk_used_gb: float
     disk_total_gb: float
+    ssd_used_gb: Optional[float] = None
+    ssd_total_gb: Optional[float] = None
     uptime_seconds: int
     temperature_celsius: Optional[float] = None

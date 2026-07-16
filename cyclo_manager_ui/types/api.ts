@@ -226,6 +226,8 @@ export interface HostSystemStatsResponse {
   memory_total_mb: number;
   disk_used_gb: number;
   disk_total_gb: number;
+  ssd_used_gb: number | null;
+  ssd_total_gb: number | null;
   uptime_seconds: number;
   temperature_celsius: number | null;
 }
