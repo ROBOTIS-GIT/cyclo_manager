@@ -11,7 +11,7 @@ services:
 
   cyclo_manager:
     container_name: cyclo_manager
-    image: robotis/cyclo-manager:0.3.0
+    image: robotis/cyclo-manager:0.4.0
     restart: always
     network_mode: host
     volumes:
@@ -27,7 +27,7 @@ services:
 
   ui:
     container_name: cyclo_manager_ui
-    image: robotis/cyclo-manager-ui:0.3.0
+    image: robotis/cyclo-manager-ui:0.4.0
     restart: always
     network_mode: host
     environment:
