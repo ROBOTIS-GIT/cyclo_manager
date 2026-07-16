@@ -26,6 +26,10 @@ from cyclo_manager.models import (
     DockerContainerInfo,
     DockerContainerListResponse,
     DockerContainerLogsResponse,
+    DockerImageDeleteResponse,
+    DockerImageInfo,
+    DockerImageListResponse,
+    DockerImagePruneResponse,
     DockerTopResponse,
 )
 from cyclo_manager.state import get_docker_client
@@ -58,6 +62,58 @@ async def list_docker_containers(
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail=f'Failed to list containers: {str(e)}',
+        )
+
+
+@router.get('/images', response_model=DockerImageListResponse)
+async def list_docker_images(
+    docker_client=Depends(get_docker_client),
+) -> DockerImageListResponse:
+    """Get list of Docker images."""
+    try:
+        images = docker_client.list_images()
+        return DockerImageListResponse(images=[DockerImageInfo(**image) for image in images])
+    except Exception as e:
+        logger.error(f'Failed to list Docker images: {e}')
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=f'Failed to list images: {str(e)}',
+        )
+
+
+@router.post('/images/prune', response_model=DockerImagePruneResponse)
+async def prune_docker_images(
+    docker_client=Depends(get_docker_client),
+) -> DockerImagePruneResponse:
+    """Prune dangling Docker images."""
+    try:
+        return DockerImagePruneResponse(**docker_client.prune_images())
+    except Exception as e:
+        logger.error(f'Failed to prune Docker images: {e}')
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=f'Failed to prune images: {str(e)}',
+        )
+
+
+@router.delete('/images/{image_id}', response_model=DockerImageDeleteResponse)
+async def delete_docker_image(
+    image_id: str,
+    docker_client=Depends(get_docker_client),
+) -> DockerImageDeleteResponse:
+    """Delete an unused Docker image."""
+    try:
+        return DockerImageDeleteResponse(**docker_client.remove_image(image_id))
+    except docker.errors.NotFound:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Docker image '{image_id}' not found",
+        )
+    except Exception as e:
+        logger.error(f"Failed to delete Docker image '{image_id}': {e}")
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f'Failed to delete image: {str(e)}',
         )
 
 

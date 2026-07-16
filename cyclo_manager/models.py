@@ -193,6 +193,40 @@ class DockerContainerListResponse(BaseModel):
     containers: list[DockerContainerInfo] = Field(..., description='List of Docker containers')
 
 
+class DockerImageInfo(BaseModel):
+    """Docker image information."""
+
+    id: str = Field(..., description='Image ID', examples=['sha256:abc123def456'])
+    short_id: str = Field(..., description='Short image ID', examples=['abc123def456'])
+    tags: list[str] = Field(..., description='Image tags')
+    size_bytes: int = Field(..., description='Image size in bytes')
+    created: str = Field(..., description='Image creation timestamp')
+    used_by: list[str] = Field(..., description='Names of containers using this image')
+    dangling: bool = Field(..., description='Whether this image has no repository tag')
+
+
+class DockerImageListResponse(BaseModel):
+    """Response for GET /docker/images."""
+
+    images: list[DockerImageInfo] = Field(..., description='List of Docker images')
+
+
+class DockerImageDeleteResponse(BaseModel):
+    """Response for DELETE /docker/images/{image_id}."""
+
+    image_id: str = Field(..., description='Image ID that was requested for deletion')
+    deleted: bool = Field(..., description='Whether the image was deleted')
+    message: str = Field(..., description='Result message')
+
+
+class DockerImagePruneResponse(BaseModel):
+    """Response for POST /docker/images/prune."""
+
+    deleted: list[str] = Field(..., description='Deleted image IDs')
+    space_reclaimed_bytes: int = Field(..., description='Reclaimed disk space in bytes')
+    message: str = Field(..., description='Result message')
+
+
 class DockerContainerActionRequest(BaseModel):
     """Request body for Docker container control actions."""
 

@@ -96,6 +96,32 @@ export interface DockerContainerListResponse {
   containers: DockerContainerInfo[];
 }
 
+export interface DockerImageInfo {
+  id: string;
+  short_id: string;
+  tags: string[];
+  size_bytes: number;
+  created: string;
+  used_by: string[];
+  dangling: boolean;
+}
+
+export interface DockerImageListResponse {
+  images: DockerImageInfo[];
+}
+
+export interface DockerImageDeleteResponse {
+  image_id: string;
+  deleted: boolean;
+  message: string;
+}
+
+export interface DockerImagePruneResponse {
+  deleted: string[];
+  space_reclaimed_bytes: number;
+  message: string;
+}
+
 export interface DockerContainerActionRequest {
   action: "start" | "stop" | "restart";
   timeout?: number;

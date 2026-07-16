@@ -32,6 +32,9 @@ import type {
   DockerContainerActionRequest,
   DockerContainerActionResponse,
   DockerContainerLogsResponse,
+  DockerImageDeleteResponse,
+  DockerImageListResponse,
+  DockerImagePruneResponse,
   DockerTopResponse,
   ErrorResponse,
   BashrcResponse,
@@ -87,9 +90,17 @@ const apiClient = axios.create({
 // Error handler
 function handleError(error: unknown): never {
   if (axios.isAxiosError(error)) {
-    const axiosError = error as AxiosError<ErrorResponse>;
+    const axiosError = error as AxiosError<ErrorResponse | { detail?: string }>;
+    const data = axiosError.response?.data;
+    const apiError =
+      data && "error" in data && typeof data.error === "string" ? data.error : null;
+    const detail =
+      data && "detail" in data && typeof data.detail === "string"
+        ? data.detail
+        : null;
     const message =
-      axiosError.response?.data?.error ||
+      apiError ||
+      detail ||
       axiosError.message ||
       "An unknown error occurred";
     throw new Error(message);
@@ -189,6 +200,26 @@ export async function getDockerContainers(
     method: "GET",
     url: "/docker/containers",
     params: { all },
+  });
+}
+
+export async function getDockerImages(): Promise<DockerImageListResponse> {
+  return request<DockerImageListResponse>({ method: "GET", url: "/docker/images" });
+}
+
+export async function deleteDockerImage(
+  imageId: string
+): Promise<DockerImageDeleteResponse> {
+  return request<DockerImageDeleteResponse>({
+    method: "DELETE",
+    url: `/docker/images/${encodeURIComponent(imageId)}`,
+  });
+}
+
+export async function pruneDockerImages(): Promise<DockerImagePruneResponse> {
+  return request<DockerImagePruneResponse>({
+    method: "POST",
+    url: "/docker/images/prune",
   });
 }
 

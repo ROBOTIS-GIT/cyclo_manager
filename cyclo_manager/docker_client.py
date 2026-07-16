@@ -81,6 +81,91 @@ class DockerClient:
             logger.error(f'Failed to list containers: {e}')
             raise
 
+    def _image_usage_map(self) -> dict[str, list[str]]:
+        """Map image IDs to container names that reference them."""
+        usage: dict[str, list[str]] = {}
+        for container in self.client.containers.list(all=True):
+            try:
+                image_id = container.image.id
+            except DockerException:
+                continue
+            usage.setdefault(image_id, []).append(container.name)
+        return usage
+
+    def list_images(self) -> list[dict]:
+        """List Docker images with container usage information."""
+        try:
+            usage = self._image_usage_map()
+            images = []
+            for image in self.client.images.list(all=True):
+                tags = image.tags or []
+                images.append({
+                    'id': image.id,
+                    'short_id': image.short_id.removeprefix('sha256:'),
+                    'tags': tags,
+                    'size_bytes': int(image.attrs.get('Size') or 0),
+                    'created': image.attrs.get('Created') or '',
+                    'used_by': sorted(usage.get(image.id, [])),
+                    'dangling': len(tags) == 0,
+                })
+            return sorted(
+                images,
+                key=lambda item: (
+                    not item['dangling'],
+                    item['tags'][0] if item['tags'] else item['short_id'],
+                ),
+            )
+        except DockerException as e:
+            logger.error(f'Failed to list images: {e}')
+            raise
+
+    def remove_image(self, image_id: str) -> dict:
+        """Remove an unused Docker image."""
+        try:
+            image = self.client.images.get(image_id)
+            used_by = self._image_usage_map().get(image.id, [])
+            if used_by:
+                names = ', '.join(sorted(used_by))
+                raise DockerException(f'Image is used by container(s): {names}')
+
+            self.client.images.remove(image=image.id, force=False, noprune=False)
+            logger.info("Removed Docker image '%s'", image_id)
+            return {
+                'image_id': image_id,
+                'deleted': True,
+                'message': 'Image deleted',
+            }
+        except NotFound:
+            raise
+        except DockerException as e:
+            logger.error("Failed to remove image '%s': %s", image_id, e)
+            raise
+
+    def prune_images(self) -> dict:
+        """Remove dangling Docker images."""
+        try:
+            result = self.client.images.prune(filters={'dangling': True})
+            deleted_items = result.get('ImagesDeleted') or []
+            deleted = [
+                item.get('Deleted') or item.get('Untagged') or ''
+                for item in deleted_items
+            ]
+            deleted = [item for item in deleted if item]
+            space_reclaimed = int(result.get('SpaceReclaimed') or 0)
+            logger.info(
+                'Pruned %d dangling Docker image entries, reclaimed %d bytes',
+                len(deleted),
+                space_reclaimed,
+            )
+            return {
+                'deleted': deleted,
+                'space_reclaimed_bytes': space_reclaimed,
+                'message': f'Pruned {len(deleted)} image entries',
+            }
+        except DockerException as e:
+            logger.error(f'Failed to prune images: {e}')
+            raise
+
     def get_container(self, container_name: str):
         """
         Get a container by name or ID.
