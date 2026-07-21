@@ -23,7 +23,7 @@ import { SIDEBAR_WIDTH_PX } from "@/lib/layout";
 import { AppsHubButton } from "@/components/AppsHubLink";
 import ManagerIntelligenceShortcuts from "@/components/ManagerIntelligenceShortcuts";
 import ThemeToggle from "./ThemeToggle";
-import { getSupportedRobotContainers } from "@/lib/api";
+import { getDockerContainers, getSupportedRobotContainers } from "@/lib/api";
 
 export default function VSCodeLayout({
   children,
@@ -57,11 +57,20 @@ export default function VSCodeLayout({
         setNavError("No supported robot container is configured.");
         return;
       }
-      if (supported_robot_containers.length === 1) {
-        router.push(`/${supported_robot_containers[0]}/system`);
+      const { containers } = await getDockerContainers(false);
+      const runningContainerNames = new Set(containers.map((container) => container.name));
+      const runningRobotContainers = supported_robot_containers.filter((container) =>
+        runningContainerNames.has(container)
+      );
+      if (runningRobotContainers.length === 0) {
+        setNavError("No robot container is running.");
         return;
       }
-      setSystemChoices(supported_robot_containers);
+      if (runningRobotContainers.length === 1) {
+        router.push(`/${runningRobotContainers[0]}/system`);
+        return;
+      }
+      setSystemChoices(runningRobotContainers);
     } catch {
       setNavError("Failed to connect to the manager.");
     }
