@@ -16,11 +16,11 @@
 
 import axios, { AxiosError, type AxiosRequestConfig } from "axios";
 import type {
-  ConfiguredContainerListResponse,
   ContainerScriptResponse,
   RepoStatusResponse,
   S6AgentStatusListResponse,
   S6AgentUpdateResponse,
+  SupportedRobotContainersResponse,
   UpdateRequest,
   UpdateResponse,
   UpdateStatusResponse,
@@ -41,6 +41,7 @@ import type {
   RepoUpdatesResponse,
   RepoBranchCheckResponse,
   CycloManagerVersionResponse,
+  RobotType,
   ROS2TopicInfoResponse,
   ROS2TopicsListResponse,
   ROS2TopicDataResponse,
@@ -119,8 +120,8 @@ async function request<T>(config: AxiosRequestConfig): Promise<T> {
 
 // Container Management
 
-export async function getConfiguredContainers(): Promise<ConfiguredContainerListResponse> {
-  return request<ConfiguredContainerListResponse>({ method: "GET", url: "/containers" });
+export async function getSupportedRobotContainers(): Promise<SupportedRobotContainersResponse> {
+  return request<SupportedRobotContainersResponse>({ method: "GET", url: "/containers" });
 }
 
 export async function getS6AgentStatuses(): Promise<S6AgentStatusListResponse> {
@@ -152,7 +153,7 @@ export async function controlService(
   service: string,
   action: "up" | "down" | "restart",
   launchArgs?: Record<string, string>,
-  robotType?: "sg2" | "bg2" | "sh5" | "bh5" | "mobile"
+  robotType?: RobotType
 ): Promise<ServiceControlResponse> {
   const data: ServiceActionRequest = {
     action,

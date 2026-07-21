@@ -24,11 +24,10 @@ from cyclo_manager.agent_compat import (
     is_s6_agent_version_compatible,
 )
 from cyclo_manager.models import (
-    ConfiguredContainerInfo,
-    ConfiguredContainerListResponse,
     S6AgentStatusListResponse,
     S6AgentStatusResponse,
     S6AgentUpdateResponse,
+    SupportedRobotContainersResponse,
 )
 from cyclo_manager.state import (
     get_client_pool,
@@ -153,44 +152,32 @@ async def update_s6_agent(
 
 @router.get(
     '',
-    response_model=ConfiguredContainerListResponse,
-    summary='List all known containers',
-    description='Retrieve a list of all containers configured in cyclo_manager',
-    response_description='List of containers with their names and socket paths',
+    response_model=SupportedRobotContainersResponse,
+    summary='List supported robot containers',
+    description='Retrieve robot containers that can open the System page.',
+    response_description='List of supported robot container names',
 )
-async def list_containers(config=Depends(get_config)) -> ConfiguredContainerListResponse:
+async def list_supported_robot_containers(
+    config=Depends(get_config),
+) -> SupportedRobotContainersResponse:
     """
-    Get list of all known containers from configuration.
+    Get robot container names that can open the System page.
 
-    Returns a list of all containers that are configured in cyclo_manager's
-    configuration file. Each container entry includes its name and the path to
-    its agent's Unix Domain Socket.
+    These names come directly from supported_robot_containers in config.yml.
 
     Returns
     -------
-        ConfiguredContainerListResponse containing a list of
-        ConfiguredContainerInfo objects.
+        SupportedRobotContainersResponse containing supported robot container names.
 
     Example Response
     ----------------
         ```json
         {
-          "robot_container": "ai_worker",
-          "containers": [
-            {
-              "name": "ai_worker",
-              "socket_path": "/agents/ai_worker/s6_agent.sock"
-            }
-          ]
+          "supported_robot_containers": ["ai_worker", "open_manipulator"]
         }
         ```
 
     """
-    containers = [
-        ConfiguredContainerInfo(name=name, socket_path=socket_path)
-        for name, socket_path in config.container_sockets.items()
-    ]
-    return ConfiguredContainerListResponse(
-        containers=containers,
-        robot_container=config.robot_container,
+    return SupportedRobotContainersResponse(
+        supported_robot_containers=config.supported_robot_containers,
     )

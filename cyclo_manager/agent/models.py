@@ -38,8 +38,9 @@ class ServiceActionRequest(BaseModel):
     robot_type: str | None = Field(
         None,
         description=(
-            'Required for ai_worker_bringup up/restart. '
-            'One of: sg2, bg2, sh5, bh5, mobile.'
+            'Required for robot bringup services that select launch files by robot type. '
+            'ai_worker_bringup accepts sg2, bg2, sh5, bh5, mobile; '
+            'open_manipulator_bringup and leader_bringup accept omy, omx.'
         ),
     )
 

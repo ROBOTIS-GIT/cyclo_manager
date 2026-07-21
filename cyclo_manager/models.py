@@ -20,15 +20,15 @@
 
 from typing import Any, Literal, Optional
 
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, Field
 
 
 class SystemConfig(BaseModel):
     """Root configuration model."""
 
-    robot_container: str = Field(
-        default='ai_worker',
-        description='Name of the robot container managed by cyclo_manager',
+    supported_robot_containers: list[str] = Field(
+        default_factory=list,
+        description='Robot container names that can open the System page',
     )
     sockets: dict[str, str] = Field(
         default_factory=dict,
@@ -44,29 +44,6 @@ class SystemConfig(BaseModel):
     def host_agent_socket(self) -> str:
         """Socket path for the host agent."""
         return self.sockets.get('host_agent', '/agents/host/host_agent.sock')
-
-    @model_validator(mode='after')
-    def validate_config(self) -> 'SystemConfig':
-        containers = self.container_sockets
-        if not containers:
-            raise ValueError(
-                'sockets must include at least one container entry (besides host_agent)',
-            )
-        if not self.robot_container.strip():
-            raise ValueError('robot_container must not be empty')
-        if self.robot_container == 'host_agent':
-            raise ValueError('robot_container cannot be host_agent')
-        if self.robot_container not in containers:
-            raise ValueError(
-                f"robot_container '{self.robot_container}' must be a key in sockets "
-                f'(excluding host_agent); available: {sorted(containers)}',
-            )
-        for name, path in self.sockets.items():
-            if not name.strip():
-                raise ValueError('sockets keys must not be empty')
-            if not str(path).strip():
-                raise ValueError(f"sockets['{name}'] must not be empty")
-        return self
 
 
 # API Request/Response Models
@@ -87,26 +64,19 @@ class ServiceActionRequest(BaseModel):
     robot_type: str | None = Field(
         None,
         description=(
-            'Required for ai_worker_bringup up/restart. '
-            'One of: sg2, bg2, sh5, bh5, mobile.'
+            'Required for robot bringup services that select launch files by robot type. '
+            'ai_worker_bringup accepts sg2, bg2, sh5, bh5, mobile; '
+            'open_manipulator_bringup and leader_bringup accept omy, omx.'
         ),
     )
 
 
-class ConfiguredContainerInfo(BaseModel):
-    """Container information for API responses (from config)."""
-
-    name: str = Field(..., description='Container name', examples=['ai_worker'])
-    socket_path: str = Field(
-        ..., description='Path to agent socket', examples=['/agents/ai_worker/s6_agent.sock']
-    )
-
-
-class ConfiguredContainerListResponse(BaseModel):
+class SupportedRobotContainersResponse(BaseModel):
     """Response for GET /containers."""
 
-    containers: list[ConfiguredContainerInfo] = Field(..., description='List of known containers')
-    robot_container: str = Field(..., description='Name of the robot container')
+    supported_robot_containers: list[str] = Field(
+        ..., description='Container names that can open the System page'
+    )
 
 
 class S6AgentStatusResponse(BaseModel):

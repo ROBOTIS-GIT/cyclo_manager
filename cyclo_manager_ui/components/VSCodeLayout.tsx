@@ -23,7 +23,7 @@ import { SIDEBAR_WIDTH_PX } from "@/lib/layout";
 import { AppsHubButton } from "@/components/AppsHubLink";
 import ManagerIntelligenceShortcuts from "@/components/ManagerIntelligenceShortcuts";
 import ThemeToggle from "./ThemeToggle";
-import { getConfiguredContainers, getDockerContainers } from "@/lib/api";
+import { getSupportedRobotContainers } from "@/lib/api";
 
 export default function VSCodeLayout({
   children,
@@ -33,6 +33,7 @@ export default function VSCodeLayout({
   const pathname = usePathname();
   const router = useRouter();
   const [navError, setNavError] = useState<string | null>(null);
+  const [systemChoices, setSystemChoices] = useState<string[]>([]);
 
   type NavItemWithHref = { href: string; label: string; icon: string; isHome?: boolean; isTopics?: boolean; isTerminal?: boolean };
   type NavItemWithoutHref = { label: string; icon: string; isSystem: true };
@@ -49,22 +50,27 @@ export default function VSCodeLayout({
 
   async function handleSystemClick() {
     setNavError(null);
+    setSystemChoices([]);
     try {
-      const [{ robot_container }, docker] = await Promise.all([
-        getConfiguredContainers(),
-        getDockerContainers(true),
-      ]);
-      const isRunning = docker.containers.some(
-        (c) => c.name === robot_container && c.status.toLowerCase() === "running"
-      );
-      if (!isRunning) {
-        setNavError("No robot container is running.");
+      const { supported_robot_containers } = await getSupportedRobotContainers();
+      if (supported_robot_containers.length === 0) {
+        setNavError("No supported robot container is configured.");
         return;
       }
-      router.push(`/${robot_container}/system`);
+      if (supported_robot_containers.length === 1) {
+        router.push(`/${supported_robot_containers[0]}/system`);
+        return;
+      }
+      setSystemChoices(supported_robot_containers);
     } catch {
       setNavError("Failed to connect to the manager.");
     }
+  }
+
+  function openSystemPage(container: string) {
+    setSystemChoices([]);
+    setNavError(null);
+    router.push(`/${container}/system`);
   }
 
   return (
@@ -210,6 +216,55 @@ export default function VSCodeLayout({
               onClick={() => setNavError(null)}
             >
               OK
+            </button>
+          </div>
+        </div>
+      )}
+
+      {systemChoices.length > 0 && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center"
+          style={{ backgroundColor: "rgba(0,0,0,0.4)" }}
+        >
+          <div
+            className="rounded-lg p-5 flex flex-col gap-3 max-w-sm w-full mx-4"
+            style={{
+              backgroundColor: "var(--vscode-editor-background)",
+              border: "1px solid var(--vscode-panel-border)",
+            }}
+          >
+            <div className="font-semibold text-sm" style={{ color: "var(--vscode-foreground)" }}>
+              Select Robot System
+            </div>
+            <div className="flex flex-col gap-2">
+              {systemChoices.map((container) => (
+                <button
+                  key={container}
+                  type="button"
+                  onClick={() => openSystemPage(container)}
+                  className="px-3 py-2 rounded text-sm font-semibold text-left transition-colors"
+                  style={{
+                    backgroundColor: "var(--vscode-button-secondaryBackground)",
+                    color: "var(--vscode-button-secondaryForeground)",
+                    border: "1px solid var(--vscode-panel-border)",
+                    cursor: "pointer",
+                  }}
+                >
+                  {container}
+                </button>
+              ))}
+            </div>
+            <button
+              className="self-end px-3 py-1 rounded text-xs font-semibold transition-colors"
+              style={{
+                backgroundColor: "var(--vscode-button-background)",
+                color: "var(--vscode-button-foreground)",
+                border: "none",
+                cursor: "pointer",
+              }}
+              onClick={() => setSystemChoices([])}
+            >
+              Cancel
             </button>
           </div>
         </div>

@@ -88,7 +88,7 @@ class AgentClient(SocketHttpClient):
         service_name: Name of the service.
         action: Action to perform ('up', 'down', or 'restart').
         launch_args: Optional launch arguments for ros2 launch (used for up/restart).
-        robot_type: Required for ai_worker_bringup up/restart. One of sg2, bg2, sh5, bh5, mobile.
+        robot_type: Required for services that select launch files by robot type.
 
         Returns
         -------

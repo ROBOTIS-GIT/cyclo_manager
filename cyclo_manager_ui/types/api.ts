@@ -16,14 +16,8 @@
 
 // TypeScript types matching the cyclo_manager API Pydantic models
 
-export interface ConfiguredContainerInfo {
-  name: string;
-  socket_path: string;
-}
-
-export interface ConfiguredContainerListResponse {
-  containers: ConfiguredContainerInfo[];
-  robot_container: string;
+export interface SupportedRobotContainersResponse {
+  supported_robot_containers: string[];
 }
 
 export interface S6AgentStatusResponse {
@@ -58,10 +52,14 @@ export interface ServiceStatusResponse {
   uptime_seconds: number | null;
 }
 
+export type AiWorkerRobotType = "sg2" | "bg2" | "sh5" | "bh5" | "mobile";
+export type OpenManipulatorRobotType = "omy" | "omx";
+export type RobotType = AiWorkerRobotType | OpenManipulatorRobotType;
+
 export interface ServiceActionRequest {
   action: "up" | "down" | "restart";
   launch_args?: Record<string, string>;
-  robot_type?: "sg2" | "bg2" | "sh5" | "bh5" | "mobile";
+  robot_type?: RobotType;
 }
 
 export interface ServiceControlResponse {
