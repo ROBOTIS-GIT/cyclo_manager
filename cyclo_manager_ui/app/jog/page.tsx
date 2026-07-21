@@ -21,22 +21,27 @@ import { useRouter } from "next/navigation";
 import { usePolling } from "@/hooks/usePolling";
 import { getServiceStatus, publishCmdVel } from "@/lib/api";
 import StatusBadge from "@/components/StatusBadge";
-import {
-  getStoredFollowerRobotModel,
-  type FollowerRobotModel,
-} from "@/config/launchArgs";
+import type { AiWorkerRobotType } from "@/types/api";
 
 const JOG_CONTAINER = "ai_worker";
 const ROBOT_SERVICE_NAME = "ai_worker_bringup";
 const CMD_VEL_TOPIC = "/cmd_vel";
-const MOBILE_ROBOT_MODEL = "Mobile";
+const MOBILE_ROBOT_MODEL = "mobile";
 const DEFAULT_LINEAR_SPEED = 0.3;
 const DEFAULT_ANGULAR_SPEED = 0.6;
 const SPEED_STEP = 0.1;
 const REPEAT_INTERVAL_MS = 120;
 const STATUS_POLL_INTERVAL_MS = 2000;
 const ZERO_VELOCITY = { linearX: 0, angularZ: 0 };
-const JOG_SUPPORTED_ROBOT_MODELS = new Set<FollowerRobotModel>(["SG2", "SH5", "Mobile"]);
+const AI_WORKER_ROBOT_TYPES = new Set<AiWorkerRobotType>(["sg2", "bg2", "sh5", "bh5", "mobile"]);
+const JOG_SUPPORTED_ROBOT_TYPES = new Set<AiWorkerRobotType>(["sg2", "sh5", "mobile"]);
+const AI_WORKER_ROBOT_LABELS: Record<AiWorkerRobotType, string> = {
+  sg2: "SG2",
+  bg2: "BG2",
+  sh5: "SH5",
+  bh5: "BH5",
+  mobile: "Mobile",
+};
 
 type JogCommand = {
   id: "forward" | "left" | "stop" | "right" | "backward";
@@ -61,6 +66,14 @@ function isEditableKeyboardTarget(target: EventTarget | null): boolean {
     target.tagName === "TEXTAREA" ||
     target.isContentEditable
   );
+}
+
+function getStoredJogRobotType(): AiWorkerRobotType {
+  if (typeof window === "undefined") return "sg2";
+  const stored = localStorage.getItem(`robot_type_${JOG_CONTAINER}`);
+  return AI_WORKER_ROBOT_TYPES.has(stored as AiWorkerRobotType)
+    ? (stored as AiWorkerRobotType)
+    : "sg2";
 }
 
 const JOG_COMMANDS: JogCommand[] = [
@@ -217,7 +230,7 @@ export default function JogPage() {
   const router = useRouter();
   const [activeCommand, setActiveCommand] = useState<JogCommand["id"] | null>(null);
   const [robotRunning, setRobotRunning] = useState(false);
-  const [robotType, setRobotType] = useState<FollowerRobotModel>(() => getStoredFollowerRobotModel(JOG_CONTAINER));
+  const [robotType, setRobotType] = useState<AiWorkerRobotType>(() => getStoredJogRobotType());
   const [statusText, setStatusText] = useState("Ready");
   const [error, setError] = useState<string | null>(null);
   const [linearSpeed, setLinearSpeed] = useState(DEFAULT_LINEAR_SPEED);
@@ -229,7 +242,8 @@ export default function JogPage() {
   const speedRef = useRef({ linearSpeed: DEFAULT_LINEAR_SPEED, angularSpeed: DEFAULT_ANGULAR_SPEED });
   const initialStopSentRef = useRef(false);
   const statusPollInFlightRef = useRef(false);
-  const robotTypeSupported = JOG_SUPPORTED_ROBOT_MODELS.has(robotType);
+  const robotTypeSupported = JOG_SUPPORTED_ROBOT_TYPES.has(robotType);
+  const robotTypeLabel = AI_WORKER_ROBOT_LABELS[robotType];
   const robotReady = robotRunning && robotTypeSupported;
 
   useEffect(() => {
@@ -237,7 +251,7 @@ export default function JogPage() {
   }, [angularSpeed, linearSpeed]);
 
   useEffect(() => {
-    const refreshRobotType = () => setRobotType(getStoredFollowerRobotModel(JOG_CONTAINER));
+    const refreshRobotType = () => setRobotType(getStoredJogRobotType());
     window.addEventListener("focus", refreshRobotType);
     window.addEventListener("storage", refreshRobotType);
     return () => {
@@ -334,11 +348,11 @@ export default function JogPage() {
         sendCmdVel(ZERO_VELOCITY.linearX, ZERO_VELOCITY.angularZ).catch(() => { });
       }
       initialStopSentRef.current = false;
-      setStatusText(robotRunning ? `Jog is not supported for ${robotType}` : "Robot off");
+      setStatusText(robotRunning ? `Jog is not supported for ${robotTypeLabel}` : "Robot off");
     } else if (!activeCommand) {
       setStatusText("Ready");
     }
-  }, [activeCommand, robotReady, robotRunning, robotType, sendCmdVel, stopJog]);
+  }, [activeCommand, robotReady, robotRunning, robotTypeLabel, sendCmdVel, stopJog]);
 
   useEffect(() => {
     if (!robotReady || initialStopSentRef.current) return;
@@ -413,7 +427,7 @@ export default function JogPage() {
   const statusMessage = robotReady
     ? error ?? statusText
     : robotRunning
-      ? `Jog is not supported for ${robotType}`
+      ? `Jog is not supported for ${robotTypeLabel}`
       : "Robot off";
 
   return (
@@ -433,7 +447,7 @@ export default function JogPage() {
           <div className="h-8 px-2.5 border flex items-center gap-2 text-sm" style={{ color: "var(--vscode-foreground)", backgroundColor: "var(--vscode-sidebar-background)", borderColor: "var(--vscode-panel-border)" }}>
             <StatusBadge status={robotReady} dotOnly />
             <span className="font-medium">{JOG_CONTAINER}</span>
-            <span style={{ color: "var(--vscode-descriptionForeground)" }}>{robotType}</span>
+            <span style={{ color: "var(--vscode-descriptionForeground)" }}>{robotTypeLabel}</span>
           </div>
         </div>
       </header>

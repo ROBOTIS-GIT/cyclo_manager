@@ -97,7 +97,7 @@ interface SelectProps {
   value: string;
   onChange?: (value: string) => void;
   disabled?: boolean;
-  options: { value: string; label: string }[];
+  options: readonly { value: string; label: string }[];
 }
 
 export function Select({ value, onChange, disabled, options }: SelectProps) {

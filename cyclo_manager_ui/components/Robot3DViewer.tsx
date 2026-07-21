@@ -49,6 +49,8 @@ const ROBOT_ROTATION_X = -Math.PI / 2;
 
 const URDF_LOADER_PACKAGES: Record<string, string> = {
   ffw_description: "/assets/ffw_description",
+  open_manipulator_description: "/assets/open_manipulator_description",
+  realsense2_description: "/assets/realsense2_description",
 };
 
 // -----------------------------------------------------------------------------

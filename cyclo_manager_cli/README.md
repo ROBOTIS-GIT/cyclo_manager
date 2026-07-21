@@ -146,7 +146,7 @@ The API reads it as `CONFIG_FILE=/app/config.yml` inside the container.
 
 | Key | Description |
 |-----|-------------|
-| **`robot_container`** | Primary robot Docker container name (e.g. `ai_worker`). Used by the UI System page and service bringup. Must be a key in `sockets` and cannot be `host_agent`. |
+| **`supported_robot_containers`** | Robot Docker container names that can open the System page (e.g. `ai_worker`, `open_manipulator`). Each must be a key in `sockets` and cannot be `host_agent`. |
 | **`sockets`** | Map of logical name → agent **Unix socket path as seen inside the API container** (under `/agents/...`). Include robot/service containers and `host_agent`. |
 
 s6 **service names** are not listed in config; each in-container agent reports them at runtime.
@@ -154,19 +154,16 @@ s6 **service names** are not listed in config; each in-container agent reports t
 ### Example (bundled default)
 
 ```yaml
-robot_container: ai_worker
+supported_robot_containers:
+  - ai_worker
+  - open_manipulator
 
 sockets:
   ai_worker: "/agents/ai_worker/s6_agent.sock"
+  open_manipulator: "/agents/open_manipulator/s6_agent.sock"
   cyclo_intelligence: "/agents/cyclo_intelligence/s6_agent.sock"
   host_agent: "/agents/host/host_agent.sock"
 ```
-
-### Validation (API startup)
-
-- At least one socket entry besides `host_agent`
-- `robot_container` must exist in `sockets`
-- All socket paths must be non-empty strings
 
 To use a different config layout, mounts, or local source builds, use the repository’s **`docker-compose.dev.yml`** — see [Custom config and development](#custom-config-and-development).
 

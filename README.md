@@ -78,7 +78,7 @@ The API reads **`CONFIG_FILE`** (default `config.yml`). The pip CLI mounts the b
 
 | Key | Description |
 |-----|-------------|
-| **`robot_container`** | Primary robot Docker container name (e.g. `ai_worker`). Used by the UI for the System page and service bringup. Must be a key in `sockets` (not `host_agent`). |
+| **`supported_robot_containers`** | Robot Docker container names that can open the System page (e.g. `ai_worker`, `open_manipulator`). Each must be a key in `sockets` (not `host_agent`). |
 | **`sockets`** | Map of logical name → agent socket path **as seen inside the API container** (typically under `/agents/...`). Include robot/service containers and `host_agent`. |
 
 s6 **service names** are not listed in config; each in-container agent reports them at runtime.
@@ -86,19 +86,16 @@ s6 **service names** are not listed in config; each in-container agent reports t
 ### Example
 
 ```yaml
-robot_container: ai_worker
+supported_robot_containers:
+  - ai_worker
+  - open_manipulator
 
 sockets:
   ai_worker: "/agents/ai_worker/s6_agent.sock"
+  open_manipulator: "/agents/open_manipulator/s6_agent.sock"
   cyclo_intelligence: "/agents/cyclo_intelligence/s6_agent.sock"
   host_agent: "/agents/host/host_agent.sock"
 ```
-
-Validation rules (enforced at startup):
-
-- At least one socket entry besides `host_agent`
-- `robot_container` must exist in `sockets` and cannot be `host_agent`
-- All socket paths must be non-empty strings
 
 Bundled copy for pip installs: `cyclo_manager_cli/cyclo_manager_cli/config/config.yml`
 
@@ -110,13 +107,13 @@ Bundled copy for pip installs: `cyclo_manager_cli/cyclo_manager_cli/config/confi
 |------|------|-------|
 | Apps hub | `/app` | Links to Cyclo Manager (dashboard) and Cyclo Intelligence (port 7080) |
 | Dashboard | `/dashboard` | Host stats, Docker containers/images, logs, bashrc, version management (host git repos + s6 agent compatibility) |
-| System | `/{robot_container}/system` | s6 bringup, launch args, URDF viewer, streaming service logs (download/clear), robot status |
+| System | `/{container}/system` | s6 bringup, launch args, URDF viewer, streaming service logs (download/clear), robot status |
 | Jog | `/jog` | `/cmd_vel` teleop for supported robot models (e.g. SG2, SH5, Mobile) |
 | Topics | `/topics` | ROS 2 topic browser; live data via WebSocket |
 | Terminal | `/terminal` | Multi-tab bash into running containers (`?container={name}` optional) |
 | noVNC | `/novnc` | Remote display (when `novnc-server` is running) |
 
-The VS Code–style sidebar is shown on all routes except `/app`. The **System** button navigates to `robot_container` from `GET /containers` when that container is running.
+The VS Code–style sidebar is shown on all routes except `/app`. The **System** button uses `supported_robot_containers` from `GET /containers`: one entry opens that System page directly, and multiple entries ask the user to choose.
 
 UI details: **[cyclo_manager_ui/README_UI.md](cyclo_manager_ui/README_UI.md)**
 
@@ -129,7 +126,7 @@ Interactive docs: `http://<host>:8081/docs`
 | Area | Method & path | Notes |
 |------|----------------|-------|
 | Root | `GET /` | API metadata |
-| Config | `GET /containers` | Configured containers + `robot_container` |
+| Config | `GET /containers` | Supported robot containers for the System page |
 | | `GET /containers/agents/status` | Container s6 agent version compatibility |
 | | `POST /containers/{container}/agent/update` | Checkout agent code to the manager version and restart the container |
 | System | `GET /system/info`, `GET /system/status` | Hostname, internet, CPU/memory/disk |
