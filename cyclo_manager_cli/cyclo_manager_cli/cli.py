@@ -26,6 +26,7 @@ Launches cyclo_manager server and UI via Docker.
 import argparse
 import os
 from pathlib import Path
+import pwd
 import shutil
 import socket
 import subprocess
@@ -36,10 +37,11 @@ HOST_AGENT_SERVICE = 'cyclo_host_agent'
 HOST_AGENT_SOCKET = '/var/run/robotis/agent_sockets/host/host_agent.sock'
 HOST_AGENT_SOCKET_DIR = '/var/run/robotis/agent_sockets/host'
 
-# `cyclo_manager up` starts these immediately.
+# `cyclo_manager up` starts these Containers immediately.
 COMPOSE_SERVICES_UP = ('cyclo_manager', 'ui')
 # These get `docker compose create` only (stopped); start from UI or `docker start`.
 COMPOSE_SERVICES_CREATE_ONLY = ('rmw_zenoh', 'novnc-server')
+DISABLED_LOGIN_SHELLS = {'', '/bin/false', '/sbin/nologin', '/usr/sbin/nologin'}
 
 
 def _docker_dir() -> Path:
@@ -55,6 +57,47 @@ def _packaged_config_path() -> Path:
     return _config_dir() / 'config.yml'
 
 
+def _sudo_cmd(args: list[str]) -> list[str]:
+    """Return args prefixed with sudo when the current process is not already root."""
+    if os.geteuid() == 0:
+        return args
+    return ['sudo', *args]
+
+
+def _user_home(user: str) -> Path:
+    """Return a user's home directory from passwd, with a conservative fallback."""
+    try:
+        return Path(pwd.getpwnam(user).pw_dir)
+    except KeyError:
+        if user == 'root':
+            return Path('/root')
+        return Path(f'/home/{user}')
+
+
+def _has_normal_login_user() -> bool:
+    """Return True when the host has a non-root login user."""
+    for account in pwd.getpwall():
+        if account.pw_name == 'root':
+            continue
+        if account.pw_uid < 1000 or account.pw_uid >= 65534:
+            continue
+        if account.pw_shell in DISABLED_LOGIN_SHELLS:
+            continue
+        return True
+    return False
+
+
+def _host_agent_workspace(user: str, user_home: Path) -> Path:
+    """Return the workspace path the host agent should scan for git repositories."""
+    configured_workspace = os.environ.get('CYCLO_HOST_AGENT_WORKSPACE')
+    if configured_workspace:
+        return Path(configured_workspace).expanduser()
+    data_docker = Path('/data/docker')
+    if user == 'root' and data_docker.is_dir():
+        return data_docker
+    return user_home
+
+
 def _resolve_service_user() -> tuple[str, Path] | None:
     """
     Return (username, home) for the host agent systemd service.
@@ -64,9 +107,15 @@ def _resolve_service_user() -> tuple[str, Path] | None:
     """
     sudo_user = os.environ.get('SUDO_USER')
     if sudo_user:
-        return sudo_user, Path(f'/home/{sudo_user}')
-    user = os.environ.get('USER') or os.getlogin()
+        return sudo_user, _user_home(sudo_user)
+    user = os.environ.get('USER') or pwd.getpwuid(os.getuid()).pw_name
     if user == 'root':
+        if not _has_normal_login_user():
+            print(
+                'Info: root-only device detected; cyclo_host_agent will run as root.',
+                file=sys.stderr,
+            )
+            return 'root', Path('/root')
         print(
             'Error: cyclo_manager up must run as a normal user (e.g. robotis), not root.',
             file=sys.stderr,
@@ -85,19 +134,19 @@ def _setup_socket_dir(user: str) -> bool:
     print(f'  [1/3] Creating socket directory {HOST_AGENT_SOCKET_DIR}...')
     try:
         subprocess.run(
-            ['sudo', 'mkdir', '-p', HOST_AGENT_SOCKET_DIR],
+            _sudo_cmd(['mkdir', '-p', HOST_AGENT_SOCKET_DIR]),
             check=True,
             capture_output=True,
         )
         print(f'  [2/3] Setting ownership to {user}:{user}...')
         subprocess.run(
-            ['sudo', 'chown', f'{user}:{user}', HOST_AGENT_SOCKET_DIR],
+            _sudo_cmd(['chown', f'{user}:{user}', HOST_AGENT_SOCKET_DIR]),
             check=True,
             capture_output=True,
         )
         print('  [3/3] Removing stale socket file (if any)...')
         subprocess.run(
-            ['sudo', 'rm', '-f', HOST_AGENT_SOCKET],
+            _sudo_cmd(['rm', '-f', HOST_AGENT_SOCKET]),
             check=True,
             capture_output=True,
         )
@@ -123,13 +172,13 @@ def _install_sudoers(user: str) -> bool:
     sudoers_file = '/etc/sudoers.d/cyclo_manager'
     try:
         subprocess.run(
-            ['sudo', 'tee', sudoers_file],
+            _sudo_cmd(['tee', sudoers_file]),
             input=sudoers_content.encode(),
             capture_output=True,
             check=True,
         )
         subprocess.run(
-            ['sudo', 'chmod', '440', sudoers_file],
+            _sudo_cmd(['chmod', '440', sudoers_file]),
             check=True,
             capture_output=True,
         )
@@ -151,6 +200,7 @@ def _ensure_host_agent() -> int:
         return 1
 
     user, user_home = account
+    workspace_path = _host_agent_workspace(user, user_home)
     agent_exe = shutil.which('cyclo_host_agent')
     if not agent_exe:
         print(
@@ -163,7 +213,7 @@ def _ensure_host_agent() -> int:
     if not _setup_socket_dir(user):
         return 1
 
-    if not _install_sudoers(user):
+    if user != 'root' and not _install_sudoers(user):
         return 1
 
     service_content = f"""\
@@ -179,6 +229,7 @@ RuntimeDirectory=robotis/agent_sockets/host
 RuntimeDirectoryMode=0755
 ExecStart={agent_exe}
 Environment=HOME={user_home}
+Environment=CYCLO_HOST_AGENT_WORKSPACE={workspace_path}
 Restart=always
 RestartSec=3
 
@@ -192,22 +243,26 @@ WantedBy=multi-user.target
     try:
         print(f'  Writing unit file to {service_file}...')
         subprocess.run(
-            ['sudo', 'tee', service_file],
+            _sudo_cmd(['tee', service_file]),
             input=service_content.encode(),
             capture_output=True,
             check=True,
         )
         print('  Running systemctl daemon-reload...')
-        subprocess.run(['sudo', 'systemctl', 'daemon-reload'], check=True, capture_output=True)
+        subprocess.run(
+            _sudo_cmd(['systemctl', 'daemon-reload']),
+            check=True,
+            capture_output=True,
+        )
         print(f'  Enabling {HOST_AGENT_SERVICE}...')
         subprocess.run(
-            ['sudo', 'systemctl', 'enable', f'{HOST_AGENT_SERVICE}.service'],
+            _sudo_cmd(['systemctl', 'enable', f'{HOST_AGENT_SERVICE}.service']),
             check=True,
             capture_output=True,
         )
         print(f'  Starting {HOST_AGENT_SERVICE}...')
         subprocess.run(
-            ['sudo', 'systemctl', 'restart', f'{HOST_AGENT_SERVICE}.service'],
+            _sudo_cmd(['systemctl', 'restart', f'{HOST_AGENT_SERVICE}.service']),
             check=True,
             capture_output=True,
         )
@@ -217,7 +272,7 @@ WantedBy=multi-user.target
         print(f'Failed to install host agent service: {e}', file=sys.stderr)
         return 1
     except FileNotFoundError:
-        print('sudo not found. Install the host agent service manually.', file=sys.stderr)
+        print('Required command not found. Install the host agent service manually.', file=sys.stderr)
         return 1
 
 
@@ -272,15 +327,21 @@ def _teardown_host_agent() -> None:
     """Stop and remove the host agent service, unit file, sudoers, and socket dir."""
     print(f'Tearing down {HOST_AGENT_SERVICE}...')
     steps = [
-        (['sudo', 'systemctl', 'stop', f'{HOST_AGENT_SERVICE}.service'], 'stop service'),
-        (['sudo', 'systemctl', 'disable', f'{HOST_AGENT_SERVICE}.service'], 'disable service'),
         (
-            ['sudo', 'rm', '-f', f'/etc/systemd/system/{HOST_AGENT_SERVICE}.service'],
+            _sudo_cmd(['systemctl', 'stop', f'{HOST_AGENT_SERVICE}.service']),
+            'stop service',
+        ),
+        (
+            _sudo_cmd(['systemctl', 'disable', f'{HOST_AGENT_SERVICE}.service']),
+            'disable service',
+        ),
+        (
+            _sudo_cmd(['rm', '-f', f'/etc/systemd/system/{HOST_AGENT_SERVICE}.service']),
             'remove unit file',
         ),
-        (['sudo', 'systemctl', 'daemon-reload'], 'daemon-reload'),
-        (['sudo', 'rm', '-f', '/etc/sudoers.d/cyclo_manager'], 'remove sudoers'),
-        (['sudo', 'rm', '-rf', HOST_AGENT_SOCKET_DIR], 'remove socket dir'),
+        (_sudo_cmd(['systemctl', 'daemon-reload']), 'daemon-reload'),
+        (_sudo_cmd(['rm', '-f', '/etc/sudoers.d/cyclo_manager']), 'remove sudoers'),
+        (_sudo_cmd(['rm', '-rf', HOST_AGENT_SOCKET_DIR]), 'remove socket dir'),
     ]
     for cmd, desc in steps:
         print(f'  {desc}...')

@@ -43,14 +43,17 @@ router = APIRouter(prefix='/repos', tags=['repos'])
 GIT_TIMEOUT = 120.0
 
 
-def _resolve_home() -> Path:
+def _resolve_workspace() -> Path:
+    configured_workspace = os.environ.get('CYCLO_HOST_AGENT_WORKSPACE')
+    if configured_workspace:
+        return Path(configured_workspace).expanduser()
     sudo_user = os.environ.get('SUDO_USER')
     if sudo_user:
         return Path(f'/home/{sudo_user}')
     return Path.home()
 
 
-WORKSPACE_PATH = _resolve_home()
+WORKSPACE_PATH = _resolve_workspace()
 MANAGED_GITHUB_ORG = 'ROBOTIS-GIT'
 ALLOWED_UPDATE_BRANCHES = frozenset({'main', 'jazzy'})
 

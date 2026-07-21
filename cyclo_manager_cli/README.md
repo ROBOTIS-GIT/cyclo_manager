@@ -38,9 +38,9 @@ For the full monorepo (API source, UI source, dev compose), see the [repository 
 
 - **Docker** with **Compose v2** (`docker compose` — the legacy `docker-compose` binary alone is not enough)
 - **Python 3.10+**
-- **`sudo`** — required to install the host agent systemd unit, socket directory permissions, and sudoers rules
+- **`sudo`** — required on normal-user hosts to install the host agent systemd unit, socket directory permissions, and sudoers rules
 - For **`cyclo_manager update`:** **`pip`** or **`pip3`** on `PATH`
-- **Do not run as root** — the host agent runs as the invoking user (or `SUDO_USER` when using `sudo cyclo_manager up`). Running as root is rejected.
+- **Root shell handling** — root is rejected when a normal login user exists. On root-only devices, the host agent is installed as root.
 - **Agent sockets** on the host under `/var/run/robotis/agent_sockets/` (robot containers and host agent). The bundled Compose file bind-mounts this tree into the API container as `/agents/`.
 
 ---
@@ -106,7 +106,7 @@ The pip package installs a small **FastAPI** server that listens on a **Unix dom
 |------|------|
 | Socket | `/var/run/robotis/agent_sockets/host/host_agent.sock` |
 | systemd unit | `cyclo_host_agent.service` |
-| sudoers | `/etc/sudoers.d/cyclo_manager` (`cp`, `udevadm` for container setup scripts) |
+| sudoers | `/etc/sudoers.d/cyclo_manager` (`cp`, `udevadm` for container setup scripts; skipped on root-only devices) |
 
 The API container reaches it at `/agents/host/host_agent.sock` (see bundled `config.yml`).
 
@@ -116,6 +116,8 @@ The API container reaches it at `/agents/host/host_agent.sock` (see bundled `con
 - Run **`cyclo_manager update`** when triggered from the UI (`POST /host/update`)
 
 `cyclo_manager up` and `cyclo_manager update` both call `_ensure_host_agent()`, which is idempotent — safe to run after upgrades or user changes.
+
+Repository scanning uses `CYCLO_HOST_AGENT_WORKSPACE` when set. Otherwise it uses the service user's home directory, except root-only devices with `/data/docker`, where `/data/docker` is used automatically.
 
 ---
 
