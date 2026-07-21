@@ -111,24 +111,38 @@ def get_service_status(name: str) -> ServiceStatus:
 
 LAUNCH_ARGS_DIR = Path('/run/launch_args')
 ROBOT_TYPE_FILE = Path('/run/robot_type')
+LEADER_TYPE_FILE = Path('/run/leader_type')
 
 
-_AI_WORKER_ROBOT_TYPES = frozenset({'sg2', 'bg2', 'sh5', 'bh5', 'mobile'})
+_ROBOT_TYPE_BY_SERVICE = {
+    'ai_worker_bringup': frozenset({'sg2', 'bg2', 'sh5', 'bh5', 'mobile'}),
+    'open_manipulator_bringup': frozenset({'omy', 'omx'}),
+    'leader_bringup': frozenset({'omy', 'omx'}),
+}
+
+_ROBOT_TYPE_FILE_BY_SERVICE = {
+    'ai_worker_bringup': ROBOT_TYPE_FILE,
+    'open_manipulator_bringup': ROBOT_TYPE_FILE,
+    'leader_bringup': LEADER_TYPE_FILE,
+}
 
 
-def _write_robot_type(robot_type: str) -> None:
+def _write_robot_type(service_name: str, robot_type: str) -> None:
     """
-    Write robot type to file for ai_worker_bringup run script.
-
-    Allowed values: sg2, bg2, sh5, bh5, mobile.
+    Write robot type to file for run scripts that dispatch by robot type.
     """
     normalized = robot_type.strip().lower()
-    if normalized not in _AI_WORKER_ROBOT_TYPES:
+    allowed = _ROBOT_TYPE_BY_SERVICE.get(service_name)
+    if allowed is None:
+        return
+    if normalized not in allowed:
         raise ValueError(
-            f'robot_type must be one of {sorted(_AI_WORKER_ROBOT_TYPES)!r}, got: {robot_type!r}'
+            f'robot_type for {service_name} must be one of {sorted(allowed)!r}, '
+            f'got: {robot_type!r}'
         )
-    ROBOT_TYPE_FILE.write_text(normalized, encoding='utf-8')
-    logger.info(f'Wrote robot_type to {ROBOT_TYPE_FILE}: {normalized}')
+    robot_type_file = _ROBOT_TYPE_FILE_BY_SERVICE[service_name]
+    robot_type_file.write_text(normalized, encoding='utf-8')
+    logger.info(f'Wrote robot_type for {service_name} to {robot_type_file}: {normalized}')
 
 
 def _write_launch_args(name: str, launch_args: dict[str, str]) -> None:
@@ -163,7 +177,7 @@ def control_service(
     name: Service name.
     action: Action to perform ('up', 'down', or 'restart').
     launch_args: Optional launch arguments for ros2 launch (used for up/restart).
-    robot_type: Required for ai_worker_bringup up/restart. One of sg2, bg2, sh5, bh5, mobile.
+    robot_type: Required for services that select launch files by robot type.
 
     Raises
     ------
@@ -177,13 +191,14 @@ def control_service(
     if not service_path.exists():
         raise FileNotFoundError(f"Service '{name}' not found at {service_path}")
 
-    if action in ('up', 'restart') and name == 'ai_worker_bringup':
+    if action in ('up', 'restart') and name in _ROBOT_TYPE_BY_SERVICE:
         if not robot_type:
+            allowed = sorted(_ROBOT_TYPE_BY_SERVICE[name])
             raise ValueError(
-                'robot_type is required for ai_worker_bringup (up/restart). '
-                "Use 'sg2', 'bg2', 'sh5', 'bh5', or 'mobile'."
+                f'robot_type is required for {name} (up/restart). '
+                f'Use one of: {allowed!r}.'
             )
-        _write_robot_type(robot_type)
+        _write_robot_type(name, robot_type)
 
     # Write launch args before up/restart so the run script can read them
     if action in ('up', 'restart') and launch_args:
