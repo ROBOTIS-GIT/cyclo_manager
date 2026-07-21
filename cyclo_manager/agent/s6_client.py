@@ -21,6 +21,7 @@
 import logging
 from pathlib import Path
 import re
+import shlex
 import subprocess
 import time
 from typing import Optional
@@ -154,7 +155,7 @@ def _write_launch_args(name: str, launch_args: dict[str, str]) -> None:
     if not launch_args:
         return
     LAUNCH_ARGS_DIR.mkdir(parents=True, exist_ok=True)
-    args_str = ' '.join(f'{k}:={v}' for k, v in launch_args.items())
+    args_str = ' '.join(f'{k}:={shlex.quote(v)}' for k, v in launch_args.items())
     args_file = LAUNCH_ARGS_DIR / name
     args_file.write_text(args_str, encoding='utf-8')
     logger.info(f"Wrote launch args for service '{name}' to {args_file}")
