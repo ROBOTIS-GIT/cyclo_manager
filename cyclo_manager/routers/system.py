@@ -35,7 +35,7 @@ router = APIRouter(prefix='/system', tags=['system'])
 # Host filesystem mounted read-only at this path in docker-compose.
 # Used to read host disk usage and host OS info.
 _HOST_ROOT = '/host_root'
-_SSD_MOUNT_PATH = '/mnt/ssd'
+_EXTRA_STORAGE_MOUNT_PATHS = ('/mnt/ssd', '/data')
 
 
 async def _check_internet() -> bool:
@@ -95,11 +95,15 @@ def _mounted_disk_usage(path: str):
         return None
 
 
-def _ssd_disk_usage():
-    """Return SSD disk usage when the host /mnt/ssd mount is visible."""
+def _extra_storage_disk_usage():
+    """Return extra storage disk usage when a known host mount is visible."""
     if not Path(_HOST_ROOT).is_mount():
-        return None
-    return _mounted_disk_usage(f'{_HOST_ROOT}{_SSD_MOUNT_PATH}')
+        return None, None
+    for mount_path in _EXTRA_STORAGE_MOUNT_PATHS:
+        usage = _mounted_disk_usage(f'{_HOST_ROOT}{mount_path}')
+        if usage:
+            return mount_path, usage
+    return None, None
 
 
 # ── Endpoints ─────────────────────────────────────────────────────────────────
@@ -147,7 +151,7 @@ async def get_system_stats() -> SystemStatsResponse:
     mem = psutil.virtual_memory()
     disk_path = _HOST_ROOT if Path(_HOST_ROOT).is_mount() else '/'
     disk = psutil.disk_usage(disk_path)
-    ssd_disk = _ssd_disk_usage()
+    extra_storage_path, extra_storage_disk = _extra_storage_disk_usage()
     uptime_seconds = int(time.time() - psutil.boot_time())
     return SystemStatsResponse(
         cpu_percent=round(cpu_percent, 1),
@@ -155,8 +159,13 @@ async def get_system_stats() -> SystemStatsResponse:
         memory_total_mb=mem.total // (1024 * 1024),
         disk_used_gb=round(disk.used / (1024 ** 3), 1),
         disk_total_gb=round(disk.total / (1024 ** 3), 1),
-        ssd_used_gb=round(ssd_disk.used / (1024 ** 3), 1) if ssd_disk else None,
-        ssd_total_gb=round(ssd_disk.total / (1024 ** 3), 1) if ssd_disk else None,
+        ssd_used_gb=(
+            round(extra_storage_disk.used / (1024 ** 3), 1) if extra_storage_disk else None
+        ),
+        ssd_total_gb=(
+            round(extra_storage_disk.total / (1024 ** 3), 1) if extra_storage_disk else None
+        ),
+        ssd_mount_path=extra_storage_path,
         uptime_seconds=uptime_seconds,
         temperature_celsius=_temperature(),
     )

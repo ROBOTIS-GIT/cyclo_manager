@@ -318,6 +318,7 @@ export default function HomePage() {
       ? pct(systemStats.ssd_used_gb, systemStats.ssd_total_gb)
       : 0;
   const hasSsdStats = systemStats?.ssd_used_gb != null && systemStats.ssd_total_gb != null;
+  const storageLabel = systemStats?.ssd_mount_path === "/data" ? "Data" : "SSD";
   const systemGaugeSize = hasSsdStats ? 96 : 110;
   const settingsDocker = containers.find((c) => c.name === settingsContainer) ?? null;
   const hasRepos = updatableRepos.length > 0;
@@ -411,7 +412,7 @@ export default function HomePage() {
                   {hasSsdStats && (
                     <CircleGauge
                       fill={ssdPct}
-                      label="SSD"
+                      label={storageLabel}
                       sub={`${systemStats.ssd_used_gb} / ${systemStats.ssd_total_gb} GB`}
                       size={systemGaugeSize}
                     />
