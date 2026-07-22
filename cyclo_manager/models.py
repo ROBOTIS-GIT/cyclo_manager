@@ -83,14 +83,13 @@ class S6AgentStatusResponse(BaseModel):
     """Container s6 agent status and compatibility."""
 
     container: str = Field(..., description='Container name')
-    status: Literal['ok', 'outdated', 'unreachable', 'unknown_version'] = Field(
+    status: Literal['up_to_date', 'compatible', 'outdated', 'unreachable', 'unknown_version'] = Field(
         ..., description='Agent compatibility status'
     )
     version: Optional[str] = Field(None, description='Installed s6 agent version')
     minimum_required_version: str = Field(
         ..., description='Minimum s6 agent version supported by this manager'
     )
-    update_required: bool = Field(..., description='Whether the agent must be updated')
     message: Optional[str] = Field(None, description='User-facing status message')
 
 

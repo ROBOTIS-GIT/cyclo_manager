@@ -201,8 +201,8 @@ export default function HomePage() {
         if (updatedAgent && updatedAgent.status !== "unreachable") {
           setAgentUpdateModal({
             container,
-            status: updatedAgent.update_required ? "error" : "done",
-            message: updatedAgent.update_required
+            status: updatedAgent.status === "outdated" ? "error" : "done",
+            message: updatedAgent.status === "outdated"
               ? updatedAgent.message ?? "Agent still requires update."
               : "Agent is reachable and compatible.",
             output: result.output,
@@ -318,7 +318,7 @@ export default function HomePage() {
       ? pct(systemStats.ssd_used_gb, systemStats.ssd_total_gb)
       : 0;
   const hasSsdStats = systemStats?.ssd_used_gb != null && systemStats.ssd_total_gb != null;
-  const storageLabel = systemStats?.ssd_mount_path === "/data" ? "Data" : "SSD";
+  const storageLabel = systemStats?.ssd_mount_path === "/data" ? "SD" : "SSD";
   const systemGaugeSize = hasSsdStats ? 96 : 110;
   const settingsDocker = containers.find((c) => c.name === settingsContainer) ?? null;
   const hasRepos = updatableRepos.length > 0;
@@ -405,7 +405,7 @@ export default function HomePage() {
                     size={systemGaugeSize}
                   />
                   <CircleGauge
-                    fill={diskPct} label="Disk"
+                    fill={diskPct} label="System Storage"
                     sub={`${systemStats.disk_used_gb} / ${systemStats.disk_total_gb} GB`}
                     size={systemGaugeSize}
                   />

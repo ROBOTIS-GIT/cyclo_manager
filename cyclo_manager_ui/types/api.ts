@@ -22,10 +22,9 @@ export interface SupportedRobotContainersResponse {
 
 export interface S6AgentStatusResponse {
   container: string;
-  status: "ok" | "outdated" | "unreachable" | "unknown_version";
+  status: "up_to_date" | "compatible" | "outdated" | "unreachable" | "unknown_version";
   version: string | null;
   minimum_required_version: string;
-  update_required: boolean;
   message: string | null;
 }
 

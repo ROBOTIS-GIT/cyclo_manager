@@ -33,14 +33,14 @@ def _parse_release_version(version: str) -> tuple[int, int, int] | None:
     return int(major), int(minor), int(patch)
 
 
-def is_s6_agent_version_compatible(version: str | None) -> bool:
-    """Return whether an s6 agent version satisfies manager requirements."""
+def compare_s6_agent_version(version: str | None) -> int | None:
+    """Compare an agent version with the minimum required version."""
     if not version:
-        return False
+        return None
 
     agent_version = _parse_release_version(version)
     minimum_version = _parse_release_version(MIN_COMPATIBLE_S6_AGENT_VERSION)
     if agent_version is None or minimum_version is None:
-        return False
+        return None
 
-    return agent_version >= minimum_version
+    return (agent_version > minimum_version) - (agent_version < minimum_version)

@@ -21,7 +21,7 @@
 from cyclo_manager import __version__ as manager_version
 from cyclo_manager.agent_compat import (
     MIN_COMPATIBLE_S6_AGENT_VERSION,
-    is_s6_agent_version_compatible,
+    compare_s6_agent_version,
 )
 from cyclo_manager.models import (
     S6AgentStatusListResponse,
@@ -51,7 +51,6 @@ def _build_unreachable_agent_status(
         status='unreachable',
         version=None,
         minimum_required_version=MIN_COMPATIBLE_S6_AGENT_VERSION,
-        update_required=True,
         message=f'Container agent unreachable: {error}',
     )
 
@@ -61,11 +60,16 @@ def _build_agent_status(
     version: str | None,
 ) -> S6AgentStatusResponse:
     """Build a status response from reachable agent version metadata."""
-    compatible = is_s6_agent_version_compatible(version)
+    comparison = compare_s6_agent_version(version)
+    compatible = comparison is not None and comparison >= 0
     if not version:
         status = 'unknown_version'
+    elif comparison is None:
+        status = 'unknown_version'
+    elif comparison == 0:
+        status = 'up_to_date'
     elif compatible:
-        status = 'ok'
+        status = 'compatible'
     else:
         status = 'outdated'
 
@@ -74,7 +78,6 @@ def _build_agent_status(
         status=status,
         version=version,
         minimum_required_version=MIN_COMPATIBLE_S6_AGENT_VERSION,
-        update_required=not compatible,
         message=None if compatible else 'Container agent update required',
     )
 
@@ -88,11 +91,18 @@ def _build_agent_status(
 async def list_agent_statuses(
     config=Depends(get_config),
     client_pool=Depends(get_client_pool),
+    docker_client=Depends(get_docker_client),
 ) -> S6AgentStatusListResponse:
-    """Return status and compatibility for configured container agents."""
+    """Return status and compatibility for configured container agents that exist locally."""
     statuses: list[S6AgentStatusResponse] = []
+    existing_containers = {
+        container['name']
+        for container in docker_client.list_containers(all=True)
+    }
 
     for container in config.container_sockets:
+        if container not in existing_containers:
+            continue
         client = client_pool.get_client(container)
         if client is None:
             statuses.append(
@@ -159,11 +169,13 @@ async def update_s6_agent(
 )
 async def list_supported_robot_containers(
     config=Depends(get_config),
+    docker_client=Depends(get_docker_client),
 ) -> SupportedRobotContainersResponse:
     """
     Get robot container names that can open the System page.
 
-    These names come directly from supported_robot_containers in config.yml.
+    These names are filtered from supported_robot_containers in config.yml to
+    containers that exist on the local Docker host.
 
     Returns
     -------
@@ -178,6 +190,14 @@ async def list_supported_robot_containers(
         ```
 
     """
+    existing_containers = {
+        container['name']
+        for container in docker_client.list_containers(all=True)
+    }
     return SupportedRobotContainersResponse(
-        supported_robot_containers=config.supported_robot_containers,
+        supported_robot_containers=[
+            container
+            for container in config.supported_robot_containers
+            if container in existing_containers
+        ],
     )

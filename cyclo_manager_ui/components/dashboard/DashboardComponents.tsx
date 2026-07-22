@@ -313,10 +313,17 @@ export function AgentStatusRow({
   bordered?: boolean;
 }) {
   const statusLabel =
-    agent.status === "outdated" ? "Update required" :
-      agent.status === "unreachable" ? "Unreachable" :
+    agent.status === "up_to_date" ? "Up to date" :
+      agent.status === "compatible" ? "Compatible" :
+        agent.status === "outdated" ? "Update available" :
+          agent.status === "unreachable" ? "Not responding" :
         agent.status === "unknown_version" ? "Unknown version" :
-          "OK";
+          "Unknown";
+  const showUpdateButton = agent.status === "outdated";
+  const statusColor =
+    showUpdateButton || agent.status === "unreachable" || agent.status === "unknown_version"
+      ? "var(--vscode-errorForeground)"
+      : "#3fb950";
 
   return (
     <div
@@ -335,11 +342,11 @@ export function AgentStatusRow({
         <div className="shrink-0 flex items-center gap-3">
           <span
             className="text-xs font-semibold"
-            style={{ color: agent.update_required ? "var(--vscode-errorForeground)" : "#3fb950" }}
+            style={{ color: statusColor }}
           >
             {statusLabel}
           </span>
-          {agent.update_required && (
+          {showUpdateButton && (
             <button onClick={onUpdate} disabled={updating} style={btnStyle(true, updating)}>
               {updating ? "Updating..." : "Update"}
             </button>
