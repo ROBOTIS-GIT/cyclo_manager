@@ -19,6 +19,7 @@
 """System info and stats endpoints: reads directly from /proc inside the container."""
 
 import asyncio
+import glob
 import os
 from pathlib import Path
 import platform
@@ -26,7 +27,12 @@ import socket
 import time
 from typing import Optional
 
-from cyclo_manager.models import RobotInfoResponse, SystemStatsResponse
+from cyclo_manager.models import (
+    RobotInfoResponse,
+    SerialPortInfo,
+    SerialPortsResponse,
+    SystemStatsResponse,
+)
 from fastapi import APIRouter
 import psutil
 
@@ -36,6 +42,12 @@ router = APIRouter(prefix='/system', tags=['system'])
 # Used to read host disk usage and host OS info.
 _HOST_ROOT = '/host_root'
 _EXTRA_STORAGE_MOUNT_PATHS = ('/mnt/ssd', '/data')
+_SERIAL_PORT_GLOBS = (
+    '/dev/serial/by-id/*',
+    '/dev/ttyACM*',
+    '/dev/ttyUSB*',
+    '/dev/ttyAMA*',
+)
 
 
 async def _check_internet() -> bool:
@@ -106,6 +118,67 @@ def _extra_storage_disk_usage():
     return None, None
 
 
+def _host_path(path: str) -> Path:
+    if Path(_HOST_ROOT).is_mount():
+        return Path(_HOST_ROOT, path.lstrip('/'))
+    return Path(path)
+
+
+def _display_dev_path(path: Path) -> str:
+    text = str(path)
+    if text.startswith(f'{_HOST_ROOT}/'):
+        return text[len(_HOST_ROOT):]
+    return text
+
+
+def _real_dev_path(path: Path) -> str | None:
+    try:
+        real = path.resolve(strict=True)
+    except OSError:
+        return None
+    return _display_dev_path(real)
+
+
+def _serial_port_label(path: str, real_path: str | None) -> str:
+    if path.startswith('/dev/serial/by-id/'):
+        return f'{real_path} ({path})' if real_path else path
+    if path.startswith('/dev/ttyAMA'):
+        return f'Raspberry Pi UART ({path})'
+    if path.startswith('/dev/ttyACM'):
+        return f'USB CDC serial ({path})'
+    if path.startswith('/dev/ttyUSB'):
+        return f'USB serial ({path})'
+    return path
+
+
+def _serial_ports() -> list[SerialPortInfo]:
+    ports: list[SerialPortInfo] = []
+    seen_real_paths: set[str] = set()
+
+    for pattern in _SERIAL_PORT_GLOBS:
+        host_pattern = str(_host_path(pattern))
+        for raw_path in sorted(glob.glob(host_pattern)):
+            host_port_path = Path(raw_path)
+            display_path = _display_dev_path(host_port_path)
+            real_path = _real_dev_path(host_port_path)
+            if real_path and real_path in seen_real_paths:
+                continue
+            path = real_path if real_path else display_path
+            if path in seen_real_paths:
+                continue
+            if real_path:
+                seen_real_paths.add(real_path)
+            ports.append(
+                SerialPortInfo(
+                    path=path,
+                    real_path=real_path,
+                    label=_serial_port_label(display_path, real_path),
+                )
+            )
+
+    return ports
+
+
 # ── Endpoints ─────────────────────────────────────────────────────────────────
 
 @router.get('/info', response_model=RobotInfoResponse)
@@ -169,3 +242,9 @@ async def get_system_stats() -> SystemStatsResponse:
         uptime_seconds=uptime_seconds,
         temperature_celsius=_temperature(),
     )
+
+
+@router.get('/serial-ports', response_model=SerialPortsResponse)
+async def get_serial_ports() -> SerialPortsResponse:
+    """Return serial device candidates from the host /dev tree."""
+    return SerialPortsResponse(ports=_serial_ports())

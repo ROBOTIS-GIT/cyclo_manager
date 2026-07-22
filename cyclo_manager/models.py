@@ -267,6 +267,20 @@ class BashrcUpdateRequest(BaseModel):
     content: str = Field(..., description='New contents of ~/.bashrc')
 
 
+class SerialPortInfo(BaseModel):
+    """Detected serial port information."""
+
+    path: str = Field(..., description='Preferred device path to use in launch arguments')
+    real_path: Optional[str] = Field(None, description='Resolved /dev path if path is a symlink')
+    label: str = Field(..., description='User-facing serial port label')
+
+
+class SerialPortsResponse(BaseModel):
+    """Response for GET /system/serial-ports."""
+
+    ports: list[SerialPortInfo] = Field(..., description='Detected serial port candidates')
+
+
 # ROS2 Plugin Models
 
 

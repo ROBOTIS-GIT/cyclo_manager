@@ -135,6 +135,7 @@ export const SH5_CONFIG: LaunchArgsConfig = {
     { key: "mock_sensor_commands", label: "Mock Sensor Commands", type: "bool", default: "false" },
     { key: "port_name", label: "Port Name", type: "string", default: "/dev/follower" },
     { key: "launch_cameras", label: "Launch Cameras", type: "bool", default: "true" },
+    { key: "launch_lidar", label: "Launch Lidar", type: "bool", default: "true" },
     { key: "init_position", label: "Init Position", type: "bool", default: "true" },
     { key: "model", label: "Model", type: "string", default: "ffw_sh5_rev1_follower" },
     { key: "use_head_eef_tracker", label: "Use Head EEF Tracker", type: "bool", default: "false" },

@@ -230,6 +230,16 @@ export interface HostSystemStatsResponse {
   temperature_celsius: number | null;
 }
 
+export interface SerialPortInfo {
+  path: string;
+  real_path: string | null;
+  label: string;
+}
+
+export interface SerialPortsResponse {
+  ports: SerialPortInfo[];
+}
+
 // ROS2 Plugin Types
 
 export interface ROS2TopicStatus {

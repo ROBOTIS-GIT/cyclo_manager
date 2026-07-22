@@ -23,7 +23,17 @@ import Link from "next/link";
 import Convert from "ansi-to-html";
 import { usePolling } from "@/hooks/usePolling";
 import { useServiceStatus } from "@/hooks/useServiceStatus";
-import { getDockerContainers, controlDockerContainer, getDockerContainerLogs, ros2Subscribe, ros2Unsubscribe, getROS2TopicAvailability, getROS2TopicData } from "@/lib/api";
+import {
+  controlDockerContainer,
+  getDockerContainerLogs,
+  getDockerContainers,
+  getROS2TopicAvailability,
+  getROS2TopicData,
+  getSerialPorts,
+  ros2Subscribe,
+  ros2Unsubscribe,
+} from "@/lib/api";
+import type { SerialPortInfo } from "@/types/api";
 import {
   getDefaultArgs,
   mergeWithDefaults,
@@ -193,6 +203,7 @@ export default function SystemPage() {
   const [showRobotArgsPopup, setShowRobotArgsPopup] = useState(false);
   const [showLeaderArgsPopup, setShowLeaderArgsPopup] = useState(false);
 
+  const [serialPorts, setSerialPorts] = useState<SerialPortInfo[]>([]);
   const [cycloIntelligenceContainerStatus, setCycloIntelligenceContainerStatus] = useState<string | null>(null);
   const [zenohDaemonContainer, setZenohDaemonContainer] = useState<{ name: string; status: string } | null>(null);
   const [zenohDaemonActionLoading, setZenohDaemonActionLoading] = useState<"start" | "stop" | null>(null);
@@ -274,6 +285,20 @@ export default function SystemPage() {
   usePolling(cycloIntelligenceService.loadStatus, STATUS_POLL_INTERVAL, {
     enabled: Boolean(container && systemProfile),
     resetKey: `${container}:cyclo-intelligence`,
+  });
+
+  const loadSerialPorts = useCallback(async () => {
+    try {
+      const res = await getSerialPorts();
+      setSerialPorts(res.ports);
+    } catch {
+      setSerialPorts([]);
+    }
+  }, []);
+
+  usePolling(loadSerialPorts, STATUS_POLL_INTERVAL, {
+    enabled: Boolean(container && systemProfile),
+    resetKey: `${container}:serial-ports`,
   });
 
   const loadExternalServiceContainers = useCallback(async () => {
@@ -563,6 +588,7 @@ export default function SystemPage() {
           config={robotConfig}
           args={robotBringupArgs}
           onChange={setRobotBringupArgs}
+          serialPorts={serialPorts}
         />
         <LaunchArgsSettingPopup
           open={showLeaderArgsPopup}
@@ -570,6 +596,7 @@ export default function SystemPage() {
           config={leaderConfig ?? robotConfig}
           args={leaderBringupArgs}
           onChange={setLeaderBringupArgs}
+          serialPorts={serialPorts}
         />
       </div>
       <div className="flex gap-4 items-stretch mt-4 flex-1 min-h-0">

@@ -48,6 +48,7 @@ import type {
   ROS2TwistPublishRequest,
   HostSystemStatsResponse,
   RobotInfoResponse,
+  SerialPortsResponse,
 } from "@/types/api";
 
 // Get API base URL from environment variable, default to frontend host:8081
@@ -360,6 +361,10 @@ export async function getSystemStats(): Promise<HostSystemStatsResponse> {
 
 export async function getRobotInfo(): Promise<RobotInfoResponse> {
   return request<RobotInfoResponse>({ method: "GET", url: "/system/info" });
+}
+
+export async function getSerialPorts(): Promise<SerialPortsResponse> {
+  return request<SerialPortsResponse>({ method: "GET", url: "/system/serial-ports" });
 }
 
 
