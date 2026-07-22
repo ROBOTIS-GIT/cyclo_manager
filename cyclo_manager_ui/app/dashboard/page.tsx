@@ -63,6 +63,12 @@ import { useTheme } from "@/contexts/ThemeContext";
 
 const POLL_INTERVAL = 5000;
 
+const VERSION_HELP_TEXT = {
+  repositories: "Shows whether repositories can be updated from their configured remotes.",
+  agents: "Shows the s6 agent version running inside each container. s6 agents is responsible for managing something like a service or a process inside a container.",
+  manager: "Shows the installed Cyclo Manager version and whether a manager update is available.",
+} as const;
+
 // ─── page ────────────────────────────────────────────────────────────────────
 
 export default function HomePage() {
@@ -405,7 +411,7 @@ export default function HomePage() {
                     size={systemGaugeSize}
                   />
                   <CircleGauge
-                    fill={diskPct} label="System Storage"
+                    fill={diskPct} label="System"
                     sub={`${systemStats.disk_used_gb} / ${systemStats.disk_total_gb} GB`}
                     size={systemGaugeSize}
                   />
@@ -530,7 +536,13 @@ export default function HomePage() {
               </div>
             ) : (
               <>
-                <VersionGroup title="Repositories">
+                <VersionGroup
+                  title="Repositories"
+                  help={{
+                    text: VERSION_HELP_TEXT.repositories,
+                    ariaLabel: "Repositories version management help",
+                  }}
+                >
                   {hasRepos ? (
                     updatableRepos.map((repo) => (
                       <UpdatableRepoRow
@@ -549,7 +561,13 @@ export default function HomePage() {
                   )}
                 </VersionGroup>
 
-                <VersionGroup title="Container Agents">
+                <VersionGroup
+                  title="Container Agents"
+                  help={{
+                    text: VERSION_HELP_TEXT.agents,
+                    ariaLabel: "Container agents version management help",
+                  }}
+                >
                   {hasAgents ? (
                     agentStatuses.map((agent) => (
                       <AgentStatusRow
@@ -569,7 +587,13 @@ export default function HomePage() {
                   )}
                 </VersionGroup>
 
-                <VersionGroup title="Cyclo Manager">
+                <VersionGroup
+                  title="Cyclo Manager"
+                  help={{
+                    text: VERSION_HELP_TEXT.manager,
+                    ariaLabel: "Cyclo Manager version management help",
+                  }}
+                >
                   {managerVersion ? (
                     <CycloManagerStatusRow
                       version={managerVersion}

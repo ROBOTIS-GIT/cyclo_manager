@@ -16,6 +16,7 @@
 
 import Link from "next/link";
 import type { CSSProperties, ReactNode } from "react";
+import HelpPopover from "@/components/HelpPopover";
 import StatusBadge from "@/components/StatusBadge";
 import type {
   CycloManagerVersionResponse,
@@ -277,9 +278,14 @@ export function CycloManagerStatusRow({
 
 export function VersionGroup({
   title,
+  help,
   children,
 }: {
   title: string;
+  help?: {
+    text: ReactNode;
+    ariaLabel: string;
+  };
   children: ReactNode;
 }) {
   return (
@@ -291,10 +297,17 @@ export function VersionGroup({
       }}
     >
       <div
-        className="px-3 pt-2 pb-1 text-[11px] font-bold uppercase tracking-widest"
+        className="px-3 pt-2 pb-1 flex items-center gap-2"
         style={{ color: "var(--vscode-descriptionForeground)" }}
       >
-        {title}
+        <span className="text-[11px] font-bold uppercase tracking-widest">
+          {title}
+        </span>
+        {help && (
+          <HelpPopover ariaLabel={help.ariaLabel}>
+            {help.text}
+          </HelpPopover>
+        )}
       </div>
       <div>{children}</div>
     </div>
@@ -498,16 +511,18 @@ export function AgentUpdateModal({
 }
 
 export function InfoRow({ label, value }: { label: string; value: string | null | undefined }) {
+  const displayValue = value ?? "-";
   return (
-    <div className="flex items-start justify-between gap-3 py-2">
+    <div className="flex items-center justify-between gap-3 py-2 min-w-0">
       <span className="shrink-0 text-sm" style={{ color: "var(--vscode-descriptionForeground)" }}>
         {label}
       </span>
       <span
-        className="text-right font-bold break-all text-sm"
+        className="min-w-0 truncate text-right font-bold text-sm"
         style={{ color: value ? "var(--vscode-foreground)" : "var(--vscode-descriptionForeground)" }}
+        title={displayValue}
       >
-        {value ?? "-"}
+        {displayValue}
       </span>
     </div>
   );
@@ -519,7 +534,7 @@ export function InfoStatusRow({ label, value }: { label: string; value: boolean 
   }
 
   return (
-    <div className="flex items-start justify-between gap-3 py-2">
+    <div className="flex items-center justify-between gap-3 py-2 min-w-0">
       <span className="shrink-0 text-sm" style={{ color: "var(--vscode-descriptionForeground)" }}>
         {label}
       </span>

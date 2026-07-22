@@ -16,26 +16,14 @@
 
 "use client";
 
-import type { CSSProperties, ReactNode, RefObject } from "react";
+import type { CSSProperties, ReactNode } from "react";
+import HelpPopover from "@/components/HelpPopover";
 import StatusBadge from "@/components/StatusBadge";
 import { LogIcon, PlayIcon, SquareIcon } from "@/components/system/ControlBoxParts";
 
 const GROUP_STYLES: CSSProperties = {
   backgroundColor: "var(--vscode-toolbar-groupBg, rgba(128, 128, 128, 0.08))",
   border: "1px solid var(--vscode-panel-border)",
-};
-
-const HELP_BTN_CLASS =
-  "inline-flex items-center justify-center shrink-0 rounded-full border leading-none font-semibold cursor-pointer select-none hover:opacity-80 focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--vscode-focusBorder)]";
-
-const HELP_BTN_STYLE: CSSProperties = {
-  width: "15px",
-  height: "15px",
-  fontSize: "10px",
-  lineHeight: 1,
-  borderColor: "var(--vscode-panel-border)",
-  color: "var(--vscode-descriptionForeground)",
-  backgroundColor: "var(--vscode-editor-background)",
 };
 
 export type ContainerControlBoxProps = {
@@ -47,10 +35,8 @@ export type ContainerControlBoxProps = {
   onToggleLogs: () => void;
   size?: "toolbar" | "compact";
   help?: {
-    buttonRef: RefObject<HTMLButtonElement | null>;
-    expanded: boolean;
-    controls: string;
-    onClick: () => void;
+    text: ReactNode;
+    ariaLabel: string;
   };
 };
 
@@ -94,18 +80,9 @@ export default function ContainerControlBox({
         )}
         {status ? <StatusBadge status={status} dotOnly /> : null}
         {help && (
-          <button
-            ref={help.buttonRef}
-            type="button"
-            onClick={help.onClick}
-            className={HELP_BTN_CLASS}
-            style={HELP_BTN_STYLE}
-            aria-expanded={help.expanded}
-            aria-controls={help.controls}
-            title="Help"
-          >
-            ?
-          </button>
+          <HelpPopover ariaLabel={help.ariaLabel}>
+            {help.text}
+          </HelpPopover>
         )}
       </div>
       <div className={size === "compact" ? "flex items-center gap-2" : "flex items-center gap-3"}>

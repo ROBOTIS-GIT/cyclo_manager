@@ -16,9 +16,8 @@
 
 "use client";
 
-import { useEffect, useState, useCallback, useMemo, useId, useLayoutEffect, useRef } from "react";
-import type { CSSProperties, RefObject } from "react";
-import { createPortal } from "react-dom";
+import { useEffect, useState, useCallback, useMemo } from "react";
+import type { CSSProperties } from "react";
 import { useParams } from "next/navigation";
 import Link from "next/link";
 import Convert from "ansi-to-html";
@@ -34,7 +33,6 @@ import { getSystemProfile, type SystemControlTopic, type SystemProfile, type Sys
 import LaunchArgsSettingPopup from "@/components/LaunchArgsSettingPopup";
 import FixedLogPanel from "@/components/FixedLogPanel";
 import Robot3DViewer from "@/components/Robot3DViewer";
-import { computeToolbarHelpPosition } from "@/components/system/ControlBoxParts";
 import ContainerControlBox from "@/components/system/ContainerControlBox";
 import ServiceControlBox from "@/components/system/ServiceControlBox";
 import { useTheme } from "@/contexts/ThemeContext";
@@ -64,13 +62,6 @@ const ERROR_STYLES: CSSProperties = {
   color: "var(--vscode-errorForeground)",
   backgroundColor: "rgba(244, 135, 113, 0.1)",
   border: "1px solid rgba(244, 135, 113, 0.3)",
-};
-
-const INLINE_HELP_STYLES: CSSProperties = {
-  color: "var(--vscode-descriptionForeground)",
-  backgroundColor: "var(--vscode-editor-background)",
-  borderColor: "var(--vscode-panel-border)",
-  boxShadow: "0 4px 16px rgba(0,0,0,0.18)",
 };
 
 type ToolbarHelpKey = "robot" | "leader" | "intelligence" | "zenoh";
@@ -201,37 +192,8 @@ export default function SystemPage() {
   const [showZenohDaemonLogs, setShowZenohDaemonLogs] = useState(false);
   const [showRobotArgsPopup, setShowRobotArgsPopup] = useState(false);
   const [showLeaderArgsPopup, setShowLeaderArgsPopup] = useState(false);
-  const [activeToolbarHelp, setActiveToolbarHelp] = useState<ToolbarHelpKey | null>(null);
-  const [toolbarHelpCoords, setToolbarHelpCoords] = useState<{
-    top: number;
-    left: number;
-    width: number;
-  } | null>(null);
 
-  const robotHelpBtnRef = useRef<HTMLButtonElement>(null);
-  const leaderHelpBtnRef = useRef<HTMLButtonElement>(null);
-  const intelligenceHelpBtnRef = useRef<HTMLButtonElement>(null);
-  const zenohHelpBtnRef = useRef<HTMLButtonElement>(null);
-
-  const helpBtnRefs: Record<ToolbarHelpKey, RefObject<HTMLButtonElement | null>> = {
-    robot: robotHelpBtnRef,
-    leader: leaderHelpBtnRef,
-    intelligence: intelligenceHelpBtnRef,
-    zenoh: zenohHelpBtnRef,
-  };
-
-  const robotHelpPanelId = useId();
-  const leaderHelpPanelId = useId();
-  const intelligenceHelpPanelId = useId();
-  const zenohHelpPanelId = useId();
-
-  const helpPanelIds: Record<ToolbarHelpKey, string> = {
-    robot: robotHelpPanelId,
-    leader: leaderHelpPanelId,
-    intelligence: intelligenceHelpPanelId,
-    zenoh: zenohHelpPanelId,
-  };
-
+  const [cycloIntelligenceContainerStatus, setCycloIntelligenceContainerStatus] = useState<string | null>(null);
   const [zenohDaemonContainer, setZenohDaemonContainer] = useState<{ name: string; status: string } | null>(null);
   const [zenohDaemonActionLoading, setZenohDaemonActionLoading] = useState<"start" | "stop" | null>(null);
   const [zenohDaemonLogContent, setZenohDaemonLogContent] = useState("");
@@ -272,47 +234,11 @@ export default function SystemPage() {
   const cycloIntelligenceService = useServiceStatus(CYCLO_INTELLIGENCE_CONTAINER, CYCLO_INTELLIGENCE_SERVICE);
   const robotSelectDisabled = robotService.loading || robotService.status?.is_up === true;
   const leaderSelectDisabled = leaderService.loading || leaderService.status?.is_up === true;
+  const cycloIntelligenceContainerRunning =
+    cycloIntelligenceContainerStatus?.toLowerCase() === "running";
 
   const [batteryPercentage, setBatteryPercentage] = useState<Record<string, number | null>>({});
   const [cameraAvailability, setCameraAvailability] = useState<Record<string, boolean>>({});
-
-  const toggleToolbarHelp = useCallback((key: ToolbarHelpKey) => {
-    setActiveToolbarHelp((cur) => (cur === key ? null : key));
-  }, []);
-
-  useLayoutEffect(() => {
-    if (!activeToolbarHelp) {
-      setToolbarHelpCoords(null);
-      return;
-    }
-    const el = helpBtnRefs[activeToolbarHelp].current;
-    if (el) {
-      setToolbarHelpCoords(computeToolbarHelpPosition(el.getBoundingClientRect()));
-    }
-  }, [activeToolbarHelp]);
-
-  useEffect(() => {
-    if (!activeToolbarHelp) return;
-    const sync = () => {
-      const el = helpBtnRefs[activeToolbarHelp].current;
-      if (el) setToolbarHelpCoords(computeToolbarHelpPosition(el.getBoundingClientRect()));
-    };
-    window.addEventListener("scroll", sync, true);
-    window.addEventListener("resize", sync);
-    return () => {
-      window.removeEventListener("scroll", sync, true);
-      window.removeEventListener("resize", sync);
-    };
-  }, [activeToolbarHelp]);
-
-  useEffect(() => {
-    if (!activeToolbarHelp) return;
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") setActiveToolbarHelp(null);
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [activeToolbarHelp]);
 
   useEffect(() => {
     let cancelled = false;
@@ -350,19 +276,24 @@ export default function SystemPage() {
     resetKey: `${container}:cyclo-intelligence`,
   });
 
-  const loadZenohDaemon = useCallback(async () => {
+  const loadExternalServiceContainers = useCallback(async () => {
     try {
       const res = await getDockerContainers(true);
-      const c = res.containers.find((d) => d.name === ZENOH_DAEMON_CONTAINER_NAME);
-      setZenohDaemonContainer(c ? { name: c.name, status: c.status } : null);
+      const cycloIntelligence = res.containers.find((d) => d.name === CYCLO_INTELLIGENCE_CONTAINER);
+      const zenohDaemon = res.containers.find((d) => d.name === ZENOH_DAEMON_CONTAINER_NAME);
+      setCycloIntelligenceContainerStatus(cycloIntelligence?.status ?? null);
+      setZenohDaemonContainer(
+        zenohDaemon ? { name: zenohDaemon.name, status: zenohDaemon.status } : null
+      );
     } catch {
+      setCycloIntelligenceContainerStatus(null);
       setZenohDaemonContainer(null);
     }
   }, []);
 
-  usePolling(loadZenohDaemon, STATUS_POLL_INTERVAL, {
+  usePolling(loadExternalServiceContainers, STATUS_POLL_INTERVAL, {
     enabled: Boolean(container && systemProfile),
-    resetKey: `${container}:zenoh`,
+    resetKey: `${container}:external-service-containers`,
   });
 
   useEffect(() => {
@@ -383,11 +314,11 @@ export default function SystemPage() {
     setZenohDaemonActionLoading(action);
     try {
       await controlDockerContainer(ZENOH_DAEMON_CONTAINER_NAME, action);
-      await loadZenohDaemon();
+      await loadExternalServiceContainers();
     } finally {
       setZenohDaemonActionLoading(null);
     }
-  }, [zenohDaemonContainer?.status, loadZenohDaemon]);
+  }, [zenohDaemonContainer?.status, loadExternalServiceContainers]);
 
   useEffect(() => {
     if (!showZenohDaemonLogs) return;
@@ -536,10 +467,8 @@ export default function SystemPage() {
             options: activeSystemProfile.robotTypeOptions,
           }}
           help={{
-            buttonRef: robotHelpBtnRef,
-            expanded: activeToolbarHelp === "robot",
-            controls: robotHelpPanelId,
-            onClick: () => toggleToolbarHelp("robot"),
+            text: TOOLBAR_HELP_TEXT.robot,
+            ariaLabel: TOOLBAR_HELP_ARIA.robot,
           }}
         />
 
@@ -569,31 +498,16 @@ export default function SystemPage() {
             options: activeSystemProfile.leaderTypeOptions,
           }}
           help={{
-            buttonRef: leaderHelpBtnRef,
-            expanded: activeToolbarHelp === "leader",
-            controls: leaderHelpPanelId,
-            onClick: () => toggleToolbarHelp("leader"),
+            text: TOOLBAR_HELP_TEXT.leader,
+            ariaLabel: TOOLBAR_HELP_ARIA.leader,
           }}
         />
 
         <ServiceControlBox
-          title={
-            <button
-              type="button"
-              onClick={() => {
-                if (typeof window !== "undefined") {
-                  window.open(`http://${window.location.hostname}:7080`, "_blank");
-                }
-              }}
-              className="text-sm font-medium uppercase tracking-wider cursor-pointer border-none bg-transparent p-0 text-left"
-              style={{ color: "var(--vscode-descriptionForeground)" }}
-              title="Open Cyclo Intelligence (port 7080)"
-            >
-              Cyclo Intelligence
-            </button>
-          }
+          title="Cyclo Intelligence"
           status={cycloIntelligenceService.status}
           loading={cycloIntelligenceService.loading}
+          disabled={!cycloIntelligenceContainerRunning}
           onToggle={handleCycloIntelligenceBringup}
           showLogs={showCycloIntelligenceLogs}
           onToggleLogs={() => {
@@ -603,10 +517,8 @@ export default function SystemPage() {
             setShowZenohDaemonLogs(false);
           }}
           help={{
-            buttonRef: intelligenceHelpBtnRef,
-            expanded: activeToolbarHelp === "intelligence",
-            controls: intelligenceHelpPanelId,
-            onClick: () => toggleToolbarHelp("intelligence"),
+            text: TOOLBAR_HELP_TEXT.intelligence,
+            ariaLabel: TOOLBAR_HELP_ARIA.intelligence,
           }}
         />
 
@@ -623,10 +535,8 @@ export default function SystemPage() {
             setShowCycloIntelligenceLogs(false);
           }}
           help={{
-            buttonRef: zenohHelpBtnRef,
-            expanded: activeToolbarHelp === "zenoh",
-            controls: zenohHelpPanelId,
-            onClick: () => toggleToolbarHelp("zenoh"),
+            text: TOOLBAR_HELP_TEXT.zenoh,
+            ariaLabel: TOOLBAR_HELP_ARIA.zenoh,
           }}
         />
 
@@ -662,26 +572,6 @@ export default function SystemPage() {
           onChange={setLeaderBringupArgs}
         />
       </div>
-      {typeof document !== "undefined" &&
-        activeToolbarHelp &&
-        toolbarHelpCoords &&
-        createPortal(
-          <div
-            id={helpPanelIds[activeToolbarHelp]}
-            role="region"
-            aria-label={TOOLBAR_HELP_ARIA[activeToolbarHelp]}
-            className="fixed z-[9999] text-xs leading-snug rounded border px-2.5 py-2"
-            style={{
-              ...INLINE_HELP_STYLES,
-              top: toolbarHelpCoords.top,
-              left: toolbarHelpCoords.left,
-              width: toolbarHelpCoords.width,
-            }}
-          >
-            {TOOLBAR_HELP_TEXT[activeToolbarHelp]}
-          </div>,
-          document.body
-        )}
       <div className="flex gap-4 items-stretch mt-4 flex-1 min-h-0">
         <div className="flex-none flex flex-col gap-4" style={{ width: "500px" }}>
           <Robot3DViewer />

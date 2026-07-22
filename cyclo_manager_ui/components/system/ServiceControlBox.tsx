@@ -16,9 +16,10 @@
 
 "use client";
 
-import type { CSSProperties, ReactNode, RefObject } from "react";
+import type { CSSProperties, ReactNode } from "react";
 import type { LaunchArgSelectOption } from "@/config/launchArgs";
 import type { ServiceStatusResponse } from "@/types/api";
+import HelpPopover from "@/components/HelpPopover";
 import StatusBadge from "@/components/StatusBadge";
 import {
   LogIcon,
@@ -33,23 +34,11 @@ const GROUP_STYLES: CSSProperties = {
   border: "1px solid var(--vscode-panel-border)",
 };
 
-const HELP_BTN_CLASS =
-  "inline-flex items-center justify-center shrink-0 rounded-full border leading-none font-semibold cursor-pointer select-none hover:opacity-80 focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--vscode-focusBorder)]";
-
-const HELP_BTN_STYLE: CSSProperties = {
-  width: "15px",
-  height: "15px",
-  fontSize: "10px",
-  lineHeight: 1,
-  borderColor: "var(--vscode-panel-border)",
-  color: "var(--vscode-descriptionForeground)",
-  backgroundColor: "var(--vscode-editor-background)",
-};
-
 export type ServiceControlBoxProps = {
   title: ReactNode;
   status: ServiceStatusResponse | null;
   loading: boolean;
+  disabled?: boolean;
   onToggle: () => void;
   showLogs: boolean;
   onToggleLogs: () => void;
@@ -61,10 +50,8 @@ export type ServiceControlBoxProps = {
     disabled?: boolean;
   };
   help?: {
-    buttonRef: RefObject<HTMLButtonElement | null>;
-    expanded: boolean;
-    controls: string;
-    onClick: () => void;
+    text: ReactNode;
+    ariaLabel: string;
   };
 };
 
@@ -72,6 +59,7 @@ export default function ServiceControlBox({
   title,
   status,
   loading,
+  disabled = false,
   onToggle,
   showLogs,
   onToggleLogs,
@@ -84,7 +72,11 @@ export default function ServiceControlBox({
   return (
     <div
       className="flex flex-col gap-2.5 rounded-none px-5 py-4 min-h-[108px] justify-center"
-      style={GROUP_STYLES}
+      aria-disabled={disabled}
+      style={{
+        ...GROUP_STYLES,
+        opacity: disabled ? 0.45 : 1,
+      }}
     >
       <div className="flex items-center gap-2 flex-wrap min-w-0">
         {typeof title === "string" ? (
@@ -99,18 +91,9 @@ export default function ServiceControlBox({
         )}
         {status && <StatusBadge status={isUp} dotOnly />}
         {help && (
-          <button
-            ref={help.buttonRef}
-            type="button"
-            onClick={help.onClick}
-            className={HELP_BTN_CLASS}
-            style={HELP_BTN_STYLE}
-            aria-expanded={help.expanded}
-            aria-controls={help.controls}
-            title="Help"
-          >
-            ?
-          </button>
+          <HelpPopover ariaLabel={help.ariaLabel} disabled={disabled}>
+            {help.text}
+          </HelpPopover>
         )}
       </div>
       <div className="flex items-center gap-3">
@@ -118,13 +101,13 @@ export default function ServiceControlBox({
           <Select
             value={typeSelect.value}
             onChange={typeSelect.onChange}
-            disabled={typeSelect.disabled}
+            disabled={disabled || typeSelect.disabled}
             options={typeSelect.options}
           />
         )}
         <button
           onClick={onToggle}
-          disabled={loading}
+          disabled={disabled || loading}
           title={isUp ? "Stop" : "Bringup"}
           aria-label={isUp ? "Stop" : "Bringup"}
           className="w-11 h-11 rounded border-none cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed inline-flex items-center justify-center"
@@ -139,12 +122,13 @@ export default function ServiceControlBox({
         >
           {isUp ? <SquareIcon /> : <PlayIcon />}
         </button>
-        {onSettings && <SettingsButton onClick={onSettings} />}
+        {onSettings && <SettingsButton onClick={onSettings} disabled={disabled} />}
         <button
           onClick={onToggleLogs}
+          disabled={disabled}
           title="Log"
           aria-label="Log"
-          className="w-11 h-11 rounded border-none cursor-pointer inline-flex items-center justify-center"
+          className="w-11 h-11 rounded border-none cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed inline-flex items-center justify-center"
           style={{
             backgroundColor: showLogs
               ? "var(--vscode-button-secondaryBackground)"

@@ -61,7 +61,7 @@ function GearIcon({ className }: { className?: string }) {
   );
 }
 
-export function SettingsButton({ onClick }: { onClick: () => void }) {
+export function SettingsButton({ onClick, disabled = false }: { onClick: () => void; disabled?: boolean }) {
   const baseStyle: CSSProperties = {
     width: "44px",
     height: "44px",
@@ -71,7 +71,8 @@ export function SettingsButton({ onClick }: { onClick: () => void }) {
     justifyContent: "center",
     border: "none",
     borderRadius: "8px",
-    cursor: "pointer",
+    cursor: disabled ? "not-allowed" : "pointer",
+    opacity: disabled ? 0.5 : 1,
     backgroundColor: "var(--vscode-button-background)",
     color: "var(--vscode-button-foreground)",
     transition: "background-color 0.15s ease",
@@ -79,12 +80,15 @@ export function SettingsButton({ onClick }: { onClick: () => void }) {
   return (
     <button
       onClick={onClick}
+      disabled={disabled}
       style={baseStyle}
       title="Launch arguments"
       onMouseEnter={(e) => {
+        if (disabled) return;
         e.currentTarget.style.backgroundColor = "var(--vscode-button-hoverBackground)";
       }}
       onMouseLeave={(e) => {
+        if (disabled) return;
         e.currentTarget.style.backgroundColor = "var(--vscode-button-background)";
       }}
     >
@@ -127,13 +131,4 @@ export function Select({ value, onChange, disabled, options }: SelectProps) {
       </span>
     </div>
   );
-}
-
-export function computeToolbarHelpPosition(anchor: DOMRect): { top: number; left: number; width: number } {
-  const panelWidth = Math.min(288, window.innerWidth - 24);
-  let left = anchor.left;
-  if (left + panelWidth > window.innerWidth - 12) {
-    left = Math.max(12, window.innerWidth - 12 - panelWidth);
-  }
-  return { top: anchor.bottom + 6, left, width: panelWidth };
 }
