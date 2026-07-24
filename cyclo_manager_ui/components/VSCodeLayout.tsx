@@ -25,6 +25,8 @@ import ManagerIntelligenceShortcuts from "@/components/ManagerIntelligenceShortc
 import ThemeToggle from "./ThemeToggle";
 import { getDockerContainers, getSupportedRobotContainers } from "@/lib/api";
 
+const JOG_CONTAINER = "ai_worker";
+
 export default function VSCodeLayout({
   children,
 }: {
@@ -36,7 +38,9 @@ export default function VSCodeLayout({
   const [systemChoices, setSystemChoices] = useState<string[]>([]);
 
   type NavItemWithHref = { href: string; label: string; icon: string; isHome?: boolean; isTopics?: boolean; isTerminal?: boolean };
-  type NavItemWithoutHref = { label: string; icon: string; isSystem: true };
+  type NavItemWithoutHref =
+    | { label: string; icon: string; isSystem: true }
+    | { label: string; icon: string; isJog: true };
   type NavItem = NavItemWithHref | NavItemWithoutHref;
 
   const navItems: NavItem[] = [
@@ -45,7 +49,7 @@ export default function VSCodeLayout({
     { href: "/topics", label: "Topics", icon: "📡", isTopics: true },
     { href: "/terminal", label: "Terminal", icon: "🖥️", isTerminal: true },
     { href: "/novnc", label: "noVNC", icon: "📺" },
-    { href: "/jog", label: "Jog", icon: "🎮" },
+    { label: "Jog", icon: "🎮", isJog: true },
   ];
 
   async function handleSystemClick() {
@@ -80,6 +84,22 @@ export default function VSCodeLayout({
     setSystemChoices([]);
     setNavError(null);
     router.push(`/${container}/system`);
+  }
+
+  async function handleJogClick() {
+    setNavError(null);
+    setSystemChoices([]);
+    try {
+      const { containers } = await getDockerContainers(false);
+      const isAiWorkerRunning = containers.some((container) => container.name === JOG_CONTAINER);
+      if (!isAiWorkerRunning) {
+        setNavError("Jog is available only when the ai_worker container is running.");
+        return;
+      }
+      router.push("/jog");
+    } catch {
+      setNavError("Failed to connect to the manager.");
+    }
   }
 
   return (
@@ -124,6 +144,7 @@ export default function VSCodeLayout({
             const isTopicsPage = pathname === "/topics" || pathname?.startsWith("/topics/");
             const isTerminalPage = pathname === "/terminal" || pathname?.startsWith("/terminal/");
             const isHomePage = pathname === "/dashboard";
+            const isJogPage = pathname === "/jog";
             const isActive =
               "isHome" in item && item.isHome
                 ? !!isHomePage
@@ -133,7 +154,9 @@ export default function VSCodeLayout({
                   ? !!isTopicsPage
                   : "isTerminal" in item && item.isTerminal
                     ? !!isTerminalPage
-                    : "href" in item && (pathname === item.href || (item.href !== "/" && pathname?.startsWith(item.href)));
+                    : "isJog" in item && item.isJog
+                      ? !!isJogPage
+                      : "href" in item && (pathname === item.href || (item.href !== "/" && pathname?.startsWith(item.href)));
 
             const baseStyle: React.CSSProperties = {
               backgroundColor: isActive ? "var(--vscode-list-activeSelectionBackground)" : "transparent",
@@ -147,6 +170,26 @@ export default function VSCodeLayout({
                 <button
                   key="system"
                   onClick={handleSystemClick}
+                  className={sharedClass}
+                  style={{ ...baseStyle, border: "none", cursor: "pointer" }}
+                  onMouseEnter={(e) => {
+                    if (!isActive) e.currentTarget.style.backgroundColor = "var(--vscode-list-hoverBackground)";
+                  }}
+                  onMouseLeave={(e) => {
+                    if (!isActive) e.currentTarget.style.backgroundColor = "transparent";
+                  }}
+                >
+                  <span className="text-[1.125rem] leading-none select-none" aria-hidden>{item.icon}</span>
+                  <span className="text-[10px] font-semibold leading-tight">{item.label}</span>
+                </button>
+              );
+            }
+
+            if ("isJog" in item && item.isJog) {
+              return (
+                <button
+                  key="jog"
+                  onClick={handleJogClick}
                   className={sharedClass}
                   style={{ ...baseStyle, border: "none", cursor: "pointer" }}
                   onMouseEnter={(e) => {

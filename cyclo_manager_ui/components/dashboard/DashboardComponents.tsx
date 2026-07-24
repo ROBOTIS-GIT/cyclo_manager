@@ -61,6 +61,26 @@ export function btnStyle(primary: boolean, disabled = false): CSSProperties {
   };
 }
 
+function versionValue(value: string | null | undefined): string {
+  return value?.trim() || "unknown";
+}
+
+function VersionLine({
+  current,
+  targetLabel,
+  target,
+}: {
+  current: string | null | undefined;
+  targetLabel: "Latest" | "Required";
+  target: string | null | undefined;
+}) {
+  return (
+    <div className="text-xs truncate" style={{ color: "var(--vscode-descriptionForeground)" }}>
+      Current {versionValue(current)} / {targetLabel} {versionValue(target)}
+    </div>
+  );
+}
+
 export function Card({
   children,
   title,
@@ -201,13 +221,11 @@ export function UpdatableRepoRow({
           <div className="text-base font-medium truncate" style={{ color: "var(--vscode-foreground)" }}>
             {repo.name}
           </div>
-          {repo.current_version && (
-            <div className="text-xs" style={{ color: "var(--vscode-descriptionForeground)" }}>
-              {repo.has_update && repo.latest_version
-                ? `${repo.current_version} -> ${repo.latest_version}`
-                : repo.current_version}
-            </div>
-          )}
+          <VersionLine
+            current={repo.current_version}
+            targetLabel="Latest"
+            target={repo.latest_version}
+          />
         </div>
         <div className="shrink-0 flex items-center gap-3">
           <span
@@ -257,9 +275,11 @@ export function CycloManagerStatusRow({
           <div className="text-base font-medium truncate" style={{ color: "var(--vscode-foreground)" }}>
             Cyclo Manager
           </div>
-          <div className="text-xs truncate" style={{ color: "var(--vscode-descriptionForeground)" }}>
-            Current {version.current} / Latest {version.latest}
-          </div>
+          <VersionLine
+            current={version.current}
+            targetLabel="Latest"
+            target={version.latest}
+          />
         </div>
         <div className="shrink-0 flex items-center gap-3">
           <span className="text-xs font-semibold" style={{ color: statusColor }}>
@@ -348,9 +368,11 @@ export function AgentStatusRow({
           <div className="text-base font-medium truncate" style={{ color: "var(--vscode-foreground)" }}>
             {agent.container} s6 agent
           </div>
-          <div className="text-xs truncate" style={{ color: "var(--vscode-descriptionForeground)" }}>
-            Installed {agent.version ?? "unknown"} / Required {agent.minimum_required_version}
-          </div>
+          <VersionLine
+            current={agent.version}
+            targetLabel="Required"
+            target={agent.minimum_required_version}
+          />
         </div>
         <div className="shrink-0 flex items-center gap-3">
           <span

@@ -19,7 +19,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { usePolling } from "@/hooks/usePolling";
-import { getServiceStatus, publishCmdVel } from "@/lib/api";
+import { getDockerContainers, getServiceStatus, publishCmdVel } from "@/lib/api";
 import StatusBadge from "@/components/StatusBadge";
 import type { AiWorkerRobotType } from "@/types/api";
 
@@ -229,6 +229,7 @@ function SpeedSlider({
 export default function JogPage() {
   const router = useRouter();
   const [activeCommand, setActiveCommand] = useState<JogCommand["id"] | null>(null);
+  const [jogContainerRunning, setJogContainerRunning] = useState<boolean | null>(null);
   const [robotRunning, setRobotRunning] = useState(false);
   const [robotType, setRobotType] = useState<AiWorkerRobotType>(() => getStoredJogRobotType());
   const [statusText, setStatusText] = useState("Ready");
@@ -241,6 +242,7 @@ export default function JogPage() {
   const stopGenerationRef = useRef(0);
   const speedRef = useRef({ linearSpeed: DEFAULT_LINEAR_SPEED, angularSpeed: DEFAULT_ANGULAR_SPEED });
   const initialStopSentRef = useRef(false);
+  const containerPollInFlightRef = useRef(false);
   const statusPollInFlightRef = useRef(false);
   const robotTypeSupported = JOG_SUPPORTED_ROBOT_TYPES.has(robotType);
   const robotTypeLabel = AI_WORKER_ROBOT_LABELS[robotType];
@@ -260,7 +262,29 @@ export default function JogPage() {
     };
   }, []);
 
+  const loadJogContainerStatus = useCallback(async (isActive: () => boolean) => {
+    if (containerPollInFlightRef.current) return;
+    containerPollInFlightRef.current = true;
+    try {
+      const { containers } = await getDockerContainers(false);
+      if (!isActive()) return;
+      setJogContainerRunning(containers.some((container) => container.name === JOG_CONTAINER));
+    } catch {
+      if (isActive()) {
+        setJogContainerRunning(false);
+      }
+    } finally {
+      containerPollInFlightRef.current = false;
+    }
+  }, []);
+
+  usePolling(loadJogContainerStatus, STATUS_POLL_INTERVAL_MS);
+
   const loadRobotStatus = useCallback(async (isActive: () => boolean) => {
+    if (jogContainerRunning !== true) {
+      if (isActive()) setRobotRunning(false);
+      return;
+    }
     if (statusPollInFlightRef.current) return;
     statusPollInFlightRef.current = true;
     try {
@@ -274,7 +298,7 @@ export default function JogPage() {
     } finally {
       statusPollInFlightRef.current = false;
     }
-  }, []);
+  }, [jogContainerRunning]);
 
   usePolling(loadRobotStatus, STATUS_POLL_INTERVAL_MS);
 
@@ -422,6 +446,36 @@ export default function JogPage() {
     localStorage.setItem(`robot_type_${JOG_CONTAINER}`, MOBILE_ROBOT_MODEL);
     router.push(`/${JOG_CONTAINER}/system`);
   }, [router]);
+
+  if (jogContainerRunning !== true) {
+    const isChecking = jogContainerRunning === null;
+    return (
+      <div className="h-full min-h-[320px] flex flex-col overflow-hidden">
+        <header className="shrink-0 border-b px-4 py-3 flex items-center justify-between gap-3" style={{ borderColor: "var(--vscode-panel-border)" }}>
+          <h1 className="text-base font-semibold" style={{ color: "var(--vscode-foreground)" }}>Jog</h1>
+          <div className="h-8 px-2.5 border flex items-center gap-2 text-sm" style={{ color: "var(--vscode-foreground)", backgroundColor: "var(--vscode-sidebar-background)", borderColor: "var(--vscode-panel-border)" }}>
+            <StatusBadge status={false} dotOnly />
+            <span className="font-medium">{JOG_CONTAINER}</span>
+          </div>
+        </header>
+        <div className="flex-1 min-h-0 flex flex-col items-center justify-center gap-3 p-4 text-center">
+          <div className="text-sm font-semibold" style={{ color: "var(--vscode-foreground)" }}>
+            {isChecking ? "Checking ai_worker container..." : "Jog is available only when the ai_worker container is running."}
+          </div>
+          {!isChecking && (
+            <button
+              type="button"
+              onClick={() => router.push("/dashboard")}
+              className="h-8 px-3 border text-sm font-semibold transition-colors"
+              style={{ color: "var(--vscode-button-foreground)", backgroundColor: "var(--vscode-button-background)", borderColor: "var(--vscode-focusBorder)" }}
+            >
+              Dashboard
+            </button>
+          )}
+        </div>
+      </div>
+    );
+  }
 
   const controlsProps = { commands: JOG_COMMANDS, activeCommand, disabled: !robotReady, startJog, stopJog };
   const statusMessage = robotReady
