@@ -20,7 +20,7 @@
 
 import asyncio
 import logging
-import shutil
+import sys
 
 from fastapi import APIRouter, HTTPException, status
 
@@ -31,11 +31,11 @@ router = APIRouter(prefix='/system', tags=['system'])
 _update_status: dict = {'phase': 'idle', 'output': '', 'error': ''}
 
 
-async def _run_update(cyclo_exe: str) -> None:
+async def _run_update() -> None:
     global _update_status
     try:
         proc = await asyncio.create_subprocess_exec(
-            cyclo_exe, 'update',
+            sys.executable, '-m', 'cyclo_manager_cli.cli', 'update',
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
         )
@@ -50,6 +50,9 @@ async def _run_update(cyclo_exe: str) -> None:
     except asyncio.TimeoutError:
         _update_status['phase'] = 'error'
         _update_status['error'] = 'cyclo_manager update timed out'
+    except Exception as e:
+        _update_status['phase'] = 'error'
+        _update_status['error'] = f'Failed to start cyclo_manager update: {e}'
 
 
 @router.post('/update')
@@ -57,17 +60,12 @@ async def start_update() -> dict:
     """Delegate update to cyclo_manager update, which handles containers and host agent restart."""
     global _update_status
 
-    cyclo_exe = shutil.which('cyclo_manager')
-    if not cyclo_exe:
-        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                            detail='cyclo_manager command not found')
-
     if _update_status.get('phase') == 'updating':
         raise HTTPException(status_code=status.HTTP_409_CONFLICT,
                             detail='Update already in progress')
 
     _update_status = {'phase': 'updating', 'output': '', 'error': ''}
-    asyncio.create_task(_run_update(cyclo_exe))
+    asyncio.create_task(_run_update())
     return {'status': 'update started'}
 
 
