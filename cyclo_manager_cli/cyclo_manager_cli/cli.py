@@ -201,10 +201,10 @@ def _ensure_host_agent() -> int:
 
     user, user_home = account
     workspace_path = _host_agent_workspace(user, user_home)
-    agent_exe = shutil.which('cyclo_host_agent')
-    if not agent_exe:
+    agent_exec_start = f'{sys.executable} -m cyclo_host_agent.main' if sys.executable else None
+    if not agent_exec_start:
         print(
-            'Warning: cyclo_host_agent not found in PATH. '
+            'Warning: Python executable is unknown. '
             'Run `pip install cyclo-manager` and retry.',
             file=sys.stderr,
         )
@@ -227,7 +227,7 @@ User={user}
 Group={user}
 RuntimeDirectory=robotis/agent_sockets/host
 RuntimeDirectoryMode=0755
-ExecStart={agent_exe}
+ExecStart={agent_exec_start}
 Environment=HOME={user_home}
 Environment=CYCLO_HOST_AGENT_WORKSPACE={workspace_path}
 Restart=always
