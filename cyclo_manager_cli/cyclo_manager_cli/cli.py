@@ -284,7 +284,10 @@ WantedBy=multi-user.target
         print(f'Failed to install host agent service: {e}', file=sys.stderr)
         return 1
     except FileNotFoundError:
-        print('Required command not found. Install the host agent service manually.', file=sys.stderr)
+        print(
+            'Required command not found. Install the host agent service manually.',
+            file=sys.stderr,
+        )
         return 1
 
 

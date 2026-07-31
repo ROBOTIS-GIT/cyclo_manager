@@ -20,8 +20,8 @@
 
 from cyclo_manager import __version__ as manager_version
 from cyclo_manager.agent_compat import (
-    MIN_COMPATIBLE_S6_AGENT_VERSION,
     compare_s6_agent_version,
+    MIN_COMPATIBLE_S6_AGENT_VERSION,
 )
 from cyclo_manager.models import (
     S6AgentStatusListResponse,
@@ -137,7 +137,10 @@ async def list_agent_statuses(
     '/{container}/agent/update',
     response_model=S6AgentUpdateResponse,
     summary='Update container s6 agent',
-    description='Update /opt/cyclo_manager inside the container to the manager version and restart it.',
+    description=(
+        'Update /opt/cyclo_manager inside the container to the manager version '
+        'and restart it.'
+    ),
 )
 async def update_s6_agent(
     container: str = Depends(get_validated_container),

@@ -129,9 +129,7 @@ _ROBOT_TYPE_FILE_BY_SERVICE = {
 
 
 def _write_robot_type(service_name: str, robot_type: str) -> None:
-    """
-    Write robot type to file for run scripts that dispatch by robot type.
-    """
+    """Write robot type to file for run scripts that dispatch by robot type."""
     normalized = robot_type.strip().lower()
     allowed = _ROBOT_TYPE_BY_SERVICE.get(service_name)
     if allowed is None:

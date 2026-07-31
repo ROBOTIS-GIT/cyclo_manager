@@ -83,7 +83,13 @@ class S6AgentStatusResponse(BaseModel):
     """Container s6 agent status and compatibility."""
 
     container: str = Field(..., description='Container name')
-    status: Literal['up_to_date', 'compatible', 'outdated', 'unreachable', 'unknown_version'] = Field(
+    status: Literal[
+        'up_to_date',
+        'compatible',
+        'outdated',
+        'unreachable',
+        'unknown_version',
+    ] = Field(
         ..., description='Agent compatibility status'
     )
     version: Optional[str] = Field(None, description='Installed s6 agent version')
@@ -165,7 +171,7 @@ class DockerContainerListResponse(BaseModel):
 class DockerImageInfo(BaseModel):
     """Docker image information."""
 
-    id: str = Field(..., description='Image ID', examples=['sha256:abc123def456'])
+    id: str = Field(..., description='Image ID', examples=['sha256:abc123def456'])  # noqa: A003
     short_id: str = Field(..., description='Short image ID', examples=['abc123def456'])
     tags: list[str] = Field(..., description='Image tags')
     size_bytes: int = Field(..., description='Image size in bytes')

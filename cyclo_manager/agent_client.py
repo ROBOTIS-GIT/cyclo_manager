@@ -44,9 +44,7 @@ class AgentClient(SocketHttpClient):
         super().__init__(socket_path, base_url='http://agent', timeout=timeout)
 
     async def get_agent_version(self) -> dict:
-        """
-        Get agent version metadata from the root endpoint.
-        """
+        """Get agent version metadata from the root endpoint."""
         logger.debug(f'Requesting agent version from {self.socket_path}')
         return await self.request_json('GET', '/')
 
@@ -224,6 +222,7 @@ class AgentClient(SocketHttpClient):
         """
         logger.debug(f"Clearing logs for service '{service_name}' via agent at {self.socket_path}")
         return await self.request_json('DELETE', f'/services/{service_name}/logs')
+
 
 class AgentClientPool:
     """
