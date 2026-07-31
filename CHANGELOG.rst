@@ -6,6 +6,9 @@ Changelog for package cyclo_manager
 ------------------
 * Improved ROS 2 bridge request synchronization with per-request response queues for discovery, subscription, QoS lookup, publishing, and unsubscribe results.
 * Changed service log delivery from polling to streaming and refactored related WebSocket and UI code.
+* Added support for multiple robot containers, including ``ai_worker`` and ``open_manipulator`` system profiles.
+* Added OMY and OMX bringup controls with follower and leader launch argument configuration.
+* Added serial port discovery and port selection for Open Manipulator launch arguments.
 * Changed Jog robot readiness checks from parsing bringup logs to using robot service status and the selected robot model.
 * Added service log file download support with a Download button in the log panel.
 * Added s6 agent compatibility checks and update support in Version Management.
