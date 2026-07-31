@@ -106,16 +106,16 @@ The pip package installs a small **FastAPI** server that listens on a **Unix dom
 |------|------|
 | Socket | `/var/run/robotis/agent_sockets/host/host_agent.sock` |
 | systemd unit | `cyclo_host_agent.service` |
-| sudoers | `/etc/sudoers.d/cyclo_manager` (`cp`, `udevadm` for container setup scripts; skipped on root-only devices) |
+| sudoers | `/etc/sudoers.d/cyclo_manager` (`cp`, `udevadm` for container setup scripts; `refresh-host-agent` CLI subcommand for UI updates; skipped on root-only devices) |
 
 The API container reaches it at `/agents/host/host_agent.sock` (see bundled `config.yml`).
 
 **Responsibilities:**
 
 - List and update **`~/ROBOTIS-GIT/*`** git repositories (Version Management in the UI)
-- Run **`cyclo_manager update`** when triggered from the UI (`POST /host/update`)
+- Run Cyclo Manager package updates from the UI by delegating to `cyclo_manager update`
 
-`cyclo_manager up` and `cyclo_manager update` both call `_ensure_host_agent()`, which is idempotent — safe to run after upgrades or user changes.
+`cyclo_manager up` installs the `refresh-host-agent` CLI subcommand into sudoers. It is registered as `sys.executable -m cyclo_manager_cli.cli refresh-host-agent` with `SETENV`, so UI-triggered updates can pass the current `PYTHONPATH` to sudo and do not depend on `PATH`. The command is idempotent and refreshes the socket directory, sudoers file, systemd unit, and service state after package upgrades.
 
 Repository scanning uses `CYCLO_HOST_AGENT_WORKSPACE` when set. Otherwise it uses the service user's home directory, except root-only devices with `/data/docker`, where `/data/docker` is used automatically.
 

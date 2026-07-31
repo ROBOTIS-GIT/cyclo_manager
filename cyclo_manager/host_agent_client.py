@@ -65,3 +65,6 @@ class HostAgentClient(SocketHttpClient):
 
     async def get_update_status(self) -> dict:
         return await self.request_json('GET', '/system/update/status', timeout=10.0)
+
+    async def get_version(self) -> dict:
+        return await self.request_json('GET', '/system/version', timeout=10.0)

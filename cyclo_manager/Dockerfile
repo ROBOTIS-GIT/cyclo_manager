@@ -6,6 +6,7 @@ WORKDIR /app
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
     git \
+    nano \
     python3-venv \
     ros-jazzy-rmw-zenoh-cpp \
     ros-jazzy-control-msgs \

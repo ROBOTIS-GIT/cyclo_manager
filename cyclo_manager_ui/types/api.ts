@@ -205,6 +205,10 @@ export interface CycloManagerVersionResponse {
   update_available: boolean;
 }
 
+export interface HostAgentVersionResponse {
+  version: string;
+}
+
 export interface ErrorResponse {
   error: string;
   detail: string | null;

@@ -41,6 +41,7 @@ import type {
   RepoUpdatesResponse,
   RepoBranchCheckResponse,
   CycloManagerVersionResponse,
+  HostAgentVersionResponse,
   RobotType,
   ROS2TopicInfoResponse,
   ROS2TopicsListResponse,
@@ -280,6 +281,10 @@ export async function getDockerContainerLogs(
 
 export async function getCycloManagerVersion(): Promise<CycloManagerVersionResponse> {
   return request<CycloManagerVersionResponse>({ method: "GET", url: "/version" });
+}
+
+export async function getHostAgentVersion(): Promise<HostAgentVersionResponse> {
+  return request<HostAgentVersionResponse>({ method: "GET", url: "/host/version" });
 }
 
 export async function updateCycloManager(): Promise<void> {

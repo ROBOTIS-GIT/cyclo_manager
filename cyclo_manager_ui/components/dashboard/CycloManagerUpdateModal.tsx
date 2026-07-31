@@ -18,7 +18,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { btnStyle } from "@/components/dashboard/DashboardComponents";
-import { getCycloManagerVersion, getUpdateStatus, updateCycloManager } from "@/lib/api";
+import { getCycloManagerVersion, getHostAgentVersion, getUpdateStatus, updateCycloManager } from "@/lib/api";
 import type { CycloManagerVersionResponse } from "@/types/api";
 
 type Phase = "idle" | "updating" | "done" | "error";
@@ -26,11 +26,13 @@ type Phase = "idle" | "updating" | "done" | "error";
 const UPDATE_TIMEOUT_MS = 15 * 60 * 1000;
 const STATUS_POLL_MS = 2000;
 const VERSION_POLL_MS = 3000;
+const STATUS_IDLE_GRACE_MS = 8000;
+const HOST_AGENT_VERSION_GRACE_MS = 30000;
 
 const PHASE_LABELS: Record<Phase, string> = {
   idle: "",
   updating: "Updating Cyclo Manager...",
-  done: "Update complete. Reloading...",
+  done: "Update complete.",
   error: "Update failed.",
 };
 
@@ -65,15 +67,33 @@ function isUpdateFailed(version: CycloManagerVersionResponse, beforeCurrent: str
   return version.update_available && version.current === beforeCurrent;
 }
 
-function OutputBox({ output, error }: { output: string; error?: boolean }) {
+function isHostAgentUpdated(hostAgentVersion: string, managerCurrent: string): boolean {
+  if (!isKnownVersion(hostAgentVersion)) {
+    return false;
+  }
+  return isKnownVersion(managerCurrent) && hostAgentVersion === managerCurrent;
+}
+
+function OutputBox({
+  output,
+  error,
+}: {
+  output: string;
+  error?: boolean;
+}) {
   if (!output) return null;
+  let textColor = "var(--vscode-foreground)";
+  if (error) {
+    textColor = "var(--vscode-errorForeground)";
+  }
   return (
     <pre
       className="text-xs p-3 rounded font-mono whitespace-pre-wrap break-words overflow-auto"
       style={{
+        minHeight: 160,
         maxHeight: 220,
         backgroundColor: "var(--vscode-textCodeBlock-background)",
-        color: error ? "var(--vscode-errorForeground)" : "var(--vscode-foreground)",
+        color: textColor,
         border: "1px solid var(--vscode-panel-border)",
       }}
     >
@@ -110,7 +130,6 @@ export default function CycloManagerUpdateModal({
   const succeedUpdate = useCallback(() => {
     stopPolling();
     setPhase("done");
-    setTimeout(() => window.location.reload(), 1500);
   }, [stopPolling]);
 
   const waitForServerThenCheckVersion = useCallback((
@@ -118,6 +137,7 @@ export default function CycloManagerUpdateModal({
     targetLatest: string,
     startedAt: number,
   ) => {
+    const versionCheckStartedAt = Date.now();
     pollingRef.current = setInterval(async () => {
       if (Date.now() - startedAt > UPDATE_TIMEOUT_MS) {
         failUpdate("Update timed out. Check the server and retry.");
@@ -125,8 +145,23 @@ export default function CycloManagerUpdateModal({
       }
       try {
         const latestVersion = await getCycloManagerVersion();
-        if (isUpdateSuccessful(latestVersion, beforeCurrent, targetLatest)) {
+        const managerUpdated = isUpdateSuccessful(latestVersion, beforeCurrent, targetLatest);
+        let hostAgentVersion = "";
+        try {
+          hostAgentVersion = (await getHostAgentVersion()).version;
+        } catch {
+          // Host agent may still be restarting or still on a version without this endpoint.
+        }
+        const hostAgentUpdated = isHostAgentUpdated(hostAgentVersion, latestVersion.current);
+        if (managerUpdated && hostAgentUpdated) {
           succeedUpdate();
+        } else if (
+          managerUpdated &&
+          Date.now() - versionCheckStartedAt > HOST_AGENT_VERSION_GRACE_MS
+        ) {
+          failUpdate(
+            `Host agent version is ${hostAgentVersion || "unavailable"}; expected ${latestVersion.current}.`,
+          );
         } else if (isUpdateFailed(latestVersion, beforeCurrent)) {
           failUpdate(
             `Update may have failed. Still on ${latestVersion.current}, latest is ${latestVersion.latest}.`,
@@ -154,10 +189,16 @@ export default function CycloManagerUpdateModal({
       try {
         consecutiveFailures = 0;
         const status = await getUpdateStatus();
-        if (status.output) setOutput(status.output);
         if (status.phase === "updating") sawUpdating = true;
         if (status.phase === "error") {
+          if (status.output) setOutput(status.output);
           failUpdate(status.error || "Update failed.");
+        } else if (
+          status.phase === "done" ||
+          (status.phase === "idle" && (sawUpdating || Date.now() - startedAt > STATUS_IDLE_GRACE_MS))
+        ) {
+          stopPolling();
+          waitForServerThenCheckVersion(beforeCurrent, targetLatest, startedAt);
         }
       } catch {
         consecutiveFailures += 1;
@@ -189,7 +230,7 @@ export default function CycloManagerUpdateModal({
   useEffect(() => () => stopPolling(), [stopPolling]);
 
   const running = phase === "updating";
-  const canClose = !running && phase !== "done";
+  const canClose = !running;
 
   return (
     <div
@@ -282,6 +323,16 @@ export default function CycloManagerUpdateModal({
               </button>
               <button onClick={handleUpdate} style={btnStyle(true)}>
                 Retry
+              </button>
+            </>
+          )}
+          {phase === "done" && (
+            <>
+              <button onClick={onClose} style={btnStyle(false)}>
+                Done
+              </button>
+              <button onClick={() => window.location.reload()} style={btnStyle(true)}>
+                Reload
               </button>
             </>
           )}

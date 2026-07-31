@@ -160,14 +160,23 @@ def _install_sudoers(user: str) -> bool:
     """
     Write sudoers rules for cyclo_manager.
 
-    Grant NOPASSWD for udev operations needed by container.sh
-    (cp to /etc/udev/rules.d/, udevadm control/trigger).
+    Grant NOPASSWD for udev operations and the root-only host-agent refresh command.
     """
-    print('  Installing sudoers rules (cp, udevadm)...')
+    if not sys.executable:
+        print(
+            'Python executable is unknown. '
+            'Run `pip install cyclo-manager` and retry.',
+            file=sys.stderr,
+        )
+        return False
+
+    print('  Installing sudoers rules (cp, udevadm, host-agent refresh command)...')
     sudoers_content = (
         f'{user} ALL=(ALL) NOPASSWD: /usr/bin/cp, '
         f'/usr/bin/udevadm control --reload-rules, '
-        f'/usr/bin/udevadm trigger\n'
+        f'/usr/bin/udevadm trigger, '
+        'SETENV: '
+        f'{sys.executable} -m cyclo_manager_cli.cli refresh-host-agent\n'
     )
     sudoers_file = '/etc/sudoers.d/cyclo_manager'
     try:
@@ -188,7 +197,7 @@ def _install_sudoers(user: str) -> bool:
         return False
 
 
-def _ensure_host_agent() -> int:
+def _ensure_host_agent(restart_no_block: bool = False) -> int:
     """
     Install or refresh cyclo_host_agent: systemd unit, socket dir, and service start.
 
@@ -261,8 +270,11 @@ WantedBy=multi-user.target
             capture_output=True,
         )
         print(f'  Starting {HOST_AGENT_SERVICE}...')
+        restart_cmd = ['systemctl', 'restart', f'{HOST_AGENT_SERVICE}.service']
+        if restart_no_block:
+            restart_cmd.insert(1, '--no-block')
         subprocess.run(
-            _sudo_cmd(['systemctl', 'restart', f'{HOST_AGENT_SERVICE}.service']),
+            _sudo_cmd(restart_cmd),
             check=True,
             capture_output=True,
         )
@@ -274,6 +286,47 @@ WantedBy=multi-user.target
     except FileNotFoundError:
         print('Required command not found. Install the host agent service manually.', file=sys.stderr)
         return 1
+
+
+def _refresh_host_agent_after_update() -> int:
+    """Refresh host agent with the sudoers-registered cyclo_manager command when possible."""
+    if os.geteuid() == 0:
+        return _ensure_host_agent(restart_no_block=True)
+    if not sys.executable:
+        print(
+            'Python executable is unknown; falling back to setup.',
+            file=sys.stderr,
+        )
+        return _ensure_host_agent() if sys.stdin.isatty() else 1
+
+    refresh_command = [sys.executable, '-m', 'cyclo_manager_cli.cli', 'refresh-host-agent']
+    print(f'Refreshing host agent with sudo command: {" ".join(refresh_command)}')
+    pythonpath = os.pathsep.join(dict.fromkeys(path for path in sys.path if path))
+    try:
+        subprocess.run(['sudo', '-n', f'PYTHONPATH={pythonpath}', *refresh_command], check=True)
+        return 0
+    except subprocess.CalledProcessError as e:
+        if sys.stdin.isatty():
+            print(
+                'Warning: sudo refresh command failed; falling back to interactive setup.',
+                file=sys.stderr,
+            )
+            return _ensure_host_agent()
+        print(f'Host-agent refresh command failed: {e}', file=sys.stderr)
+        return e.returncode
+    except FileNotFoundError:
+        if sys.stdin.isatty():
+            return _ensure_host_agent()
+        print('sudo not found; cannot refresh host agent service.', file=sys.stderr)
+        return 1
+
+
+def cmd_refresh_host_agent(args: argparse.Namespace) -> int:
+    """Refresh the host agent from sudoers after a package update."""
+    if os.geteuid() != 0:
+        print('cyclo_manager refresh-host-agent must run as root.', file=sys.stderr)
+        return 1
+    return _ensure_host_agent(restart_no_block=True)
 
 
 def cmd_up(args: argparse.Namespace) -> int:
@@ -445,7 +498,7 @@ def cmd_update(args: argparse.Namespace) -> int:
         return e.returncode
 
     print('Refreshing host agent (unit, socket, sudoers)...')
-    if _ensure_host_agent() != 0:
+    if _refresh_host_agent_after_update() != 0:
         print('Warning: Failed to refresh host agent service.', file=sys.stderr)
         return 1
 
@@ -485,6 +538,12 @@ def main() -> int:
         help='Skip docker compose pull before starting containers (use cached images only)',
     )
     update_parser.set_defaults(func=cmd_update)
+
+    refresh_parser = sub.add_parser(
+        'refresh-host-agent',
+        help='Refresh cyclo_host_agent service after package update',
+    )
+    refresh_parser.set_defaults(func=cmd_refresh_host_agent)
 
     args = parser.parse_args()
     if not args.command:

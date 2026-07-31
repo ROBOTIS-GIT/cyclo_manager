@@ -156,8 +156,8 @@ Interactive docs: `http://<host>:8081/docs`
 | | `GET /host/repos/{name}/branch`, `GET /host/repos/{name}/status` | Branch check and local-change status |
 | | `POST /host/repos/{name}/update` | git pull workflow |
 | | `POST /host/repos/{name}/container/stop`, `.../start` | Stop/start related containers during update |
-| | `POST /host/update` | `pip install -U cyclo-manager` + `docker compose pull` + stack restart |
-| | `GET /host/update/status` | Background package-update status |
+| | `POST /host/update` | Start one-click `cyclo_manager` package update through the host agent |
+| | `GET /host/update/status` | Poll package update phase, output, and error |
 | Version | `GET /version` | Installed vs PyPI `cyclo-manager` |
 | WebSocket | `/ws/{container}/services/{service}/logs` | Live s6 logs (agent NDJSON stream → browser) |
 | | `/ws/ros2/topics/{topic}` | Live topic data (see below) |
