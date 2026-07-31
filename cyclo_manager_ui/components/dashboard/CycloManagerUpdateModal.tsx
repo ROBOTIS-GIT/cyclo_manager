@@ -32,7 +32,7 @@ const HOST_AGENT_VERSION_GRACE_MS = 30000;
 const PHASE_LABELS: Record<Phase, string> = {
   idle: "",
   updating: "Updating Cyclo Manager...",
-  done: "Update complete.",
+  done: "Update complete. Reloading...",
   error: "Update failed.",
 };
 
@@ -130,6 +130,7 @@ export default function CycloManagerUpdateModal({
   const succeedUpdate = useCallback(() => {
     stopPolling();
     setPhase("done");
+    setTimeout(() => window.location.reload(), 1500);
   }, [stopPolling]);
 
   const waitForServerThenCheckVersion = useCallback((
@@ -230,7 +231,7 @@ export default function CycloManagerUpdateModal({
   useEffect(() => () => stopPolling(), [stopPolling]);
 
   const running = phase === "updating";
-  const canClose = !running;
+  const canClose = !running && phase !== "done";
 
   return (
     <div
@@ -323,16 +324,6 @@ export default function CycloManagerUpdateModal({
               </button>
               <button onClick={handleUpdate} style={btnStyle(true)}>
                 Retry
-              </button>
-            </>
-          )}
-          {phase === "done" && (
-            <>
-              <button onClick={onClose} style={btnStyle(false)}>
-                Done
-              </button>
-              <button onClick={() => window.location.reload()} style={btnStyle(true)}>
-                Reload
               </button>
             </>
           )}
