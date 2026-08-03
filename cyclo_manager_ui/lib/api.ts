@@ -279,8 +279,12 @@ export async function getDockerContainerLogs(
   });
 }
 
-export async function getCycloManagerVersion(): Promise<CycloManagerVersionResponse> {
-  return request<CycloManagerVersionResponse>({ method: "GET", url: "/version" });
+export async function getCycloManagerVersion(checkLatest: boolean = true): Promise<CycloManagerVersionResponse> {
+  return request<CycloManagerVersionResponse>({
+    method: "GET",
+    url: "/version",
+    params: { check_latest: checkLatest },
+  });
 }
 
 export async function getHostAgentVersion(): Promise<HostAgentVersionResponse> {

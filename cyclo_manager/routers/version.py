@@ -65,11 +65,11 @@ def _is_newer(latest: str, current: str) -> bool:
 
 
 @router.get('', response_model=CycloManagerVersionResponse)
-async def get_cyclo_manager_version() -> CycloManagerVersionResponse:
+async def get_cyclo_manager_version(check_latest: bool = True) -> CycloManagerVersionResponse:
     """Get current cyclo_manager version and latest from PyPI; report if update is available."""
     from cyclo_manager import __version__ as current_ver
 
-    latest_ver = await _fetch_latest_from_pypi(PYPI_PACKAGE)
+    latest_ver = await _fetch_latest_from_pypi(PYPI_PACKAGE) if check_latest else ''
     pypi_available = bool(latest_ver)
     update_available = bool(
         pypi_available and current_ver != 'unknown' and _is_newer(latest_ver, current_ver)

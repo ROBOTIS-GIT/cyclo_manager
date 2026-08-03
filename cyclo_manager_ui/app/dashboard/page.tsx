@@ -16,27 +16,23 @@
 
 "use client";
 
-import { useEffect, useState, useCallback, useMemo } from "react";
+import { useState, useCallback, useMemo } from "react";
 import Convert from "ansi-to-html";
 import { usePolling } from "@/hooks/usePolling";
 import {
-  AgentStatusRow,
-  AgentUpdateModal,
-  type AgentUpdateModalState,
   btnStyle,
   Card,
   CircleGauge,
   ContainerRow,
-  CycloManagerStatusRow,
   formatUptime,
   InfoRow,
   InfoStatusRow,
   pct,
-  UpdatableRepoRow,
-  VersionGroup,
 } from "@/components/dashboard/DashboardComponents";
-import CycloManagerUpdateModal from "@/components/dashboard/CycloManagerUpdateModal";
 import DockerImagesModal from "@/components/dashboard/DockerImagesModal";
+import VersionManagementPanel, {
+  type InternetStatus,
+} from "@/components/dashboard/VersionManagementPanel";
 import {
   getSystemStats,
   getRobotInfo,
@@ -45,47 +41,24 @@ import {
   getDockerContainerLogs,
   getBashrc,
   updateBashrc,
-  getRepoUpdates,
-  getS6AgentStatuses,
-  updateS6Agent,
-  getCycloManagerVersion,
 } from "@/lib/api";
 import type {
-  CycloManagerVersionResponse,
   HostSystemStatsResponse,
   RobotInfoResponse,
   DockerContainerInfo,
-  RepoUpdateStatus,
-  S6AgentStatusResponse,
 } from "@/types/api";
-import UpdateWizard from "@/components/UpdateWizard";
 import { useTheme } from "@/contexts/ThemeContext";
 
 const POLL_INTERVAL = 5000;
-
-const VERSION_HELP_TEXT = {
-  repositories: "Shows whether repositories can be updated from their configured remotes.",
-  agents: "Shows the s6 agent version running inside each container. s6 agents is responsible for managing something like a service or a process inside a container.",
-  manager: "Shows the installed Cyclo Manager version and whether a manager update is available.",
-} as const;
 
 // ─── page ────────────────────────────────────────────────────────────────────
 
 export default function HomePage() {
   const { theme } = useTheme();
   const [robotInfo, setRobotInfo] = useState<RobotInfoResponse | null>(null);
+  const [robotInfoCheckState, setRobotInfoCheckState] = useState<"loading" | "error" | "done">("loading");
   const [systemStats, setSystemStats] = useState<HostSystemStatsResponse | null>(null);
   const [containers, setContainers] = useState<DockerContainerInfo[]>([]);
-  const [managerVersion, setManagerVersion] = useState<CycloManagerVersionResponse | null>(null);
-  const [managerCheckState, setManagerCheckState] = useState<"loading" | "error" | "done">("loading");
-  const [updatableRepos, setUpdatableRepos] = useState<RepoUpdateStatus[]>([]);
-  const [repoCheckState, setRepoCheckState] = useState<"loading" | "error" | "done">("loading");
-  const [agentStatuses, setAgentStatuses] = useState<S6AgentStatusResponse[]>([]);
-  const [agentCheckState, setAgentCheckState] = useState<"loading" | "error" | "done">("loading");
-  const [updatingAgent, setUpdatingAgent] = useState<string | null>(null);
-  const [agentUpdateModal, setAgentUpdateModal] = useState<AgentUpdateModalState | null>(null);
-  const [wizardRepo, setWizardRepo] = useState<RepoUpdateStatus | null>(null);
-  const [showManagerUpdateModal, setShowManagerUpdateModal] = useState(false);
   const [showDockerImages, setShowDockerImages] = useState(false);
   const [actionLoading, setActionLoading] = useState<{ container: string; action: string } | null>(null);
 
@@ -119,137 +92,23 @@ export default function HomePage() {
     } catch {}
   }, []);
 
-  const loadRepoUpdates = useCallback(async () => {
-    setRepoCheckState("loading");
-    try {
-      const { repos } = await getRepoUpdates();
-      setUpdatableRepos(repos);
-      setRepoCheckState("done");
-    } catch {
-      setRepoCheckState("error");
-    }
-  }, []);
-
-  const loadManagerVersion = useCallback(async () => {
-    setManagerCheckState("loading");
-    try {
-      const version = await getCycloManagerVersion();
-      setManagerVersion(version);
-      setManagerCheckState("done");
-    } catch {
-      setManagerVersion(null);
-      setManagerCheckState("error");
-    }
-  }, []);
-
-  const loadAgentStatuses = useCallback(async () => {
-    setAgentCheckState("loading");
-    try {
-      const { agents } = await getS6AgentStatuses();
-      setAgentStatuses(agents);
-      setAgentCheckState("done");
-    } catch {
-      setAgentCheckState("error");
-    }
-  }, []);
-
-  const loadVersionManagement = useCallback(() => {
-    loadManagerVersion();
-    loadRepoUpdates();
-    loadAgentStatuses();
-  }, [loadAgentStatuses, loadManagerVersion, loadRepoUpdates]);
-
-  const openAgentUpdateConfirm = useCallback((container: string) => {
-    setAgentUpdateModal({
-      container,
-      status: "confirm",
-      message: "s6 agent will be updated and container will be restarted.",
-      output: "",
-    });
-  }, []);
-
-  const handleAgentUpdate = useCallback(async (container: string) => {
-    setUpdatingAgent(container);
-    setAgentUpdateModal({
-      container,
-      status: "running",
-      message: "Updating agent repository and restarting container...",
-      output: "",
-    });
-    try {
-      const result = await updateS6Agent(container);
-      if (!result.success) {
-        const message = result.output || `Update failed with exit code ${result.exit_code}`;
-        setAgentUpdateModal({
-          container,
-          status: "error",
-          message: "Update failed.",
-          output: message,
-        });
-        return;
-      }
-
-      setAgentUpdateModal({
-        container,
-        status: "waiting",
-        message: `Container restarted after updating to ${result.target_ref}. Waiting for agent status...`,
-        output: result.output,
-      });
-
-      let latestAgents: S6AgentStatusResponse[] = [];
-      for (let attempt = 0; attempt < 10; attempt += 1) {
-        await new Promise((resolve) => setTimeout(resolve, 1000));
-        const { agents } = await getS6AgentStatuses();
-        latestAgents = agents;
-        setAgentStatuses(agents);
-        setAgentCheckState("done");
-        const updatedAgent = agents.find((agent) => agent.container === container);
-        if (updatedAgent && updatedAgent.status !== "unreachable") {
-          setAgentUpdateModal({
-            container,
-            status: updatedAgent.status === "outdated" ? "error" : "done",
-            message: updatedAgent.status === "outdated"
-              ? updatedAgent.message ?? "Agent still requires update."
-              : "Agent is reachable and compatible.",
-            output: result.output,
-          });
-          return;
-        }
-      }
-
-      setAgentStatuses(latestAgents);
-      setAgentUpdateModal({
-        container,
-        status: "error",
-        message: "Agent did not become reachable after restart.",
-        output: result.output,
-      });
-    } catch (err) {
-      const message = err instanceof Error ? err.message : "Failed to update s6 agent";
-      setAgentUpdateModal({
-        container,
-        status: "error",
-        message: "Update failed.",
-        output: message,
-      });
-    } finally {
-      setUpdatingAgent(null);
-    }
-  }, []);
-
   const loadAll = useCallback(async () => {
     await Promise.allSettled([
-      getRobotInfo().then(setRobotInfo).catch(() => {}),
+      getRobotInfo()
+        .then((info) => {
+          setRobotInfo(info);
+          setRobotInfoCheckState("done");
+        })
+        .catch(() => {
+          setRobotInfo(null);
+          setRobotInfoCheckState("error");
+        }),
       getSystemStats().then(setSystemStats).catch(() => {}),
       loadContainers(),
     ]);
   }, [loadContainers]);
 
   usePolling(loadAll, POLL_INTERVAL);
-
-  useEffect(() => {
-    loadVersionManagement();
-  }, [loadVersionManagement]);
 
   const handleAction = useCallback(async (name: string, action: "start" | "stop" | "restart") => {
     setActionLoading({ container: name, action });
@@ -327,44 +186,17 @@ export default function HomePage() {
   const storageLabel = systemStats?.ssd_mount_path === "/data" ? "SD" : "SSD";
   const systemGaugeSize = hasSsdStats ? 96 : 110;
   const settingsDocker = containers.find((c) => c.name === settingsContainer) ?? null;
-  const hasRepos = updatableRepos.length > 0;
-  const hasAgents = agentStatuses.length > 0;
-  const versionManagementChecking =
-    managerCheckState === "loading" ||
-    repoCheckState === "loading" ||
-    agentCheckState === "loading";
-  const versionManagementLoading =
-    versionManagementChecking &&
-    !managerVersion &&
-    !hasRepos &&
-    !hasAgents;
-  const versionManagementError =
-    managerCheckState === "error" &&
-    repoCheckState === "error" &&
-    agentCheckState === "error";
+  const versionManagementInternetStatus: InternetStatus =
+    robotInfoCheckState === "loading"
+      ? "loading"
+      : robotInfoCheckState === "error"
+        ? "unknown"
+        : robotInfo?.internet_connected === false
+          ? "offline"
+          : "online";
 
   return (
     <>
-      {wizardRepo && (
-        <UpdateWizard
-          repo={wizardRepo}
-          onClose={() => setWizardRepo(null)}
-          onDone={() => { setWizardRepo(null); loadRepoUpdates(); }}
-        />
-      )}
-      {agentUpdateModal && (
-        <AgentUpdateModal
-          state={agentUpdateModal}
-          onClose={() => setAgentUpdateModal(null)}
-          onConfirm={handleAgentUpdate}
-        />
-      )}
-      {showManagerUpdateModal && managerVersion && (
-        <CycloManagerUpdateModal
-          version={managerVersion}
-          onClose={() => setShowManagerUpdateModal(false)}
-        />
-      )}
       {showDockerImages && (
         <DockerImagesModal onClose={() => setShowDockerImages(false)} />
       )}
@@ -512,104 +344,7 @@ export default function HomePage() {
           </Card>
         </section>
 
-        {/* Version Management */}
-        <section>
-          <Card
-            title="Version Management"
-            action={
-              <button
-                onClick={loadVersionManagement}
-                disabled={versionManagementChecking}
-                style={{ ...btnStyle(false, versionManagementChecking), padding: "2px 8px", fontSize: 11 }}
-              >
-                Refresh
-              </button>
-            }
-          >
-            {versionManagementLoading ? (
-              <div className="p-4 text-sm" style={{ color: "var(--vscode-descriptionForeground)" }}>
-                Checking for updates…
-              </div>
-            ) : versionManagementError ? (
-              <div className="p-4 text-sm" style={{ color: "var(--vscode-descriptionForeground)" }}>
-                Update status unavailable
-              </div>
-            ) : (
-              <>
-                <VersionGroup
-                  title="Repositories"
-                  help={{
-                    text: VERSION_HELP_TEXT.repositories,
-                    ariaLabel: "Repositories version management help",
-                  }}
-                >
-                  {hasRepos ? (
-                    updatableRepos.map((repo) => (
-                      <UpdatableRepoRow
-                        key={repo.name}
-                        repo={repo}
-                        onUpdate={() => setWizardRepo(repo)}
-                        bordered={false}
-                      />
-                    ))
-                  ) : (
-                    <div className="px-4 py-3 text-sm" style={{ color: "var(--vscode-descriptionForeground)" }}>
-                      {robotInfo?.internet_connected === false || repoCheckState === "error"
-                        ? "Repository update status unavailable"
-                        : "No repositories found"}
-                    </div>
-                  )}
-                </VersionGroup>
-
-                <VersionGroup
-                  title="Container Agents"
-                  help={{
-                    text: VERSION_HELP_TEXT.agents,
-                    ariaLabel: "Container agents version management help",
-                  }}
-                >
-                  {hasAgents ? (
-                    agentStatuses.map((agent) => (
-                      <AgentStatusRow
-                        key={agent.container}
-                        agent={agent}
-                        updating={updatingAgent === agent.container}
-                        onUpdate={() => openAgentUpdateConfirm(agent.container)}
-                        bordered={false}
-                      />
-                    ))
-                  ) : (
-                    <div className="px-4 py-3 text-sm" style={{ color: "var(--vscode-descriptionForeground)" }}>
-                      {agentCheckState === "error"
-                        ? "Container agent status unavailable"
-                        : "No container agents found"}
-                    </div>
-                  )}
-                </VersionGroup>
-
-                <VersionGroup
-                  title="Cyclo Manager"
-                  help={{
-                    text: VERSION_HELP_TEXT.manager,
-                    ariaLabel: "Cyclo Manager version management help",
-                  }}
-                >
-                  {managerVersion ? (
-                    <CycloManagerStatusRow
-                      version={managerVersion}
-                      onUpdate={() => setShowManagerUpdateModal(true)}
-                      bordered={false}
-                    />
-                  ) : (
-                    <div className="px-4 py-3 text-sm" style={{ color: "var(--vscode-descriptionForeground)" }}>
-                      Cyclo Manager version unavailable
-                    </div>
-                  )}
-                </VersionGroup>
-              </>
-            )}
-          </Card>
-        </section>
+        <VersionManagementPanel internetStatus={versionManagementInternetStatus} />
 
         </div>
 
