@@ -234,7 +234,8 @@ export default function VersionManagementPanel({
   const [updatingAgent, setUpdatingAgent] = useState<string | null>(null);
   const [agentUpdateModal, setAgentUpdateModal] = useState<AgentUpdateModalState | null>(null);
   const [wizardRepo, setWizardRepo] = useState<RepoUpdateStatus | null>(null);
-  const [showManagerUpdateModal, setShowManagerUpdateModal] = useState(false);
+  const [managerUpdateVersion, setManagerUpdateVersion] =
+    useState<CycloManagerVersionResponse | null>(null);
 
   const loadRepoUpdates = useCallback(async () => {
     setRepoCheckState("loading");
@@ -391,10 +392,10 @@ export default function VersionManagementPanel({
           onConfirm={handleAgentUpdate}
         />
       )}
-      {showManagerUpdateModal && managerVersion && (
+      {managerUpdateVersion && (
         <CycloManagerUpdateModal
-          version={managerVersion}
-          onClose={() => setShowManagerUpdateModal(false)}
+          version={managerUpdateVersion}
+          onClose={() => setManagerUpdateVersion(null)}
         />
       )}
       <Card
@@ -501,7 +502,7 @@ export default function VersionManagementPanel({
                   targetLabel="Latest"
                   target={managerVersion.latest}
                   status={managerStatus(managerVersion, offline)}
-                  onUpdate={() => setShowManagerUpdateModal(true)}
+                  onUpdate={() => setManagerUpdateVersion(managerVersion)}
                 />
               ) : (
                 <EmptyVersionGroupRow
