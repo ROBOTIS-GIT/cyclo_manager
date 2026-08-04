@@ -39,7 +39,7 @@ class ServiceActionRequest(BaseModel):
         None,
         description=(
             'Required for robot bringup services that select launch files by robot type. '
-            'ai_worker_bringup accepts sg2, bg2, sh5, bh5, mobile; '
+            'ai_worker_bringup accepts sg2, bg2, sh5, bh5, f1, f2, mobile; '
             'open_manipulator_bringup and leader_bringup accept omy, omx.'
         ),
     )

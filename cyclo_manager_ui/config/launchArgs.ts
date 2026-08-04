@@ -16,7 +16,8 @@
 
 /**
  * Launch arguments configuration for ROS2 bringup services.
- * ai_worker_bringup dispatches to the launch file (sg2/bg2/sh5/bh5/mobile) via /run/robot_type
+ * ai_worker_bringup dispatches to the launch file (sg2/bg2/sh5/bh5/f1/f2/mobile)
+ * via /run/robot_type
  * and launch args from the UI.
  */
 
@@ -120,6 +121,51 @@ export const BG2_CONFIG: LaunchArgsConfig = {
     { key: "use_head_eef_tracker", label: "Use Head EEF Tracker", type: "bool", default: "false" },
     initPositionFileArg("ffw_bg2_follower_initial_positions.yaml"),
     { key: "ros2_control_type", label: "ROS2 Control Type", type: "string", default: "ffw_bg2_follower" },
+  ],
+};
+
+/** ai_worker_bringup - F1 variant (f1_follower_ai.launch.py) */
+export const F1_CONFIG: LaunchArgsConfig = {
+  serviceId: "ai_worker_bringup",
+  storageKey: "ai_worker_bringup_f1",
+  title: "Follower Bringup (F1) Launch Arguments",
+  args: [
+    { key: "start_rviz", label: "Start RViz", type: "bool", default: "false" },
+    { key: "use_sim", label: "Use Simulation", type: "bool", default: "false" },
+    { key: "use_mock_hardware", label: "Use Mock Hardware", type: "bool", default: "false" },
+    { key: "mock_sensor_commands", label: "Mock Sensor Commands", type: "bool", default: "false" },
+    { key: "port_name", label: "Port Name", type: "string", default: "/dev/follower" },
+    { key: "launch_cameras", label: "Launch Cameras", type: "bool", default: "true" },
+    { key: "head_camera_type", label: "Head Camera Type", type: "string", default: "realsense" },
+    { key: "auto_assign_cameras", label: "Auto Assign Cameras", type: "bool", default: "true" },
+    { key: "init_position", label: "Init Position", type: "bool", default: "true" },
+    { key: "model", label: "Model", type: "string", default: "ffw_f1_follower" },
+    { key: "use_head_eef_tracker", label: "Use Head EEF Tracker", type: "bool", default: "false" },
+    initPositionFileArg("ffw_f1_follower_initial_positions.yaml"),
+    { key: "ros2_control_type", label: "ROS2 Control Type", type: "string", default: "ffw_f1_follower" },
+  ],
+};
+
+/** ai_worker_bringup - F2 variant (f2_follower_ai.launch.py) */
+export const F2_CONFIG: LaunchArgsConfig = {
+  serviceId: "ai_worker_bringup",
+  storageKey: "ai_worker_bringup_f2",
+  title: "Follower Bringup (F2) Launch Arguments",
+  args: [
+    { key: "start_rviz", label: "Start RViz", type: "bool", default: "false" },
+    { key: "use_sim", label: "Use Simulation", type: "bool", default: "false" },
+    { key: "use_mock_hardware", label: "Use Mock Hardware", type: "bool", default: "false" },
+    { key: "mock_sensor_commands", label: "Mock Sensor Commands", type: "bool", default: "false" },
+    { key: "port_name", label: "Port Name", type: "string", default: "/dev/follower" },
+    { key: "launch_cameras", label: "Launch Cameras", type: "bool", default: "true" },
+    { key: "head_camera_type", label: "Head Camera Type", type: "string", default: "realsense" },
+    { key: "auto_assign_cameras", label: "Auto Assign Cameras", type: "bool", default: "true" },
+    { key: "launch_lidar", label: "Launch Lidar", type: "bool", default: "true" },
+    { key: "init_position", label: "Init Position", type: "bool", default: "true" },
+    { key: "model", label: "Model", type: "string", default: "ffw_f2_follower" },
+    { key: "use_head_eef_tracker", label: "Use Head EEF Tracker", type: "bool", default: "false" },
+    initPositionFileArg("ffw_f2_follower_initial_positions.yaml"),
+    { key: "ros2_control_type", label: "ROS2 Control Type", type: "string", default: "ffw_f2_follower" },
   ],
 };
 

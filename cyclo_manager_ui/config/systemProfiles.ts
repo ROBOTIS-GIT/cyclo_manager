@@ -17,6 +17,8 @@
 import {
   BG2_CONFIG,
   BH5_CONFIG,
+  F1_CONFIG,
+  F2_CONFIG,
   LG2_CONFIG,
   MOBILE_CONFIG,
   OMY_CONFIG,
@@ -71,6 +73,8 @@ const AI_WORKER_ROBOT_TYPE_OPTIONS = [
   { value: "bg2", label: "BG2", config: BG2_CONFIG, robotType: "bg2" },
   { value: "sh5", label: "SH5", config: SH5_CONFIG, robotType: "sh5" },
   { value: "bh5", label: "BH5", config: BH5_CONFIG, robotType: "bh5" },
+  { value: "f1", label: "F1", config: F1_CONFIG, robotType: "f1" },
+  { value: "f2", label: "F2", config: F2_CONFIG, robotType: "f2" },
   { value: "mobile", label: "Mobile", config: MOBILE_CONFIG, robotType: "mobile" },
 ] as const;
 

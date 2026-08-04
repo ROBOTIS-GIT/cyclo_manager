@@ -33,13 +33,15 @@ const SPEED_STEP = 0.1;
 const REPEAT_INTERVAL_MS = 120;
 const STATUS_POLL_INTERVAL_MS = 2000;
 const ZERO_VELOCITY = { linearX: 0, angularZ: 0 };
-const AI_WORKER_ROBOT_TYPES = new Set<AiWorkerRobotType>(["sg2", "bg2", "sh5", "bh5", "mobile"]);
-const JOG_SUPPORTED_ROBOT_TYPES = new Set<AiWorkerRobotType>(["sg2", "sh5", "mobile"]);
+const AI_WORKER_ROBOT_TYPES = new Set<AiWorkerRobotType>(["sg2", "bg2", "sh5", "bh5", "f1", "f2", "mobile"]);
+const JOG_SUPPORTED_ROBOT_TYPES = new Set<AiWorkerRobotType>(["sg2", "sh5", "f2", "mobile"]);
 const AI_WORKER_ROBOT_LABELS: Record<AiWorkerRobotType, string> = {
   sg2: "SG2",
   bg2: "BG2",
   sh5: "SH5",
   bh5: "BH5",
+  f1: "F1",
+  f2: "F2",
   mobile: "Mobile",
 };
 

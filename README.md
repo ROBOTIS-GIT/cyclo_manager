@@ -109,7 +109,7 @@ Bundled copy for pip installs: `cyclo_manager_cli/cyclo_manager_cli/config/confi
 | Apps hub | `/app` | Links to Cyclo Manager (dashboard) and Cyclo Intelligence (port 7080) |
 | Dashboard | `/dashboard` | Host stats, Docker containers/images, logs, bashrc, version management (host git repos + s6 agent compatibility) |
 | System | `/{container}/system` | s6 bringup, launch args, URDF viewer, streaming service logs (download/clear), robot status |
-| Jog | `/jog` | `/cmd_vel` teleop for supported robot models (SG2, BG2, SH5, BH5, Mobile) |
+| Jog | `/jog` | `/cmd_vel` teleop for supported robot models (SG2, SH5, F2, Mobile) |
 | Topics | `/topics` | ROS 2 topic browser; live data via WebSocket |
 | Terminal | `/terminal` | Multi-tab bash into running containers (`?container={name}` optional) |
 | noVNC | `/novnc` | Remote display (when `novnc-server` is running) |
@@ -133,7 +133,7 @@ Interactive docs: `http://<host>:8081/docs`
 | System | `GET /system/info`, `GET /system/status` | Hostname, internet, CPU/memory/disk |
 | | `GET /system/serial-ports` | Serial device candidates from the host `/dev` tree |
 | Services | `GET /{container}/services/{service}/status` | Single s6 service status |
-| | `POST /{container}/services/{service}` | `up` / `down` / `restart`; optional `launch_args`, `robot_type` |
+| | `POST /{container}/services/{service}` | `up` / `down` / `restart`; optional `launch_args`, `robot_type` (AI Worker: SG2/BG2/SH5/BH5/F1/F2/Mobile) |
 | | `GET /{container}/services/{service}/logs/download` | Download current s6 log file (ANSI stripped) |
 | | `DELETE /{container}/services/{service}/logs` | Truncate s6 log file |
 | Container | `GET`, `PUT /{container}/bashrc` | Via `docker exec` |
