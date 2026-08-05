@@ -16,24 +16,28 @@
 
 // TypeScript types matching the cyclo_manager API Pydantic models
 
-export interface ServiceInfo {
-  id: string;
-  label: string;
+export interface SupportedRobotContainersResponse {
+  supported_robot_containers: string[];
 }
 
-export interface ConfiguredContainerInfo {
-  name: string;
-  socket_path: string;
-}
-
-export interface ConfiguredContainerListResponse {
-  containers: ConfiguredContainerInfo[];
-  robot_container: string;
-}
-
-export interface ServiceListResponse {
+export interface S6AgentStatusResponse {
   container: string;
-  services: ServiceInfo[];
+  status: "up_to_date" | "compatible" | "outdated" | "unreachable" | "unknown_version";
+  version: string | null;
+  minimum_required_version: string;
+  message: string | null;
+}
+
+export interface S6AgentStatusListResponse {
+  agents: S6AgentStatusResponse[];
+}
+
+export interface S6AgentUpdateResponse {
+  container: string;
+  target_ref: string;
+  success: boolean;
+  exit_code: number;
+  output: string;
 }
 
 export interface ServiceStatusResponse {
@@ -47,15 +51,14 @@ export interface ServiceStatusResponse {
   uptime_seconds: number | null;
 }
 
-export interface ServiceStatusListResponse {
-  container: string;
-  statuses: ServiceStatusResponse[];
-}
+export type AiWorkerRobotType = "sg2" | "bg2" | "sh5" | "bh5" | "f1" | "f2" | "mobile";
+export type OpenManipulatorRobotType = "omy" | "omx";
+export type RobotType = AiWorkerRobotType | OpenManipulatorRobotType;
 
 export interface ServiceActionRequest {
   action: "up" | "down" | "restart";
   launch_args?: Record<string, string>;
-  robot_type?: "sg2" | "bg2" | "sh5" | "bh5" | "mobile";
+  robot_type?: RobotType;
 }
 
 export interface ServiceControlResponse {
@@ -65,26 +68,11 @@ export interface ServiceControlResponse {
   result: string;
 }
 
-export interface ServiceLogsResponse {
-  container: string;
-  service: string;
-  logs: string;
-  tail: number;
-  log_path: string | null;
-}
-
 export interface ServiceLogsClearResponse {
   container: string;
   service: string;
   message: string;
   log_path: string | null;
-}
-
-export interface ServiceRunScriptResponse {
-  container: string;
-  service: string;
-  path: string;
-  content: string;
 }
 
 export interface BashrcResponse {
@@ -105,19 +93,30 @@ export interface DockerContainerListResponse {
   containers: DockerContainerInfo[];
 }
 
-export interface DockerContainerStatus {
+export interface DockerImageInfo {
   id: string;
-  name: string;
-  status: string;
-  state: string;
-  running: boolean;
-  restarting: boolean;
-  paused: boolean;
-  image: string;
+  short_id: string;
+  tags: string[];
+  size_bytes: number;
   created: string;
-  started_at: string | null;
-  finished_at: string | null;
-  exit_code: number | null;
+  used_by: string[];
+  dangling: boolean;
+}
+
+export interface DockerImageListResponse {
+  images: DockerImageInfo[];
+}
+
+export interface DockerImageDeleteResponse {
+  image_id: string;
+  deleted: boolean;
+  message: string;
+}
+
+export interface DockerImagePruneResponse {
+  deleted: string[];
+  space_reclaimed_bytes: number;
+  message: string;
 }
 
 export interface DockerContainerActionRequest {
@@ -178,6 +177,12 @@ export interface UpdateRequest {
   preserve_files: string[];
 }
 
+export interface UpdateStatusResponse {
+  phase: string;
+  output: string;
+  error: string;
+}
+
 export interface UpdateResponse {
   name: string;
   success: boolean;
@@ -200,6 +205,10 @@ export interface CycloManagerVersionResponse {
   update_available: boolean;
 }
 
+export interface HostAgentVersionResponse {
+  version: string;
+}
+
 export interface ErrorResponse {
   error: string;
   detail: string | null;
@@ -218,8 +227,21 @@ export interface HostSystemStatsResponse {
   memory_total_mb: number;
   disk_used_gb: number;
   disk_total_gb: number;
+  ssd_used_gb: number | null;
+  ssd_total_gb: number | null;
+  ssd_mount_path: string | null;
   uptime_seconds: number;
   temperature_celsius: number | null;
+}
+
+export interface SerialPortInfo {
+  path: string;
+  real_path: string | null;
+  label: string;
+}
+
+export interface SerialPortsResponse {
+  ports: SerialPortInfo[];
 }
 
 // ROS2 Plugin Types
@@ -239,9 +261,14 @@ export interface ROS2TopicsListResponse {
 export interface ROS2TopicDataResponse {
   topic: string;
   msg_type: string;
-  data: any;
+  data: unknown;
   available: boolean;
   domain_id: number;
+}
+
+export interface ROS2TopicInfoResponse {
+  topic: string;
+  info: string;
 }
 
 export interface ROS2TwistPublishRequest {

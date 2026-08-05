@@ -20,6 +20,7 @@
 
 import io
 import logging
+import shlex
 import tarfile
 
 import docker
@@ -33,6 +34,8 @@ _ALLOWED_SIGNALS = frozenset({
     'SIGTERM', 'SIGKILL', 'SIGINT', 'SIGHUP', 'SIGQUIT',
     'SIGSTOP', 'SIGCONT', 'SIGUSR1', 'SIGUSR2',
 })
+
+S6_AGENT_REPO_PATH = '/opt/cyclo_manager'
 
 
 class DockerClient:
@@ -78,6 +81,91 @@ class DockerClient:
             logger.error(f'Failed to list containers: {e}')
             raise
 
+    def _image_usage_map(self) -> dict[str, list[str]]:
+        """Map image IDs to container names that reference them."""
+        usage: dict[str, list[str]] = {}
+        for container in self.client.containers.list(all=True):
+            try:
+                image_id = container.image.id
+            except DockerException:
+                continue
+            usage.setdefault(image_id, []).append(container.name)
+        return usage
+
+    def list_images(self) -> list[dict]:
+        """List Docker images with container usage information."""
+        try:
+            usage = self._image_usage_map()
+            images = []
+            for image in self.client.images.list(all=True):
+                tags = image.tags or []
+                images.append({
+                    'id': image.id,
+                    'short_id': image.short_id.removeprefix('sha256:'),
+                    'tags': tags,
+                    'size_bytes': int(image.attrs.get('Size') or 0),
+                    'created': image.attrs.get('Created') or '',
+                    'used_by': sorted(usage.get(image.id, [])),
+                    'dangling': len(tags) == 0,
+                })
+            return sorted(
+                images,
+                key=lambda item: (
+                    not item['dangling'],
+                    item['tags'][0] if item['tags'] else item['short_id'],
+                ),
+            )
+        except DockerException as e:
+            logger.error(f'Failed to list images: {e}')
+            raise
+
+    def remove_image(self, image_id: str) -> dict:
+        """Remove an unused Docker image."""
+        try:
+            image = self.client.images.get(image_id)
+            used_by = self._image_usage_map().get(image.id, [])
+            if used_by:
+                names = ', '.join(sorted(used_by))
+                raise DockerException(f'Image is used by container(s): {names}')
+
+            self.client.images.remove(image=image.id, force=False, noprune=False)
+            logger.info("Removed Docker image '%s'", image_id)
+            return {
+                'image_id': image_id,
+                'deleted': True,
+                'message': 'Image deleted',
+            }
+        except NotFound:
+            raise
+        except DockerException as e:
+            logger.error("Failed to remove image '%s': %s", image_id, e)
+            raise
+
+    def prune_images(self) -> dict:
+        """Remove dangling Docker images."""
+        try:
+            result = self.client.images.prune(filters={'dangling': True})
+            deleted_items = result.get('ImagesDeleted') or []
+            deleted = [
+                item.get('Deleted') or item.get('Untagged') or ''
+                for item in deleted_items
+            ]
+            deleted = [item for item in deleted if item]
+            space_reclaimed = int(result.get('SpaceReclaimed') or 0)
+            logger.info(
+                'Pruned %d dangling Docker image entries, reclaimed %d bytes',
+                len(deleted),
+                space_reclaimed,
+            )
+            return {
+                'deleted': deleted,
+                'space_reclaimed_bytes': space_reclaimed,
+                'message': f'Pruned {len(deleted)} image entries',
+            }
+        except DockerException as e:
+            logger.error(f'Failed to prune images: {e}')
+            raise
+
     def get_container(self, container_name: str):
         """
         Get a container by name or ID.
@@ -102,47 +190,6 @@ class DockerClient:
             raise
         except DockerException as e:
             logger.error(f"Failed to get container '{container_name}': {e}")
-            raise
-
-    def get_container_status(self, container_name: str) -> dict:
-        """
-        Get detailed status of a container.
-
-        Args
-        ----
-        container_name: Container name or ID.
-
-        Returns
-        -------
-        Dictionary with container status information.
-
-        Raises
-        ------
-        NotFound: If container not found.
-
-        """
-        try:
-            container = self.get_container(container_name)
-            container.reload()  # Refresh container state
-
-            return {
-                'id': container.id,
-                'name': container.name,
-                'status': container.status,
-                'state': container.attrs['State']['Status'],
-                'running': container.status == 'running',
-                'restarting': container.attrs['State'].get('Restarting', False),
-                'paused': container.attrs['State'].get('Paused', False),
-                'image': container.image.tags[0] if container.image.tags else '',
-                'created': container.attrs['Created'],
-                'started_at': container.attrs['State'].get('StartedAt', ''),
-                'finished_at': container.attrs['State'].get('FinishedAt', ''),
-                'exit_code': container.attrs['State'].get('ExitCode'),
-            }
-        except NotFound:
-            raise
-        except DockerException as e:
-            logger.error(f"Failed to get container status for '{container_name}': {e}")
             raise
 
     def start_container(self, container_name: str) -> dict:
@@ -300,36 +347,6 @@ class DockerClient:
             logger.error("Failed to update bashrc for container '%s': %s", container_name, e)
             raise
 
-    def get_container_file_content(self, container_name: str, path: str) -> str:
-        """
-        Read file content from container via docker exec.
-
-        Args
-        ----
-        container_name: Container name or ID.
-        path: Absolute path to file inside container.
-
-        Returns
-        -------
-        File content as string.
-
-        Raises
-        ------
-        NotFound: If container not found.
-
-        """
-        try:
-            container = self.get_container(container_name)
-            result = container.exec_run(f'cat {path}')
-            if result.exit_code != 0 or not result.output:
-                return ''
-            return result.output.decode('utf-8', errors='replace')
-        except NotFound:
-            raise
-        except DockerException as e:
-            logger.error("Failed to read file from container '%s': %s", container_name, e)
-            raise
-
     def get_container_top(self, container_name: str) -> dict:
         """
         Get running processes by executing ps inside the container.
@@ -410,6 +427,73 @@ class DockerClient:
         except DockerException as e:
             logger.error(
                 "Failed to kill pid %d in container '%s': %s", pid, container_name, e
+            )
+            raise
+
+    def update_s6_agent(self, container_name: str, target_ref: str) -> dict:
+        """
+        Update the in-container s6 agent checkout to a target ref and restart it.
+
+        The command runs inside the target container via Docker exec.
+        """
+        try:
+            container = self.get_container(container_name)
+            quoted_target_ref = shlex.quote(target_ref)
+            command = [
+                '/bin/sh',
+                '-lc',
+                (
+                    'set -eu\n'
+                    'export GIT_TERMINAL_PROMPT=0\n'
+                    f'TARGET_REF={quoted_target_ref}\n'
+                    f'if [ ! -d {S6_AGENT_REPO_PATH}/.git ]; then\n'
+                    f'  echo "Repository not found: {S6_AGENT_REPO_PATH}" >&2\n'
+                    '  exit 1\n'
+                    'fi\n'
+                    'echo "Updating s6 agent to ${TARGET_REF}"\n'
+                    f'git -C {S6_AGENT_REPO_PATH} fetch --tags --force origin\n'
+                    f'if ! git -C {S6_AGENT_REPO_PATH} rev-parse '
+                    '--verify --quiet "${TARGET_REF}^{commit}" >/dev/null; then\n'
+                    '  echo "Target ref not found: ${TARGET_REF}" >&2\n'
+                    '  exit 1\n'
+                    'fi\n'
+                    f'git -C {S6_AGENT_REPO_PATH} checkout --force --detach "$TARGET_REF"\n'
+                    f'git -C {S6_AGENT_REPO_PATH} reset --hard "$TARGET_REF"\n'
+                ),
+            ]
+            result = container.exec_run(command)
+            output = (result.output or b'').decode('utf-8', errors='replace')
+            success = result.exit_code == 0
+            if success:
+                container.restart(timeout=10)
+                output += 'Container restarted.\n'
+                logger.info(
+                    "Updated s6 agent in container '%s' to '%s'",
+                    container_name,
+                    target_ref,
+                )
+            else:
+                logger.warning(
+                    "Failed to update s6 agent in container '%s' to '%s': %s",
+                    container_name,
+                    target_ref,
+                    output.strip(),
+                )
+            return {
+                'container': container_name,
+                'target_ref': target_ref,
+                'success': success,
+                'exit_code': result.exit_code,
+                'output': output,
+            }
+        except NotFound:
+            raise
+        except DockerException as e:
+            logger.error(
+                "Failed to update s6 agent in container '%s' to '%s': %s",
+                container_name,
+                target_ref,
+                e,
             )
             raise
 

@@ -19,26 +19,27 @@
 """Service endpoints router."""
 
 import logging
+import re
 
 from cyclo_manager.models import (
     ServiceActionRequest,
     ServiceControlResponse,
-    ServiceInfo,
-    ServiceListResponse,
     ServiceLogsClearResponse,
-    ServiceLogsResponse,
-    ServiceRunScriptResponse,
-    ServiceRunScriptUpdateRequest,
-    ServiceStatusListResponse,
     ServiceStatusResponse,
 )
 from cyclo_manager.state import get_agent_client, get_validated_container
 from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi.responses import StreamingResponse
 import httpx
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix='/{container}/services', tags=['services'])
+
+
+def _service_log_download_filename(container: str, service: str) -> str:
+    """Build a conservative ASCII filename for service log downloads."""
+    return re.sub(r'[^A-Za-z0-9_.-]+', '_', f'{container}_{service}_current.log')
 
 
 def _get_upstream_error_detail(exc: httpx.HTTPStatusError) -> str:
@@ -78,28 +79,6 @@ def _raise_mapped_service_exception(container: str, exc: Exception) -> None:
     )
 
 
-@router.get('', response_model=ServiceListResponse)
-async def list_services(
-    container: str = Depends(get_validated_container),
-) -> ServiceListResponse:
-    """Get list of services for a specific container."""
-    try:
-        client = get_agent_client(container)
-        agent_response = await client.get_services()
-        agent_services = agent_response.get('services', [])
-
-        services = [
-            ServiceInfo(id=service_id, label=service_id)
-            for service_id in agent_services
-        ]
-
-    except Exception as e:
-        logger.error(f"Failed to get services from agent for container '{container}': {e}")
-        _raise_mapped_service_exception(container, e)
-
-    return ServiceListResponse(container=container, services=services)
-
-
 @router.get('/{service}/status', response_model=ServiceStatusResponse)
 async def get_service_status(
     service: str,
@@ -125,62 +104,38 @@ async def get_service_status(
     )
 
 
-@router.get('/status', response_model=ServiceStatusListResponse)
-async def get_all_services_status(
-    container: str = Depends(get_validated_container),
-) -> ServiceStatusListResponse:
-    """Get status of all services in a container."""
-    try:
-        client = get_agent_client(container)
-        agent_response = await client.get_all_services_status()
-        agent_statuses = agent_response.get('statuses', [])
-    except Exception as e:
-        logger.error(f'Failed to get services status from agent: {e}')
-        _raise_mapped_service_exception(container, e)
-
-    statuses: list[ServiceStatusResponse] = []
-    for agent_status in agent_statuses:
-        service_id = agent_status.get('name', '')
-
-        statuses.append(
-            ServiceStatusResponse(
-                container=container,
-                service=service_id,
-                service_label=service_id,
-                name=agent_status.get('name', service_id),
-                raw=agent_status.get('raw', ''),
-                is_up=agent_status.get('is_up', False),
-                pid=agent_status.get('pid'),
-                uptime_seconds=agent_status.get('uptime_seconds'),
-            )
-        )
-
-    return ServiceStatusListResponse(container=container, statuses=statuses)
-
-
-@router.get('/{service}/logs', response_model=ServiceLogsResponse)
-async def get_service_logs(
+@router.get('/{service}/logs/download')
+async def download_service_log(
     service: str,
-    tail: int = 100,
     container: str = Depends(get_validated_container),
-) -> ServiceLogsResponse:
-    """Get logs for a service in a container."""
+):
+    """Download the current log file for a service in a container."""
+    agent_response: httpx.Response | None = None
     try:
         client = get_agent_client(container)
-        agent_response = await client.get_service_logs(service, tail=tail)
+        agent_response = await client.open_service_log_download(service)
         logger.info(
-            f'Successfully retrieved logs for service {service!r} in container {container!r}'
+            f'Starting log download for service {service!r} in container {container!r}'
         )
     except Exception as e:
-        logger.error(f'Failed to get service logs from agent: {e}')
+        if agent_response is not None:
+            await agent_response.aclose()
+        logger.error(f'Failed to download service log from agent: {e}')
         _raise_mapped_service_exception(container, e)
 
-    return ServiceLogsResponse(
-        container=container,
-        service=service,
-        logs=agent_response.get('logs', ''),
-        tail=agent_response.get('tail', tail),
-        log_path=agent_response.get('log_path'),
+    async def iter_log_bytes():
+        assert agent_response is not None
+        try:
+            async for chunk in agent_response.aiter_bytes():
+                yield chunk
+        finally:
+            await agent_response.aclose()
+
+    filename = _service_log_download_filename(container, service)
+    return StreamingResponse(
+        iter_log_bytes(),
+        media_type=agent_response.headers.get('content-type', 'text/plain; charset=utf-8'),
+        headers={'Content-Disposition': f'attachment; filename="{filename}"'},
     )
 
 
@@ -205,63 +160,6 @@ async def clear_service_logs(
         service=service,
         message=agent_response.get('message', 'Logs cleared successfully'),
         log_path=agent_response.get('log_path'),
-    )
-
-
-@router.get('/{service}/run', response_model=ServiceRunScriptResponse)
-async def get_service_run_script(
-    service: str,
-    container: str = Depends(get_validated_container),
-) -> ServiceRunScriptResponse:
-    """Get the run script for a service."""
-    try:
-        client = get_agent_client(container)
-        agent_response = await client.get_service_run_script(service)
-        logger.info(
-            f'Successfully retrieved run script for service {service!r} '
-            f'in container {container!r}'
-        )
-    except Exception as e:
-        logger.error(f'Failed to get run script from agent: {e}')
-        _raise_mapped_service_exception(container, e)
-
-    return ServiceRunScriptResponse(
-        container=container,
-        service=service,
-        path=agent_response.get('path', ''),
-        content=agent_response.get('content', ''),
-    )
-
-
-@router.put('/{service}/run', response_model=ServiceRunScriptResponse)
-async def update_service_run_script(
-    service: str,
-    request: ServiceRunScriptUpdateRequest,
-    container: str = Depends(get_validated_container),
-) -> ServiceRunScriptResponse:
-    """Update the run script for a service."""
-    if not request.content or not request.content.strip():
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail='Content must not be empty',
-        )
-
-    try:
-        client = get_agent_client(container)
-        agent_response = await client.update_service_run_script(service, request.content)
-        logger.info(
-            f'Successfully updated run script for service {service!r} '
-            f'in container {container!r}'
-        )
-    except Exception as e:
-        logger.error(f'Failed to update run script via agent: {e}')
-        _raise_mapped_service_exception(container, e)
-
-    return ServiceRunScriptResponse(
-        container=container,
-        service=service,
-        path=agent_response.get('path', ''),
-        content=agent_response.get('content', ''),
     )
 
 

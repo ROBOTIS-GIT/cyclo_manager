@@ -63,7 +63,8 @@ class RequestKind:
     PUBLISH_TOPIC = 'publish_topic'
 
 
-RequestOp: TypeAlias = tuple[str, Any]
+RequestPayload: TypeAlias = tuple[Any, queue.Queue[Any]]
+RequestOp: TypeAlias = tuple[str, RequestPayload]
 TopicCacheEntry: TypeAlias = dict[str, Any]
 
 _rclpy_init_lock = threading.Lock()
@@ -111,7 +112,6 @@ class Ros2Bridge:
         self._discovered_topics: dict[str, list[str]] = {}
 
         self._request_queue: queue.Queue[RequestOp] = queue.Queue()
-        self._request_available = threading.Event()
 
     # ------------------------------------------------------------------
     # Lifecycle
@@ -165,14 +165,22 @@ class Ros2Bridge:
         with self._lock:
             if topic in self._subs:
                 return True
-        self._enqueue_and_wait(
-            (RequestKind.ADD_SUBSCRIPTION, (topic, msg_type, qos_profile or {}))
+        return (
+            self._enqueue_request(
+                RequestKind.ADD_SUBSCRIPTION,
+                (topic, msg_type, qos_profile or {}),
+            )
+            is True
         )
-        with self._lock:
-            return topic in self._subs
 
-    def remove_topic_subscription(self, topic: str) -> None:
-        self._enqueue_and_wait((RequestKind.REMOVE_SUBSCRIPTION, topic))
+    def remove_topic_subscription(self, topic: str) -> bool:
+        return (
+            self._enqueue_request(
+                RequestKind.REMOVE_SUBSCRIPTION,
+                topic,
+            )
+            is True
+        )
 
     def is_topic_transient_local_subscription(self, topic: str) -> bool:
         """Return whether this topic is subscribed with TRANSIENT_LOCAL durability."""
@@ -186,15 +194,10 @@ class Ros2Bridge:
             return dict(preset)
         if not self._is_running:
             return get_default_qos_profile()
-        response_queue: queue.Queue[dict[str, Any]] = queue.Queue(maxsize=1)
-        self._request_queue.put(
-            (RequestKind.GET_PUBLISHER_QOS, (topic, response_queue))
-        )
-        try:
-            return response_queue.get(timeout=5.0)
-        except queue.Empty:
-            logger.warning('Publisher QoS lookup timeout: topic=%s', topic)
+        result = self._enqueue_request(RequestKind.GET_PUBLISHER_QOS, topic)
+        if result is None:
             return get_default_qos_profile()
+        return result
 
     # ------------------------------------------------------------------
     # Public API — publish
@@ -208,21 +211,17 @@ class Ros2Bridge:
     ) -> bool:
         if not self._is_running:
             return False
-        response_queue: queue.Queue[bool] = queue.Queue(maxsize=1)
         data = {
             'linear': {'x': linear_x, 'y': 0.0, 'z': 0.0},
             'angular': {'x': 0.0, 'y': 0.0, 'z': angular_z},
         }
-        self._request_queue.put(
-            (
+        return (
+            self._enqueue_request(
                 RequestKind.PUBLISH_TOPIC,
-                (topic, 'geometry_msgs/msg/Twist', data, response_queue),
+                (topic, 'geometry_msgs/msg/Twist', data),
             )
+            is True
         )
-        try:
-            return response_queue.get(timeout=5.0)
-        except queue.Empty:
-            return False
 
     # ------------------------------------------------------------------
     # Public API — read cache / topic metadata
@@ -267,24 +266,20 @@ class Ros2Bridge:
     # Public API — discovery
     # ------------------------------------------------------------------
 
-    def request_discovery(self) -> None:
-        """Enqueue discovery request; spin thread will run get_topic_names_and_types."""
-        self._request_available.clear()
-        self._request_queue.put((RequestKind.RUN_DISCOVERY, None))
-
-    def wait_discovery(self, timeout: float = 2.0) -> None:
-        """Wait until request queue is drained (includes discovery if enqueued)."""
-        processed = self._request_available.wait(timeout=timeout)
-        if not processed:
-            logger.warning(
-                'Discovery wait timed out (timeout=%.1fs)',
-                timeout,
+    def run_discovery(self, timeout: float = 2.0) -> bool:
+        """Run topic discovery on the spin thread and wait until finished."""
+        return (
+            self._enqueue_request(
+                RequestKind.RUN_DISCOVERY,
+                None,
+                timeout=timeout,
             )
+            is True
+        )
 
     def discovery_topics(self) -> dict[str, dict[str, Any]]:
         """Run discovery once, then return status for discovered topics only."""
-        self.request_discovery()
-        self.wait_discovery(timeout=2.0)
+        self.run_discovery(timeout=2.0)
         with self._lock:
             return {
                 topic: self._build_topic_status_locked(topic)
@@ -309,60 +304,114 @@ class Ros2Bridge:
 
     def _process_request(self) -> None:
         """Process requests from queue (run from spin thread)."""
-        processed = False
         try:
             while True:
-                op = self._request_queue.get_nowait()
-                processed = True
-                kind, payload = op
+                kind, payload = self._request_queue.get_nowait()
+                request_payload, response_queue = payload
                 if kind == RequestKind.RUN_DISCOVERY:
-                    self._handle_run_discovery()
+                    result = self._handle_run_discovery()
                 elif kind == RequestKind.ADD_SUBSCRIPTION:
-                    topic, msg_type, qos_profile = payload
-                    self._handle_add_subscription(topic, msg_type, qos_profile)
+                    topic, msg_type, qos_profile = request_payload
+                    try:
+                        result = self._handle_add_subscription(
+                            topic, msg_type, qos_profile
+                        )
+                    except Exception as e:
+                        logger.warning(
+                            'Subscribe request failed: topic=%s error=%s',
+                            topic,
+                            e,
+                        )
+                        result = False
                 elif kind == RequestKind.REMOVE_SUBSCRIPTION:
-                    topic = payload
-                    self._handle_remove_subscription(topic)
+                    topic = request_payload
+                    try:
+                        result = self._handle_remove_subscription(topic)
+                    except Exception as e:
+                        logger.warning(
+                            'Unsubscribe request failed: topic=%s error=%s',
+                            topic,
+                            e,
+                        )
+                        result = False
                 elif kind == RequestKind.GET_PUBLISHER_QOS:
-                    topic, response_queue = payload
-                    response_queue.put(self._handle_get_publisher_qos(topic))
+                    topic = request_payload
+                    try:
+                        result = self._handle_get_publisher_qos(topic)
+                    except Exception as e:
+                        logger.warning(
+                            'Publisher QoS request failed: topic=%s error=%s',
+                            topic,
+                            e,
+                        )
+                        result = get_default_qos_profile()
                 elif kind == RequestKind.PUBLISH_TOPIC:
-                    topic, msg_type, data, response_queue = payload
-                    response_queue.put(
-                        self._handle_publish_topic(topic, msg_type, data)
-                    )
+                    topic, msg_type, data = request_payload
+                    try:
+                        result = self._handle_publish_topic(topic, msg_type, data)
+                    except Exception as e:
+                        logger.warning(
+                            'Publish request failed: topic=%s msg_type=%s error=%s',
+                            topic,
+                            msg_type,
+                            e,
+                        )
+                        result = False
+                else:
+                    logger.warning('Unknown request type: op=%s', kind)
+                    result = None
+                response_queue.put(result)
         except queue.Empty:
             pass
-        if processed:
-            self._request_available.set()
 
-    def _enqueue_and_wait(
+    def _enqueue_request(
         self,
-        op: RequestOp,
+        kind: str,
+        payload: Any = None,
         timeout: float = 5.0,
-    ) -> None:
-        """Enqueue request and wait until processed."""
-        self._request_available.clear()
-        self._request_queue.put(op)
-        processed = self._request_available.wait(timeout=timeout)
-        if not processed:
-            logger.warning(
-                'Request processing timeout: op=%s',
-                op[0],
-            )
+    ) -> Any:
+        """Enqueue request and wait for its response value."""
+        response_queue: queue.Queue[Any] = queue.Queue(maxsize=1)
+        self._request_queue.put((kind, (payload, response_queue)))
+        try:
+            return response_queue.get(timeout=timeout)
+        except queue.Empty:
+            logger.warning('Request processing timeout: op=%s', kind)
+            return None
 
     # ------------------------------------------------------------------
     # Spin thread — request handlers
     # ------------------------------------------------------------------
 
-    def _handle_run_discovery(self) -> None:
+    def _handle_run_discovery(self) -> bool:
         try:
             names_and_types = self._rclpy_node.get_topic_names_and_types(
             )  # type: ignore[union-attr]
             with self._lock:
                 self._discovered_topics = dict(names_and_types)
+            return True
         except Exception as e:
             logger.warning('Discovery failed: %s', e)
+            return False
+
+    def _handle_add_subscription(self, topic: str, msg_type: str, qos_profile: dict) -> bool:
+        with self._lock:
+            if topic in self._subs:
+                return True
+        profile = dict(qos_profile or {})
+        sub = self._create_sub(topic, msg_type, profile)
+        if not sub:
+            return False
+        with self._lock:
+            self._subs[topic] = sub
+            if profile.get('durability') == 'transient_local':
+                self._topics_transient_local.add(topic)
+        logger.info(
+            'ROS2 subscribe: topic=%s msg_type=%s',
+            topic,
+            msg_type,
+        )
+        return True
 
     def _handle_get_publisher_qos(self, topic: str) -> dict[str, Any]:
         if not self._rclpy_node:
@@ -378,31 +427,18 @@ class Ros2Bridge:
             return get_default_qos_profile()
         return resolve_qos_from_publisher_info(publisher_infos)
 
-    def _handle_add_subscription(self, topic: str, msg_type: str, qos_profile: dict) -> None:
-        with self._lock:
-            if topic in self._subs:
-                return
-        profile = dict(qos_profile or {})
-        sub = self._create_sub(topic, msg_type, profile)
-        if sub:
-            with self._lock:
-                self._subs[topic] = sub
-                if profile.get('durability') == 'transient_local':
-                    self._topics_transient_local.add(topic)
-            logger.info(
-                'ROS2 subscribe: topic=%s msg_type=%s',
-                topic,
-                msg_type,
-            )
-
-    def _handle_remove_subscription(self, topic: str) -> None:
+    def _handle_remove_subscription(self, topic: str) -> bool:
         with self._lock:
             sub = self._subs.pop(topic, None)
             self._topics_transient_local.discard(topic)
             self._msg_cache.pop(topic, None)
+        if sub is None:
+            return True
         if sub and self._rclpy_node:
             self._rclpy_node.destroy_subscription(sub)
             logger.info('ROS2 unsubscribe: topic=%s', topic)
+            return True
+        return False
 
     def _handle_publish_topic(
         self,

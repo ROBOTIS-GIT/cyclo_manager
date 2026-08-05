@@ -19,28 +19,33 @@
 """System-level endpoints for the host agent."""
 
 import asyncio
-import logging
-import shutil
+import sys
 
 from fastapi import APIRouter, HTTPException, status
-
-logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix='/system', tags=['system'])
 
 _update_status: dict = {'phase': 'idle', 'output': '', 'error': ''}
 
 
-async def _run_update(cyclo_exe: str) -> None:
+@router.get('/version')
+async def get_host_agent_version() -> dict:
+    """Return the running cyclo_host_agent package version."""
+    from cyclo_manager_cli import __version__
+
+    return {'version': __version__}
+
+
+async def _run_update() -> None:
     global _update_status
     try:
         proc = await asyncio.create_subprocess_exec(
-            cyclo_exe, 'update',
+            sys.executable, '-m', 'cyclo_manager_cli.cli', 'update',
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
         )
         stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=600)
-        out = (stdout.decode() + stderr.decode()).strip()
+        out = (stdout.decode(errors='replace') + stderr.decode(errors='replace')).strip()
         _update_status['output'] = out
         if proc.returncode != 0:
             _update_status['phase'] = 'error'
@@ -50,24 +55,22 @@ async def _run_update(cyclo_exe: str) -> None:
     except asyncio.TimeoutError:
         _update_status['phase'] = 'error'
         _update_status['error'] = 'cyclo_manager update timed out'
+    except Exception as e:
+        _update_status['phase'] = 'error'
+        _update_status['error'] = f'Failed to start cyclo_manager update: {e}'
 
 
 @router.post('/update')
 async def start_update() -> dict:
-    """Delegate update to cyclo_manager update, which handles containers and host agent restart."""
+    """Run cyclo_manager update in the background."""
     global _update_status
-
-    cyclo_exe = shutil.which('cyclo_manager')
-    if not cyclo_exe:
-        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                            detail='cyclo_manager command not found')
 
     if _update_status.get('phase') == 'updating':
         raise HTTPException(status_code=status.HTTP_409_CONFLICT,
                             detail='Update already in progress')
 
     _update_status = {'phase': 'updating', 'output': '', 'error': ''}
-    asyncio.create_task(_run_update(cyclo_exe))
+    asyncio.create_task(_run_update())
     return {'status': 'update started'}
 
 

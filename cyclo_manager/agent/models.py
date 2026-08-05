@@ -38,8 +38,9 @@ class ServiceActionRequest(BaseModel):
     robot_type: str | None = Field(
         None,
         description=(
-            'Required for ai_worker_bringup up/restart. '
-            'One of: sg2, bg2, sh5, bh5, mobile.'
+            'Required for robot bringup services that select launch files by robot type. '
+            'ai_worker_bringup accepts sg2, bg2, sh5, bh5, f1, f2, mobile; '
+            'open_manipulator_bringup and leader_bringup accept omy, omx.'
         ),
     )
 
@@ -52,18 +53,6 @@ class ServiceStatus(BaseModel):
     is_up: bool = Field(..., description='Whether service is running')
     pid: Optional[int] = Field(None, description='Process ID if running')
     uptime_seconds: Optional[int] = Field(None, description='Uptime in seconds if running')
-
-
-class ServiceListResponse(BaseModel):
-    """Response for GET /services."""
-
-    services: list[str] = Field(..., description='List of available service names')
-
-
-class ServiceStatusListResponse(BaseModel):
-    """Response for GET /services/status."""
-
-    statuses: list[ServiceStatus] = Field(..., description='List of service statuses')
 
 
 class ServiceControlResponse(BaseModel):
@@ -79,17 +68,3 @@ class ErrorResponse(BaseModel):
 
     error: str = Field(..., description='Error message')
     detail: Optional[str] = Field(None, description='Additional error details')
-
-
-class ServiceRunScriptResponse(BaseModel):
-    """Response for GET /services/{name}/run."""
-
-    service: str = Field(..., description='Service name')
-    path: str = Field(..., description='Filesystem path to the service run script')
-    content: str = Field(..., description='Contents of the run script')
-
-
-class ServiceRunScriptUpdateRequest(BaseModel):
-    """Request body for updating a service run script."""
-
-    content: str = Field(..., description='New contents of the run script')

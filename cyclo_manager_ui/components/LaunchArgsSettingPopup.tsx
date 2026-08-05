@@ -18,6 +18,7 @@
 
 import type { LaunchArgDef, LaunchArgsConfig } from "@/config/launchArgs";
 import { getDefaultArgs } from "@/config/launchArgs";
+import type { SerialPortInfo } from "@/types/api";
 
 const CUSTOM_SELECT_VALUE = "__custom__";
 
@@ -45,12 +46,17 @@ function handleSelectModeChange(
   update(def.key, mode);
 }
 
+function getSerialPortSelectMode(value: string, serialPorts: readonly SerialPortInfo[]): string {
+  return serialPorts.some((port) => port.path === value) ? value : CUSTOM_SELECT_VALUE;
+}
+
 export interface LaunchArgsSettingPopupProps {
   open: boolean;
   onClose: () => void;
   config: LaunchArgsConfig;
   args: Record<string, string>;
   onChange: (args: Record<string, string>) => void;
+  serialPorts?: readonly SerialPortInfo[];
 }
 
 export default function LaunchArgsSettingPopup({
@@ -59,6 +65,7 @@ export default function LaunchArgsSettingPopup({
   config,
   args,
   onChange,
+  serialPorts = [],
 }: LaunchArgsSettingPopupProps) {
   if (!open) return null;
 
@@ -68,6 +75,7 @@ export default function LaunchArgsSettingPopup({
 
   const inputStyle: React.CSSProperties = {
     width: "100%",
+    minWidth: 0,
     padding: "6px 8px",
     fontSize: "12px",
     borderRadius: "4px",
@@ -112,6 +120,8 @@ export default function LaunchArgsSettingPopup({
     ...inputStyle,
     appearance: "none",
     paddingRight: "28px",
+    overflow: "hidden",
+    textOverflow: "ellipsis",
   };
 
   const defaultArgs = getDefaultArgs(config);
@@ -126,7 +136,8 @@ export default function LaunchArgsSettingPopup({
         style={{
           backgroundColor: "var(--vscode-editor-background)",
           border: "1px solid var(--vscode-panel-border)",
-          minWidth: "420px",
+          width: "min(420px, 90vw)",
+          minWidth: 0,
           maxWidth: "90vw",
         }}
       >
@@ -152,6 +163,10 @@ export default function LaunchArgsSettingPopup({
               {config.args.map((def) => {
                 const val = args[def.key] ?? def.default;
                 const selectMode = def.type === "select" ? getSelectMode(def, val) : null;
+                const useSerialPortSelect = def.key === "port_name" && serialPorts.length > 0;
+                const serialPortSelectMode = useSerialPortSelect
+                  ? getSerialPortSelectMode(val, serialPorts)
+                  : null;
                 return (
                   <div key={def.key} style={def.type === "bool" ? boolRowStyle : rowStyle}>
                     {def.type === "bool" ? (
@@ -184,6 +199,38 @@ export default function LaunchArgsSettingPopup({
                             value={val}
                             onChange={(e) => update(def.key, e.target.value)}
                             placeholder="Enter file name"
+                            style={inputStyle}
+                          />
+                        )}
+                      </>
+                    ) : useSerialPortSelect ? (
+                      <>
+                        <label style={labelStyle}>{def.label}</label>
+                        <select
+                          value={serialPortSelectMode ?? CUSTOM_SELECT_VALUE}
+                          onChange={(e) => {
+                            if (e.target.value === CUSTOM_SELECT_VALUE) {
+                              update(def.key, "");
+                              return;
+                            }
+                            update(def.key, e.target.value);
+                          }}
+                          style={selectStyle}
+                          title="Detected serial ports"
+                        >
+                          {serialPorts.map((port) => (
+                            <option key={port.path} value={port.path}>
+                              {port.label}
+                            </option>
+                          ))}
+                          <option value={CUSTOM_SELECT_VALUE}>Custom input</option>
+                        </select>
+                        {serialPortSelectMode === CUSTOM_SELECT_VALUE && (
+                          <input
+                            type="text"
+                            value={val}
+                            onChange={(e) => update(def.key, e.target.value)}
+                            placeholder="Enter port name"
                             style={inputStyle}
                           />
                         )}

@@ -222,3 +222,13 @@ async def get_update_status(
         return await client.get_update_status()
     except Exception as e:
         raise _proxy_error(e)
+
+
+@router.get('/version')
+async def get_host_agent_version(
+    client: HostAgentClient = Depends(get_host_agent_client),
+) -> dict:
+    try:
+        return await client.get_version()
+    except Exception as e:
+        raise _proxy_error(e)

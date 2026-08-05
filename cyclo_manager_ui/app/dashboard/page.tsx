@@ -16,9 +16,23 @@
 
 "use client";
 
-import { useEffect, useState, useCallback, useMemo } from "react";
-import Link from "next/link";
+import { useState, useCallback, useMemo } from "react";
 import Convert from "ansi-to-html";
+import { usePolling } from "@/hooks/usePolling";
+import {
+  btnStyle,
+  Card,
+  CircleGauge,
+  ContainerRow,
+  formatUptime,
+  InfoRow,
+  InfoStatusRow,
+  pct,
+} from "@/components/dashboard/DashboardComponents";
+import DockerImagesModal from "@/components/dashboard/DockerImagesModal";
+import VersionManagementPanel, {
+  type InternetStatus,
+} from "@/components/dashboard/VersionManagementPanel";
 import {
   getSystemStats,
   getRobotInfo,
@@ -27,288 +41,25 @@ import {
   getDockerContainerLogs,
   getBashrc,
   updateBashrc,
-  getRepoUpdates,
 } from "@/lib/api";
-import type { HostSystemStatsResponse, RobotInfoResponse, DockerContainerInfo, RepoUpdateStatus } from "@/types/api";
-import StatusBadge from "@/components/StatusBadge";
-import UpdateWizard from "@/components/UpdateWizard";
+import type {
+  HostSystemStatsResponse,
+  RobotInfoResponse,
+  DockerContainerInfo,
+} from "@/types/api";
 import { useTheme } from "@/contexts/ThemeContext";
 
 const POLL_INTERVAL = 5000;
-
-// ─── helpers ────────────────────────────────────────────────────────────────
-
-function formatUptime(seconds: number): string {
-  const d = Math.floor(seconds / 86400);
-  const h = Math.floor((seconds % 86400) / 3600);
-  const m = Math.floor((seconds % 3600) / 60);
-  if (d > 0) return `${d}d ${h}h ${m}m`;
-  if (h > 0) return `${h}h ${m}m`;
-  return `${m}m`;
-}
-
-function pct(used: number, total: number): number {
-  return total > 0 ? Math.round((used / total) * 100) : 0;
-}
-
-function gaugeColor(percent: number): string {
-  if (percent >= 90) return "#f44336";
-  if (percent >= 75) return "#ff9800";
-  return "var(--vscode-button-background, #0078d4)";
-}
-
-// ─── primitives ─────────────────────────────────────────────────────────────
-
-function Card({ children, title, action, className = "" }: { children: React.ReactNode; title?: string; action?: React.ReactNode; className?: string }) {
-  return (
-    <div
-      className={`rounded-lg border overflow-hidden ${className}`}
-      style={{
-        borderColor: "var(--vscode-panel-border)",
-        backgroundColor: "var(--vscode-sidebar-background)",
-      }}
-    >
-      {title && (
-        <div className="px-5 pt-4 pb-1.5 flex items-center justify-between">
-          <span className="text-sm font-bold uppercase tracking-widest"
-            style={{ color: "var(--vscode-foreground)" }}>
-            {title}
-          </span>
-          {action}
-        </div>
-      )}
-      {children}
-    </div>
-  );
-}
-
-const btnStyle = (primary: boolean, disabled: boolean): React.CSSProperties => ({
-  padding: "4px 12px",
-  fontSize: "13px",
-  border: "none",
-  borderRadius: "2px",
-  cursor: disabled ? "not-allowed" : "pointer",
-  opacity: disabled ? 0.5 : 1,
-  backgroundColor: primary
-    ? "var(--vscode-button-background)"
-    : "var(--vscode-button-secondaryBackground)",
-  color: primary
-    ? "var(--vscode-button-foreground)"
-    : "var(--vscode-button-secondaryForeground)",
-});
-
-// ─── sub-components ─────────────────────────────────────────────────────────
-
-function CircleGauge({ fill, label, display, sub }: {
-  fill: number; label: string; display?: string; sub?: string;
-}) {
-  const SIZE = 110, STROKE = 8;
-  const r = (SIZE - STROKE) / 2;
-  const circumference = 2 * Math.PI * r;
-  const offset = circumference - (Math.min(fill, 100) / 100) * circumference;
-  const color = gaugeColor(fill);
-  const cx = SIZE / 2, cy = SIZE / 2;
-
-  return (
-    <div className="flex flex-col items-center gap-1">
-      <svg width={SIZE} height={SIZE} viewBox={`0 0 ${SIZE} ${SIZE}`}>
-        <circle cx={cx} cy={cy} r={r} fill="none"
-          stroke="var(--vscode-input-background, rgba(128,128,128,0.2))" strokeWidth={STROKE} />
-        <circle cx={cx} cy={cy} r={r} fill="none"
-          stroke={color} strokeWidth={STROKE}
-          strokeDasharray={circumference} strokeDashoffset={offset}
-          strokeLinecap="round" transform={`rotate(-90 ${cx} ${cy})`}
-          style={{ transition: "stroke-dashoffset 0.5s ease" }} />
-        <text x={cx} y={cy - 10} textAnchor="middle" dominantBaseline="middle"
-          fontSize="12" fontWeight="500" fill="var(--vscode-descriptionForeground)">
-          {label}
-        </text>
-        <text x={cx} y={cy + 10} textAnchor="middle" dominantBaseline="middle"
-          fontSize="15" fontWeight="700" fill={color}>
-          {display ?? `${fill}%`}
-        </text>
-      </svg>
-      {sub && (
-        <div className="text-sm text-center" style={{ color: "var(--vscode-descriptionForeground)" }}>
-          {sub}
-        </div>
-      )}
-    </div>
-  );
-}
-
-function UpdatableRepoRow({ repo, onUpdate }: {
-  repo: RepoUpdateStatus;
-  onUpdate: () => void;
-}) {
-  return (
-    <div className="px-5 py-3" style={{ borderTop: "1px solid var(--vscode-panel-border)" }}>
-      <div className="flex items-center gap-3">
-        <div className="flex-1 min-w-0">
-          <div className="text-base font-medium truncate" style={{ color: "var(--vscode-foreground)" }}>
-            {repo.name}
-          </div>
-          {repo.current_version && (
-            <div className="text-xs" style={{ color: "var(--vscode-descriptionForeground)" }}>
-              {repo.has_update && repo.latest_version
-                ? `${repo.current_version} → ${repo.latest_version}`
-                : repo.current_version}
-            </div>
-          )}
-        </div>
-        {repo.has_update && (
-          <button onClick={onUpdate} style={btnStyle(true, false)}>
-            Update
-          </button>
-        )}
-      </div>
-    </div>
-  );
-}
-
-function InfoRow({ label, value }: { label: string; value: string | null | undefined }) {
-  return (
-    <div className="flex items-start justify-between gap-3 py-2">
-      <span className="shrink-0 text-sm" style={{ color: "var(--vscode-descriptionForeground)" }}>
-        {label}
-      </span>
-      <span className="text-right font-bold break-all text-sm"
-        style={{ color: value ? "var(--vscode-foreground)" : "var(--vscode-descriptionForeground)" }}>
-        {value ?? "—"}
-      </span>
-    </div>
-  );
-}
-
-function InfoStatusRow({ label, value }: { label: string; value: boolean | null | undefined }) {
-  if (value == null) {
-    return <InfoRow label={label} value={undefined} />;
-  }
-
-  return (
-    <div className="flex items-start justify-between gap-3 py-2">
-      <span className="shrink-0 text-sm" style={{ color: "var(--vscode-descriptionForeground)" }}>
-        {label}
-      </span>
-      <StatusBadge status={value} label={value ? "Connected" : "Disconnected"} />
-    </div>
-  );
-}
-
-const iconBtn: React.CSSProperties = {
-  display: "flex", alignItems: "center", justifyContent: "center",
-  width: 30, height: 30, padding: 0, border: "none", borderRadius: "50%",
-  cursor: "pointer",
-  backgroundColor: "var(--vscode-button-secondaryBackground)",
-  color: "var(--vscode-button-secondaryForeground)",
-};
-
-const iconBtnDisabled: React.CSSProperties = { ...iconBtn, opacity: 0.4, cursor: "not-allowed" };
-
-function IconButton({ onClick, disabled, title, children }: {
-  onClick?: () => void; disabled?: boolean; title: string; children: React.ReactNode;
-}) {
-  return (
-    <button onClick={onClick} disabled={disabled} title={title}
-      style={disabled ? iconBtnDisabled : iconBtn}>
-      {children}
-    </button>
-  );
-}
-
-function ContainerRow({ container, onAction, onOpenLog, onOpenBashrc, busy, busyAction }: {
-  container: DockerContainerInfo;
-  onAction: (action: "start" | "stop" | "restart") => void;
-  onOpenLog: () => void;
-  onOpenBashrc: () => void;
-  busy: boolean;
-  busyAction: string | null;
-}) {
-  const running = container.status.toLowerCase() === "running";
-
-  return (
-    <div className="flex items-center gap-3 px-5 py-3"
-      style={{ borderTop: "1px solid var(--vscode-panel-border)" }}>
-      <div className="flex-1 min-w-0">
-        <div className="text-base font-medium truncate" style={{ color: "var(--vscode-foreground)" }}>
-          {container.name}
-        </div>
-        <div className="text-sm truncate" style={{ color: "var(--vscode-descriptionForeground)" }}>
-          {container.image}
-        </div>
-      </div>
-      <div className="w-24 flex justify-start shrink-0">
-        <StatusBadge status={container.status} />
-      </div>
-      <div className="flex items-center gap-1.5 shrink-0">
-        {/* control icons — 3 fixed slots */}
-        <div className="flex items-center gap-1.5" style={{ width: 100 }}>
-          {running ? (
-            <>
-              <IconButton onClick={() => onAction("stop")} disabled={busy}
-                title={busyAction === "stop" ? "Stopping…" : "Stop"}>
-                <svg width="12" height="12" viewBox="0 0 12 12" fill="currentColor">
-                  <rect x="1" y="1" width="10" height="10" rx="1" />
-                </svg>
-              </IconButton>
-              <IconButton onClick={() => onAction("restart")} disabled={busy}
-                title={busyAction === "restart" ? "Restarting…" : "Restart"}>
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none"
-                  stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                  <polyline points="23 4 23 10 17 10" />
-                  <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10" />
-                </svg>
-              </IconButton>
-            </>
-          ) : (
-            <>
-              <IconButton onClick={() => onAction("start")} disabled={busy}
-                title={busyAction === "start" ? "Starting…" : "Start"}>
-                <svg width="12" height="12" viewBox="0 0 12 12" fill="currentColor">
-                  <polygon points="2,1 11,6 2,11" />
-                </svg>
-              </IconButton>
-              <span style={{ width: 30 }} />
-            </>
-          )}
-          <IconButton onClick={onOpenLog} title="Log">
-            <svg width="13" height="13" viewBox="0 0 24 24" fill="none"
-              stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <line x1="3" y1="6" x2="21" y2="6" />
-              <line x1="3" y1="12" x2="21" y2="12" />
-              <line x1="3" y1="18" x2="15" y2="18" />
-            </svg>
-          </IconButton>
-        </div>
-
-        {/* divider */}
-        <div className="mx-1.5 h-4 w-px" style={{ backgroundColor: "var(--vscode-panel-border)" }} />
-
-        {/* utility buttons — always visible, disabled when not running */}
-        <Link
-          href={running ? `/terminal?container=${encodeURIComponent(container.name)}` : "#"}
-          style={btnStyle(false, !running)}
-          className="no-underline text-xs"
-          onClick={!running ? (e) => e.preventDefault() : undefined}
-        >
-          Terminal
-        </Link>
-        <button onClick={onOpenBashrc} disabled={!running} style={btnStyle(false, !running)}>bashrc</button>
-      </div>
-    </div>
-  );
-}
 
 // ─── page ────────────────────────────────────────────────────────────────────
 
 export default function HomePage() {
   const { theme } = useTheme();
   const [robotInfo, setRobotInfo] = useState<RobotInfoResponse | null>(null);
+  const [robotInfoCheckState, setRobotInfoCheckState] = useState<"loading" | "error" | "done">("loading");
   const [systemStats, setSystemStats] = useState<HostSystemStatsResponse | null>(null);
   const [containers, setContainers] = useState<DockerContainerInfo[]>([]);
-  const [updatableRepos, setUpdatableRepos] = useState<RepoUpdateStatus[]>([]);
-  const [repoCheckState, setRepoCheckState] = useState<"loading" | "error" | "done">("loading");
-  const [wizardRepo, setWizardRepo] = useState<RepoUpdateStatus | null>(null);
+  const [showDockerImages, setShowDockerImages] = useState(false);
   const [actionLoading, setActionLoading] = useState<{ container: string; action: string } | null>(null);
 
   // settings modal
@@ -341,32 +92,23 @@ export default function HomePage() {
     } catch {}
   }, []);
 
-  const loadRepoUpdates = useCallback(async () => {
-    setRepoCheckState("loading");
-    try {
-      const { repos } = await getRepoUpdates();
-      setUpdatableRepos(repos);
-      setRepoCheckState("done");
-    } catch {
-      setRepoCheckState("error");
-    }
-  }, []);
-
-
   const loadAll = useCallback(async () => {
     await Promise.allSettled([
-      getRobotInfo().then(setRobotInfo).catch(() => {}),
+      getRobotInfo()
+        .then((info) => {
+          setRobotInfo(info);
+          setRobotInfoCheckState("done");
+        })
+        .catch(() => {
+          setRobotInfo(null);
+          setRobotInfoCheckState("error");
+        }),
       getSystemStats().then(setSystemStats).catch(() => {}),
       loadContainers(),
     ]);
   }, [loadContainers]);
 
-  useEffect(() => {
-    loadAll();
-    loadRepoUpdates();
-    const interval = setInterval(loadAll, POLL_INTERVAL);
-    return () => clearInterval(interval);
-  }, [loadAll, loadRepoUpdates]);
+  usePolling(loadAll, POLL_INTERVAL);
 
   const handleAction = useCallback(async (name: string, action: "start" | "stop" | "restart") => {
     setActionLoading({ container: name, action });
@@ -436,20 +178,31 @@ export default function HomePage() {
 
   const memPct = systemStats ? pct(systemStats.memory_used_mb, systemStats.memory_total_mb) : 0;
   const diskPct = systemStats ? pct(systemStats.disk_used_gb, systemStats.disk_total_gb) : 0;
+  const ssdPct =
+    systemStats?.ssd_used_gb != null && systemStats.ssd_total_gb != null
+      ? pct(systemStats.ssd_used_gb, systemStats.ssd_total_gb)
+      : 0;
+  const hasSsdStats = systemStats?.ssd_used_gb != null && systemStats.ssd_total_gb != null;
+  const storageLabel = systemStats?.ssd_mount_path === "/data" ? "SD" : "SSD";
+  const systemGaugeSize = hasSsdStats ? 96 : 110;
   const settingsDocker = containers.find((c) => c.name === settingsContainer) ?? null;
+  const versionManagementInternetStatus: InternetStatus =
+    robotInfoCheckState === "loading"
+      ? "loading"
+      : robotInfoCheckState === "error"
+        ? "unknown"
+        : robotInfo?.internet_connected === false
+          ? "offline"
+          : "online";
 
   return (
     <>
-      {wizardRepo && (
-        <UpdateWizard
-          repo={wizardRepo}
-          onClose={() => setWizardRepo(null)}
-          onDone={() => { setWizardRepo(null); loadRepoUpdates(); }}
-        />
+      {showDockerImages && (
+        <DockerImagesModal onClose={() => setShowDockerImages(false)} />
       )}
       <div className="flex flex-col gap-6">
 
-        <div className="grid gap-4 items-stretch" style={{ gridTemplateColumns: "1fr 1.5fr 1fr" }}>
+        <div className="grid gap-4 items-stretch" style={{ gridTemplateColumns: "1fr 2fr 1fr" }}>
 
           {/* Robot Information */}
           <section>
@@ -475,21 +228,39 @@ export default function HomePage() {
                   Unavailable
                 </div>
               ) : (
-                <div className="p-6 flex gap-6 justify-around">
-                  <CircleGauge fill={systemStats.cpu_percent} label="CPU" />
+                <div
+                  className="p-6 flex flex-nowrap justify-around overflow-hidden"
+                  style={{ gap: hasSsdStats ? 12 : 24 }}
+                >
+                  <CircleGauge
+                    fill={systemStats.cpu_percent}
+                    label="CPU"
+                    size={systemGaugeSize}
+                  />
                   <CircleGauge
                     fill={memPct} label="Memory"
                     sub={`${(systemStats.memory_used_mb / 1024).toFixed(1)} / ${(systemStats.memory_total_mb / 1024).toFixed(1)} GB`}
+                    size={systemGaugeSize}
                   />
                   <CircleGauge
-                    fill={diskPct} label="Disk"
+                    fill={diskPct} label="System"
                     sub={`${systemStats.disk_used_gb} / ${systemStats.disk_total_gb} GB`}
+                    size={systemGaugeSize}
                   />
+                  {hasSsdStats && (
+                    <CircleGauge
+                      fill={ssdPct}
+                      label={storageLabel}
+                      sub={`${systemStats.ssd_used_gb} / ${systemStats.ssd_total_gb} GB`}
+                      size={systemGaugeSize}
+                    />
+                  )}
                   {systemStats.temperature_celsius != null && (
                     <CircleGauge
                       fill={Math.round(systemStats.temperature_celsius)}
                       label="Temp"
                       display={`${systemStats.temperature_celsius}°C`}
+                      size={systemGaugeSize}
                     />
                   )}
                 </div>
@@ -503,16 +274,60 @@ export default function HomePage() {
         <div className="grid gap-4 items-start" style={{ gridTemplateColumns: "1.5fr 1fr" }}>
 
         <section>
-          <Card title="Container Management">
+          <Card
+            title="Container Management"
+            action={
+              <button
+                onClick={() => setShowDockerImages(true)}
+                title="Docker images"
+                aria-label="Docker images"
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  width: 30,
+                  height: 30,
+                  padding: 0,
+                  border: "none",
+                  borderRadius: "50%",
+                  cursor: "pointer",
+                  backgroundColor: "var(--vscode-button-secondaryBackground)",
+                  color: "var(--vscode-button-secondaryForeground)",
+                }}
+              >
+                <svg
+                  width="15"
+                  height="15"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                >
+                  <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z" />
+                  <polyline points="3.27 6.96 12 12.01 20.73 6.96" />
+                  <line x1="12" y1="22.08" x2="12" y2="12" />
+                </svg>
+              </button>
+            }
+          >
             {containers.length === 0 ? (
               <div className="p-4 text-sm" style={{ color: "var(--vscode-descriptionForeground)" }}>
                 No containers found
               </div>
             ) : (
-              containers.map((c, i) => {
+              containers.map((c) => {
                 const busy = actionLoading?.container === c.name;
                 return (
-                  <div key={c.id} style={i === 0 ? { borderTop: "none" } : {}}>
+                  <div
+                    key={c.id}
+                    className="mx-4 my-1 rounded-md border overflow-hidden"
+                    style={{
+                      borderColor: "var(--vscode-panel-border)",
+                      backgroundColor: "transparent",
+                    }}
+                  >
                     <ContainerRow
                       container={c}
                       onAction={(action) => handleAction(c.name, action)}
@@ -520,6 +335,7 @@ export default function HomePage() {
                       onOpenBashrc={() => openBashrc(c.name)}
                       busy={busy}
                       busyAction={busy ? actionLoading!.action : null}
+                      bordered={false}
                     />
                   </div>
                 );
@@ -528,48 +344,7 @@ export default function HomePage() {
           </Card>
         </section>
 
-        {/* Version Management */}
-        <section>
-          <Card
-            title="Version Management"
-            action={
-              <button
-                onClick={loadRepoUpdates}
-                disabled={repoCheckState === "loading"}
-                style={{ ...btnStyle(false, repoCheckState === "loading"), padding: "2px 8px", fontSize: 11 }}
-              >
-                Refresh
-              </button>
-            }
-          >
-            {!robotInfo?.internet_connected ? (
-              <div className="p-4 text-sm" style={{ color: "var(--vscode-descriptionForeground)" }}>
-                Internet connection required
-              </div>
-            ) : repoCheckState === "loading" ? (
-              <div className="p-4 text-sm" style={{ color: "var(--vscode-descriptionForeground)" }}>
-                Checking for updates…
-              </div>
-            ) : repoCheckState === "error" ? (
-              <div className="p-4 text-sm" style={{ color: "var(--vscode-descriptionForeground)" }}>
-                Host agent is not running
-              </div>
-            ) : updatableRepos.length === 0 ? (
-              <div className="p-4 text-sm" style={{ color: "var(--vscode-descriptionForeground)" }}>
-                No managed repositories found
-              </div>
-            ) : (
-              updatableRepos.map((repo, i) => (
-                <div key={repo.name} style={i === 0 ? { borderTop: "none" } : {}}>
-                  <UpdatableRepoRow
-                    repo={repo}
-                    onUpdate={() => setWizardRepo(repo)}
-                  />
-                </div>
-              ))
-            )}
-          </Card>
-        </section>
+        <VersionManagementPanel internetStatus={versionManagementInternetStatus} />
 
         </div>
 

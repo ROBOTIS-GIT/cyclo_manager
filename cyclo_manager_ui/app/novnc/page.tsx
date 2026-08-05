@@ -18,48 +18,16 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Convert from "ansi-to-html";
+import { usePolling } from "@/hooks/usePolling";
 import { controlDockerContainer, getDockerContainers, getDockerContainerLogs } from "@/lib/api";
 import { SIDEBAR_WIDTH_PX } from "@/lib/layout";
-import StatusBadge from "@/components/StatusBadge";
+import ContainerControlBox from "@/components/system/ContainerControlBox";
 import { useTheme } from "@/contexts/ThemeContext";
 
 const NOVNC_SERVER_CONTAINER_NAME = "novnc-server";
 const NOVNC_PATH = "/vnc.html?autoconnect=true&resize=scale";
 const NOVNC_PORT = 8090;
 const STATUS_POLL_INTERVAL = 2000;
-
-const GROUP_STYLES: React.CSSProperties = {
-  backgroundColor: "var(--vscode-toolbar-groupBg, rgba(128, 128, 128, 0.08))",
-  border: "1px solid var(--vscode-panel-border)",
-};
-
-function PlayIcon() {
-  return (
-    <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <polygon points="5 3 19 12 5 21 5 3" />
-    </svg>
-  );
-}
-
-function SquareIcon() {
-  return (
-    <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <rect x="3" y="3" width="18" height="18" rx="2" ry="2" />
-    </svg>
-  );
-}
-
-function LogIcon() {
-  return (
-    <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
-      <polyline points="14 2 14 8 20 8" />
-      <line x1="16" y1="13" x2="8" y2="13" />
-      <line x1="16" y1="17" x2="8" y2="17" />
-      <polyline points="10 9 9 9 8 9" />
-    </svg>
-  );
-}
 
 function getNoVNCUrl(): string {
   if (typeof window === "undefined") return "";
@@ -107,14 +75,7 @@ export default function NoVNCPage() {
     }
   }, []);
 
-  useEffect(() => {
-    loadNovncContainer();
-  }, [loadNovncContainer]);
-
-  useEffect(() => {
-    const interval = setInterval(loadNovncContainer, STATUS_POLL_INTERVAL);
-    return () => clearInterval(interval);
-  }, [loadNovncContainer]);
+  usePolling(loadNovncContainer, STATUS_POLL_INTERVAL);
 
   const handleNovncDocker = useCallback(async () => {
     const isRunning = novncContainer?.status?.toLowerCase() === "running";
@@ -158,57 +119,15 @@ export default function NoVNCPage() {
         className="flex flex-wrap items-center gap-4 px-4 py-2 shrink-0 border-b"
         style={{ borderColor: "var(--vscode-panel-border)" }}
       >
-        <div
-          className="flex flex-col gap-1.5 rounded-none px-3 py-2 min-h-[72px] justify-center"
-          style={GROUP_STYLES}
-        >
-          <div className="flex items-center gap-2">
-            <span
-              className="text-[10px] font-medium uppercase tracking-wider"
-              style={{ color: "var(--vscode-descriptionForeground)" }}
-            >
-              noVNC server
-            </span>
-            {statusLabel ? <StatusBadge status={statusLabel} dotOnly /> : null}
-          </div>
-          <div className="flex items-center gap-2">
-            <button
-              type="button"
-              onClick={handleNovncDocker}
-              disabled={novncActionLoading !== null}
-              title={isRunning ? "Stop" : "Start"}
-              aria-label={isRunning ? "Stop" : "Start"}
-              className="w-[30px] h-[30px] rounded border-none cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed inline-flex items-center justify-center"
-              style={{
-                backgroundColor: isRunning
-                  ? "var(--vscode-button-secondaryBackground)"
-                  : "var(--vscode-button-background)",
-                color: isRunning
-                  ? "var(--vscode-button-secondaryForeground)"
-                  : "var(--vscode-button-foreground)",
-              }}
-            >
-              {isRunning ? <SquareIcon /> : <PlayIcon />}
-            </button>
-            <button
-              type="button"
-              onClick={() => setShowLogs((v) => !v)}
-              title="Log"
-              aria-label="Log"
-              className="w-[30px] h-[30px] rounded border-none cursor-pointer inline-flex items-center justify-center"
-              style={{
-                backgroundColor: showLogs
-                  ? "var(--vscode-button-secondaryBackground)"
-                  : "var(--vscode-button-background)",
-                color: showLogs
-                  ? "var(--vscode-button-secondaryForeground)"
-                  : "var(--vscode-button-foreground)",
-              }}
-            >
-              <LogIcon />
-            </button>
-          </div>
-        </div>
+        <ContainerControlBox
+          title="noVNC server"
+          status={statusLabel}
+          loading={novncActionLoading !== null}
+          onToggle={handleNovncDocker}
+          showLogs={showLogs}
+          onToggleLogs={() => setShowLogs((v) => !v)}
+          size="compact"
+        />
       </header>
 
       {showLogs ? (

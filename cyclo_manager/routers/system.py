@@ -19,6 +19,7 @@
 """System info and stats endpoints: reads directly from /proc inside the container."""
 
 import asyncio
+import glob
 import os
 from pathlib import Path
 import platform
@@ -26,7 +27,12 @@ import socket
 import time
 from typing import Optional
 
-from cyclo_manager.models import RobotInfoResponse, SystemStatsResponse
+from cyclo_manager.models import (
+    RobotInfoResponse,
+    SerialPortInfo,
+    SerialPortsResponse,
+    SystemStatsResponse,
+)
 from fastapi import APIRouter
 import psutil
 
@@ -35,6 +41,13 @@ router = APIRouter(prefix='/system', tags=['system'])
 # Host filesystem mounted read-only at this path in docker-compose.
 # Used to read host disk usage and host OS info.
 _HOST_ROOT = '/host_root'
+_EXTRA_STORAGE_MOUNT_PATHS = ('/mnt/ssd', '/data')
+_SERIAL_PORT_GLOBS = (
+    '/dev/serial/by-id/*',
+    '/dev/ttyACM*',
+    '/dev/ttyUSB*',
+    '/dev/ttyAMA*',
+)
 
 
 async def _check_internet() -> bool:
@@ -83,6 +96,89 @@ def _temperature() -> float | None:
     return None
 
 
+def _mounted_disk_usage(path: str):
+    """Return disk usage for a mounted path, or None when unavailable."""
+    path_obj = Path(path)
+    if not path_obj.is_mount():
+        return None
+    try:
+        return psutil.disk_usage(path)
+    except OSError:
+        return None
+
+
+def _extra_storage_disk_usage():
+    """Return extra storage disk usage when a known host mount is visible."""
+    if not Path(_HOST_ROOT).is_mount():
+        return None, None
+    for mount_path in _EXTRA_STORAGE_MOUNT_PATHS:
+        usage = _mounted_disk_usage(f'{_HOST_ROOT}{mount_path}')
+        if usage:
+            return mount_path, usage
+    return None, None
+
+
+def _host_path(path: str) -> Path:
+    if Path(_HOST_ROOT).is_mount():
+        return Path(_HOST_ROOT, path.lstrip('/'))
+    return Path(path)
+
+
+def _display_dev_path(path: Path) -> str:
+    text = str(path)
+    if text.startswith(f'{_HOST_ROOT}/'):
+        return text[len(_HOST_ROOT):]
+    return text
+
+
+def _real_dev_path(path: Path) -> str | None:
+    try:
+        real = path.resolve(strict=True)
+    except OSError:
+        return None
+    return _display_dev_path(real)
+
+
+def _serial_port_label(path: str, real_path: str | None) -> str:
+    if path.startswith('/dev/serial/by-id/'):
+        return f'{real_path} ({path})' if real_path else path
+    if path.startswith('/dev/ttyAMA'):
+        return f'Raspberry Pi UART ({path})'
+    if path.startswith('/dev/ttyACM'):
+        return f'USB CDC serial ({path})'
+    if path.startswith('/dev/ttyUSB'):
+        return f'USB serial ({path})'
+    return path
+
+
+def _serial_ports() -> list[SerialPortInfo]:
+    ports: list[SerialPortInfo] = []
+    seen_real_paths: set[str] = set()
+
+    for pattern in _SERIAL_PORT_GLOBS:
+        host_pattern = str(_host_path(pattern))
+        for raw_path in sorted(glob.glob(host_pattern)):
+            host_port_path = Path(raw_path)
+            display_path = _display_dev_path(host_port_path)
+            real_path = _real_dev_path(host_port_path)
+            if real_path and real_path in seen_real_paths:
+                continue
+            path = real_path if real_path else display_path
+            if path in seen_real_paths:
+                continue
+            if real_path:
+                seen_real_paths.add(real_path)
+            ports.append(
+                SerialPortInfo(
+                    path=path,
+                    real_path=real_path,
+                    label=_serial_port_label(display_path, real_path),
+                )
+            )
+
+    return ports
+
+
 # ── Endpoints ─────────────────────────────────────────────────────────────────
 
 @router.get('/info', response_model=RobotInfoResponse)
@@ -128,6 +224,7 @@ async def get_system_stats() -> SystemStatsResponse:
     mem = psutil.virtual_memory()
     disk_path = _HOST_ROOT if Path(_HOST_ROOT).is_mount() else '/'
     disk = psutil.disk_usage(disk_path)
+    extra_storage_path, extra_storage_disk = _extra_storage_disk_usage()
     uptime_seconds = int(time.time() - psutil.boot_time())
     return SystemStatsResponse(
         cpu_percent=round(cpu_percent, 1),
@@ -135,6 +232,19 @@ async def get_system_stats() -> SystemStatsResponse:
         memory_total_mb=mem.total // (1024 * 1024),
         disk_used_gb=round(disk.used / (1024 ** 3), 1),
         disk_total_gb=round(disk.total / (1024 ** 3), 1),
+        ssd_used_gb=(
+            round(extra_storage_disk.used / (1024 ** 3), 1) if extra_storage_disk else None
+        ),
+        ssd_total_gb=(
+            round(extra_storage_disk.total / (1024 ** 3), 1) if extra_storage_disk else None
+        ),
+        ssd_mount_path=extra_storage_path,
         uptime_seconds=uptime_seconds,
         temperature_celsius=_temperature(),
     )
+
+
+@router.get('/serial-ports', response_model=SerialPortsResponse)
+async def get_serial_ports() -> SerialPortsResponse:
+    """Return serial device candidates from the host /dev tree."""
+    return SerialPortsResponse(ports=_serial_ports())

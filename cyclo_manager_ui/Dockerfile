@@ -23,10 +23,12 @@ COPY --from=deps /app/node_modules ./node_modules
 # Copy source code
 COPY . .
 
-# Download robot meshes from GitHub before build
-# Use git sparse checkout to only download the meshes directory
-# Copy to public/assets/ffw_description/meshes (not just ffw_description) to match URDF path
-RUN mkdir -p public/assets/ffw_description && \
+# Download robot meshes from GitHub before build.
+# Use sparse checkout to only download mesh directories used by URDF files.
+RUN mkdir -p \
+        public/assets/ffw_description \
+        public/assets/open_manipulator_description \
+        public/assets/realsense2_description/meshes && \
     cd /tmp && \
     git clone --filter=blob:none --sparse --depth=1 \
         --branch main \
@@ -34,11 +36,26 @@ RUN mkdir -p public/assets/ffw_description && \
     cd ai_worker && \
     git sparse-checkout set ffw_description/meshes && \
     cp -r ffw_description/meshes /app/public/assets/ffw_description/ && \
+    cd /tmp && \
+    git clone --filter=blob:none --sparse --depth=1 \
+        --branch jazzy \
+        https://github.com/ROBOTIS-GIT/open_manipulator.git && \
+    cd open_manipulator && \
+    git sparse-checkout set open_manipulator_description/meshes && \
+    cp -r open_manipulator_description/meshes /app/public/assets/open_manipulator_description/ && \
+    cd /tmp && \
+    git clone --filter=blob:none --sparse \
+        --branch r/4.56.4 \
+        https://github.com/IntelRealSense/realsense-ros.git && \
+    cd realsense-ros && \
+    git checkout cbd8b8487d4c0126bb590822db9469414496e62a && \
+    git sparse-checkout set realsense2_description/meshes && \
+    cp realsense2_description/meshes/d405.stl /app/public/assets/realsense2_description/meshes/ && \
     cd / && \
-    rm -rf /tmp/ai_worker && \
-    echo "✅ Meshes downloaded: $(find /app/public/assets/ffw_description -type f | wc -l) files" && \
-    echo "📁 Sample files:" && \
-    find /app/public/assets/ffw_description -type f | head -5 || echo "⚠️  Mesh download failed, continuing build..."
+    rm -rf /tmp/ai_worker /tmp/open_manipulator /tmp/realsense-ros && \
+    echo "Meshes downloaded:" && \
+    find /app/public/assets -type f | wc -l && \
+    find /app/public/assets -type f | head -5
 
 # Build Next.js application
 RUN npm run build

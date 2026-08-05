@@ -34,7 +34,8 @@ from cyclo_manager.routers import (
     system,
     terminal,
     version,
-    websocket,
+    websocket_logs,
+    websocket_ros2,
 )
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
@@ -102,7 +103,8 @@ app.include_router(version.router)
 app.include_router(docker.router)
 app.include_router(terminal.router)
 app.include_router(ros2.router)
-app.include_router(websocket.router)
+app.include_router(websocket_logs.router)
+app.include_router(websocket_ros2.router)
 app.include_router(host.router)
 
 

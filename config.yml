@@ -1,8 +1,11 @@
 # cyclo_manager Configuration
 
-robot_container: ai_worker
+supported_robot_containers:
+  - ai_worker
+  - open_manipulator
 
 sockets:
   ai_worker: "/agents/ai_worker/s6_agent.sock"
+  open_manipulator: "/agents/open_manipulator/s6_agent.sock"
   cyclo_intelligence: "/agents/cyclo_intelligence/s6_agent.sock"
   host_agent: "/agents/host/host_agent.sock"

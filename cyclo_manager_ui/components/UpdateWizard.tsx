@@ -19,8 +19,17 @@
 import { useEffect, useState, useCallback } from "react";
 import { getRepoBranchCheck, getRepoStatus, updateRepo, stopRepoContainer, startRepoContainer } from "@/lib/api";
 import type { FileChange, RepoBranchCheckResponse, RepoUpdateStatus } from "@/types/api";
+import {
+  btnPrimary,
+  btnSecondary,
+  modal,
+  OutputBox,
+  overlay,
+  type Phase,
+  RunningLabel,
+  StepBar,
+} from "@/components/update/UpdateWizardParts";
 
-type Phase = "intro" | "stop" | "choose" | "update" | "start";
 type RunStatus = "idle" | "running" | "done" | "error";
 type Strategy = "stash" | "reset";
 
@@ -33,110 +42,6 @@ interface Props {
   repo: RepoUpdateStatus;
   onClose: () => void;
   onDone: () => void;
-}
-
-const PHASES: { key: Phase; label: string }[] = [
-  { key: "intro",  label: "Overview" },
-  { key: "stop",   label: "Stop Container" },
-  { key: "choose", label: "Choose Strategy" },
-  { key: "update", label: "Update Repository" },
-  { key: "start",  label: "Start Container" },
-];
-
-// ── styles ────────────────────────────────────────────────────────────────────
-
-const overlay: React.CSSProperties = {
-  position: "fixed", inset: 0, zIndex: 100,
-  backgroundColor: "rgba(0,0,0,0.55)",
-  display: "flex", alignItems: "center", justifyContent: "center",
-};
-
-const modal: React.CSSProperties = {
-  width: "min(620px, 95vw)",
-  maxHeight: "88vh",
-  display: "flex",
-  flexDirection: "column",
-  borderRadius: "6px",
-  border: "1px solid var(--vscode-panel-border)",
-  backgroundColor: "var(--vscode-editor-background)",
-  overflow: "hidden",
-};
-
-const btnPrimary = (disabled = false): React.CSSProperties => ({
-  padding: "6px 18px", fontSize: 13, border: "none", borderRadius: 2,
-  cursor: disabled ? "not-allowed" : "pointer", opacity: disabled ? 0.5 : 1,
-  backgroundColor: "var(--vscode-button-background)",
-  color: "var(--vscode-button-foreground)",
-});
-
-const btnSecondary = (disabled = false): React.CSSProperties => ({
-  padding: "6px 18px", fontSize: 13, border: "none", borderRadius: 2,
-  cursor: disabled ? "not-allowed" : "pointer", opacity: disabled ? 0.5 : 1,
-  backgroundColor: "var(--vscode-button-secondaryBackground)",
-  color: "var(--vscode-button-secondaryForeground)",
-});
-
-// ── sub-components ────────────────────────────────────────────────────────────
-
-function StepBar({ current }: { current: Phase }) {
-  const idx = PHASES.findIndex(p => p.key === current);
-  return (
-    <div className="flex items-center gap-0 px-5 py-3 text-xs"
-      style={{ borderBottom: "1px solid var(--vscode-panel-border)", flexShrink: 0 }}>
-      {PHASES.map((p, i) => {
-        const done = i < idx;
-        const active = i === idx;
-        return (
-          <div key={p.key} className="flex items-center">
-            <div className="flex items-center gap-1.5">
-              <span style={{
-                width: 20, height: 20, borderRadius: "50%",
-                display: "flex", alignItems: "center", justifyContent: "center",
-                fontSize: 11, fontWeight: 600, flexShrink: 0,
-                backgroundColor: done ? "#3fb950" : active ? "var(--vscode-button-background)" : "transparent",
-                color: done || active ? "#fff" : "var(--vscode-descriptionForeground)",
-                border: done || active ? "none" : "1px solid var(--vscode-panel-border)",
-              }}>
-                {done ? "✓" : i + 1}
-              </span>
-              <span style={{
-                color: active ? "var(--vscode-foreground)" : done ? "#3fb950" : "var(--vscode-descriptionForeground)",
-                fontWeight: active ? 600 : 400,
-              }}>
-                {p.label}
-              </span>
-            </div>
-            {i < PHASES.length - 1 && (
-              <span className="mx-2" style={{ color: "var(--vscode-panel-border)" }}>—</span>
-            )}
-          </div>
-        );
-      })}
-    </div>
-  );
-}
-
-function OutputBox({ output, error }: { output: string; error?: boolean }) {
-  if (!output) return null;
-  return (
-    <pre className="text-xs p-3 rounded font-mono whitespace-pre-wrap break-words overflow-auto"
-      style={{
-        maxHeight: 260,
-        backgroundColor: "var(--vscode-textCodeBlock-background)",
-        color: error ? "var(--vscode-errorForeground)" : "var(--vscode-foreground)",
-        border: "1px solid var(--vscode-panel-border)",
-      }}>
-      {output}
-    </pre>
-  );
-}
-
-function RunningLabel({ label }: { label: string }) {
-  return (
-    <div className="text-sm" style={{ color: "var(--vscode-descriptionForeground)" }}>
-      {label}...
-    </div>
-  );
 }
 
 type BranchCheckState =

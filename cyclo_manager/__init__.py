@@ -23,4 +23,4 @@ This package provides a unified REST API to manage multiple containers
 running s6-overlay agents via Unix Domain Sockets.
 """
 
-__version__ = '0.3.0'
+__version__ = '1.0.0'

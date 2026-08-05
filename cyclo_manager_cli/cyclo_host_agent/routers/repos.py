@@ -41,16 +41,20 @@ from fastapi import APIRouter, HTTPException, status
 router = APIRouter(prefix='/repos', tags=['repos'])
 
 GIT_TIMEOUT = 120.0
+GIT_REMOTE_TIMEOUT = 5.0
 
 
-def _resolve_home() -> Path:
+def _resolve_workspace() -> Path:
+    configured_workspace = os.environ.get('CYCLO_HOST_AGENT_WORKSPACE')
+    if configured_workspace:
+        return Path(configured_workspace).expanduser()
     sudo_user = os.environ.get('SUDO_USER')
     if sudo_user:
         return Path(f'/home/{sudo_user}')
     return Path.home()
 
 
-WORKSPACE_PATH = _resolve_home()
+WORKSPACE_PATH = _resolve_workspace()
 MANAGED_GITHUB_ORG = 'ROBOTIS-GIT'
 ALLOWED_UPDATE_BRANCHES = frozenset({'main', 'jazzy'})
 
@@ -120,7 +124,11 @@ async def _ensure_allowed_branch(repo_path: Path) -> None:
     raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=detail)
 
 
-async def _git(args: list[str], cwd: Optional[Path] = None) -> tuple[int, str, str]:
+async def _git(
+    args: list[str],
+    cwd: Optional[Path] = None,
+    timeout: float = GIT_TIMEOUT,
+) -> tuple[int, str, str]:
     proc = await asyncio.create_subprocess_exec(
         'git', *args,
         cwd=str(cwd) if cwd else None,
@@ -128,7 +136,7 @@ async def _git(args: list[str], cwd: Optional[Path] = None) -> tuple[int, str, s
         stderr=asyncio.subprocess.PIPE,
     )
     try:
-        stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=GIT_TIMEOUT)
+        stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=timeout)
     except asyncio.TimeoutError:
         proc.kill()
         await proc.wait()
@@ -192,7 +200,13 @@ def _read_package_xml_version(repo_path: Path) -> Optional[str]:
 
 
 async def _fetch_latest_tag(remote_url: str) -> Optional[str]:
-    rc, out, _ = await _git(['ls-remote', '--tags', remote_url])
+    try:
+        rc, out, _ = await _git(
+            ['ls-remote', '--tags', remote_url],
+            timeout=GIT_REMOTE_TIMEOUT,
+        )
+    except asyncio.TimeoutError:
+        return None
     if rc != 0:
         return None
     tags = []

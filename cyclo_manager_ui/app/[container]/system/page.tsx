@@ -17,50 +17,39 @@
 "use client";
 
 import { useEffect, useState, useCallback, useMemo } from "react";
+import type { CSSProperties } from "react";
 import { useParams } from "next/navigation";
 import Link from "next/link";
 import Convert from "ansi-to-html";
-import { controlService, getServiceStatus, getDockerContainers, controlDockerContainer, getDockerContainerLogs, ros2Subscribe, ros2Unsubscribe, getROS2TopicAvailability, getROS2TopicData } from "@/lib/api";
-import type { ServiceStatusResponse } from "@/types/api";
+import { usePolling } from "@/hooks/usePolling";
+import { useServiceStatus } from "@/hooks/useServiceStatus";
 import {
-  LG2_LEADER_AI_CONFIG,
-  followerModelToApi,
+  controlDockerContainer,
+  getDockerContainerLogs,
+  getDockerContainers,
+  getROS2TopicAvailability,
+  getROS2TopicData,
+  getSerialPorts,
+  ros2Subscribe,
+  ros2Unsubscribe,
+} from "@/lib/api";
+import type { SerialPortInfo } from "@/types/api";
+import {
   getDefaultArgs,
-  getFollowerLaunchConfig,
-  getStoredFollowerRobotModel,
-  isFollowerRobotModel,
   mergeWithDefaults,
-  type FollowerRobotModel,
   type LaunchArgsConfig,
 } from "@/config/launchArgs";
-import ControlToolbar from "@/components/ControlToolbar";
+import { getSystemProfile, type SystemControlTopic, type SystemProfile, type SystemRobotOption } from "@/config/systemProfiles";
+import LaunchArgsSettingPopup from "@/components/LaunchArgsSettingPopup";
 import FixedLogPanel from "@/components/FixedLogPanel";
 import Robot3DViewer from "@/components/Robot3DViewer";
+import ContainerControlBox from "@/components/system/ContainerControlBox";
+import ServiceControlBox from "@/components/system/ServiceControlBox";
 import { useTheme } from "@/contexts/ThemeContext";
 
-const LEADER_SERVICE_NAME = "avatar_bringup";
 const STATUS_POLL_INTERVAL = 2000;
-const ERROR_DISPLAY_DURATION = 5000;
-const STATUS_RELOAD_DELAY = 1000;
-
-const CAMERA_TOPICS = [
-  { label: "Camera (Head)", topic: "/zed/zed_node/left/image_rect_color/compressed" },
-  { label: "Camera (Wrist L)", topic: "/camera_left/camera_left/color/image_rect_raw/compressed" },
-  { label: "Camera (Wrist R)", topic: "/camera_right/camera_right/color/image_rect_raw/compressed" },
-] as const;
-
-const BATTERY_TOPICS = [
-  { label: "Battery (Left)", topic: "/ai_worker/battery/left/state" },
-  { label: "Battery (Right)", topic: "/ai_worker/battery/right/state" },
-] as const;
-
-const CONTROL_TOPICS = [
-  { topic: "/joint_states", msgType: "sensor_msgs/msg/JointState" },
-  { topic: "/robot_description", msgType: "std_msgs/msg/String" },
-  { topic: "/ai_worker/battery/left/state", msgType: "sensor_msgs/msg/BatteryState" },
-  { topic: "/ai_worker/battery/right/state", msgType: "sensor_msgs/msg/BatteryState" },
-  ...CAMERA_TOPICS.map(({ topic }) => ({ topic, msgType: "sensor_msgs/msg/CompressedImage" })),
-] as const;
+const ROBOT_DESCRIPTION_TOPIC = "/robot_description";
+const JOINT_STATES_TOPIC = "/joint_states";
 
 function parseBatteryPercentage(topicData: unknown): number | null {
   if (!topicData || typeof topicData !== "object") return null;
@@ -79,6 +68,32 @@ const PANEL_STYLES = {
   flexDirection: "column",
 } as const;
 
+const ERROR_STYLES: CSSProperties = {
+  color: "var(--vscode-errorForeground)",
+  backgroundColor: "rgba(244, 135, 113, 0.1)",
+  border: "1px solid rgba(244, 135, 113, 0.3)",
+};
+
+type ToolbarHelpKey = "robot" | "leader" | "intelligence" | "zenoh";
+
+const TOOLBAR_HELP_TEXT: Record<ToolbarHelpKey, string> = {
+  robot:
+    "Starts and stops the robot bringup service. The dot shows status — green is running, red is stopped.",
+  leader:
+    "Starts and stops the leader bringup service. The dot shows status — green is running, red is stopped.",
+  intelligence:
+    "Starts and stops the Cyclo Intelligence service in its container.",
+  zenoh:
+    "Starts and stops the Zenoh daemon Docker container. The dot shows container state — green running, red stopped. If you use zenoh as ros middleware, you need to run the zenoh daemon.",
+};
+
+const TOOLBAR_HELP_ARIA: Record<ToolbarHelpKey, string> = {
+  robot: "Robot help",
+  leader: "Leader help",
+  intelligence: "Cyclo Intelligence help",
+  zenoh: "Zenoh Daemon help",
+};
+
 function getBringupArgsStorageKey(config: LaunchArgsConfig, container: string): string {
   const key = config.storageKey ?? config.serviceId;
   return `bringup_args_${key}_${container}`;
@@ -96,60 +111,53 @@ function getStoredBringupArgs(config: LaunchArgsConfig, container: string): Reco
   }
 }
 
-const FOLLOWER_SERVICE_NAME = "ai_worker_bringup";
+const UNSUPPORTED_LAUNCH_CONFIG: LaunchArgsConfig = {
+  serviceId: "unsupported",
+  title: "Unsupported Robot",
+  args: [],
+};
+
+function isProfileOptionValue(
+  value: string | null | undefined,
+  options: readonly { value: string }[]
+): value is string {
+  return value != null && options.some((option) => option.value === value);
+}
+
+function getDefaultProfileOptionValue(options: readonly { value: string }[]): string {
+  return options[0]?.value ?? "";
+}
+
+function getStoredProfileOptionValue(
+  container: string,
+  storageKey: string,
+  fallback: string,
+  options: readonly { value: string }[]
+): string {
+  if (typeof window === "undefined" || !container) return fallback;
+  const stored = localStorage.getItem(storageKey);
+  return isProfileOptionValue(stored, options) ? stored : fallback;
+}
+
+function getProfileRobotOption(
+  robotType: string,
+  options: readonly SystemRobotOption[]
+): SystemRobotOption | null {
+  return options.find((option) => option.value === robotType) ?? null;
+}
+
 const CYCLO_INTELLIGENCE_CONTAINER = "cyclo_intelligence";
 const CYCLO_INTELLIGENCE_SERVICE = "cyclo_intelligence";
 const ZENOH_DAEMON_CONTAINER_NAME = "zenoh_daemon";
-
-function useServiceStatus(
-  container: string | undefined,
-  serviceName: string | (() => string)
-) {
-  const [status, setStatus] = useState<ServiceStatusResponse | null>(null);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  const loadStatus = useCallback(async () => {
-    if (!container) return;
-    try {
-      const name = typeof serviceName === "function" ? serviceName() : serviceName;
-      const serviceStatus = await getServiceStatus(container, name);
-      setStatus((prev) =>
-        prev?.is_up === serviceStatus.is_up && prev?.pid === serviceStatus.pid
-          ? prev
-          : serviceStatus
-      );
-    } catch {
-      setStatus((prev) => (prev === null ? prev : null));
-    }
-  }, [container, serviceName]);
-
-  const handleControl = useCallback(
-    async (
-      action: "up" | "down" | "restart",
-      launchArgs?: Record<string, string>,
-      robotType?: "sg2" | "bg2" | "sh5" | "bh5" | "mobile"
-    ) => {
-      if (!container) return;
-      setLoading(true);
-      setError(null);
-      try {
-        const name = typeof serviceName === "function" ? serviceName() : serviceName;
-        const argsToSend = (action === "up" || action === "restart") ? launchArgs : undefined;
-        await controlService(container, name, action, argsToSend, robotType);
-        setTimeout(loadStatus, STATUS_RELOAD_DELAY);
-      } catch (err) {
-        setError(err instanceof Error ? err.message : "Failed to control service");
-        setTimeout(() => setError(null), ERROR_DISPLAY_DURATION);
-      } finally {
-        setLoading(false);
-      }
-    },
-    [container, serviceName, loadStatus]
-  );
-
-  return { status, loading, error, loadStatus, handleControl };
-}
+const UNSUPPORTED_SYSTEM_PROFILE: SystemProfile = {
+  label: "Unsupported",
+  robotServiceName: "",
+  leaderServiceName: null,
+  robotTypeOptions: [{ value: "unsupported", label: "Unsupported", config: UNSUPPORTED_LAUNCH_CONFIG }],
+  leaderTypeOptions: [],
+  batteryTopics: [],
+  cameraTopics: [],
+};
 
 export default function SystemPage() {
   const params = useParams();
@@ -170,27 +178,75 @@ export default function SystemPage() {
     });
   }, [theme]);
 
-  const [robotType, setRobotType] = useState<FollowerRobotModel>(() => getStoredFollowerRobotModel(container));
+  const systemProfile = getSystemProfile(container);
+  const activeSystemProfile = systemProfile ?? UNSUPPORTED_SYSTEM_PROFILE;
+  const [robotType, setRobotType] = useState<string>(() =>
+    getStoredProfileOptionValue(
+      container,
+      `robot_type_${container}`,
+      getDefaultProfileOptionValue(activeSystemProfile.robotTypeOptions),
+      activeSystemProfile.robotTypeOptions
+    )
+  );
+  const [leaderType, setLeaderType] = useState<string>(() =>
+    getStoredProfileOptionValue(
+      container,
+      `leader_robot_type_${container}`,
+      getDefaultProfileOptionValue(activeSystemProfile.leaderTypeOptions),
+      activeSystemProfile.leaderTypeOptions
+    )
+  );
   const [showLogs, setShowLogs] = useState(false);
   const [showLeaderLogs, setShowLeaderLogs] = useState(false);
   const [showCycloIntelligenceLogs, setShowCycloIntelligenceLogs] = useState(false);
   const [showZenohDaemonLogs, setShowZenohDaemonLogs] = useState(false);
+  const [showRobotArgsPopup, setShowRobotArgsPopup] = useState(false);
+  const [showLeaderArgsPopup, setShowLeaderArgsPopup] = useState(false);
 
+  const [serialPorts, setSerialPorts] = useState<SerialPortInfo[]>([]);
+  const [cycloIntelligenceContainerStatus, setCycloIntelligenceContainerStatus] = useState<string | null>(null);
   const [zenohDaemonContainer, setZenohDaemonContainer] = useState<{ name: string; status: string } | null>(null);
   const [zenohDaemonActionLoading, setZenohDaemonActionLoading] = useState<"start" | "stop" | null>(null);
   const [zenohDaemonLogContent, setZenohDaemonLogContent] = useState("");
   const [zenohDaemonLogLoading, setZenohDaemonLogLoading] = useState(false);
-  const robotConfig = getFollowerLaunchConfig(robotType);
+  const robotOption = getProfileRobotOption(robotType, activeSystemProfile.robotTypeOptions);
+  const leaderOption = getProfileRobotOption(leaderType, activeSystemProfile.leaderTypeOptions);
+  const robotConfig = robotOption?.config ?? activeSystemProfile.robotTypeOptions[0]?.config ?? UNSUPPORTED_LAUNCH_CONFIG;
+  const leaderConfig = leaderOption?.config ?? null;
+  const batteryTopics = activeSystemProfile.batteryTopics;
+  const cameraTopics = activeSystemProfile.cameraTopics;
+  const controlTopics = useMemo<SystemControlTopic[]>(
+    () => {
+      if (!systemProfile) return [];
+      return [
+        { topic: JOINT_STATES_TOPIC, msgType: "sensor_msgs/msg/JointState" },
+        { topic: ROBOT_DESCRIPTION_TOPIC, msgType: "std_msgs/msg/String" },
+        ...batteryTopics.map(({ topic }) => ({
+          topic,
+          msgType: "sensor_msgs/msg/BatteryState",
+        })),
+        ...cameraTopics.map(({ topic }) => ({
+          topic,
+          msgType: "sensor_msgs/msg/CompressedImage",
+        })),
+      ];
+    },
+    [batteryTopics, cameraTopics, systemProfile]
+  );
   const [robotBringupArgs, setRobotBringupArgs] = useState<Record<string, string>>(
     () => getStoredBringupArgs(robotConfig, container)
   );
   const [leaderBringupArgs, setLeaderBringupArgs] = useState<Record<string, string>>(
-    () => getStoredBringupArgs(LG2_LEADER_AI_CONFIG, container)
+    () => (leaderConfig ? getStoredBringupArgs(leaderConfig, container) : {})
   );
 
-  const robotService = useServiceStatus(container, FOLLOWER_SERVICE_NAME);
-  const leaderService = useServiceStatus(container, LEADER_SERVICE_NAME);
+  const robotService = useServiceStatus(container, activeSystemProfile.robotServiceName);
+  const leaderService = useServiceStatus(container, activeSystemProfile.leaderServiceName);
   const cycloIntelligenceService = useServiceStatus(CYCLO_INTELLIGENCE_CONTAINER, CYCLO_INTELLIGENCE_SERVICE);
+  const robotSelectDisabled = robotService.loading || robotService.status?.is_up === true;
+  const leaderSelectDisabled = leaderService.loading || leaderService.status?.is_up === true;
+  const cycloIntelligenceContainerRunning =
+    cycloIntelligenceContainerStatus?.toLowerCase() === "running";
 
   const [batteryPercentage, setBatteryPercentage] = useState<Record<string, number | null>>({});
   const [cameraAvailability, setCameraAvailability] = useState<Record<string, boolean>>({});
@@ -201,7 +257,7 @@ export default function SystemPage() {
     const pollStatus = async () => {
       const [batteryEntries, cameraEntries] = await Promise.all([
         Promise.all(
-          BATTERY_TOPICS.map(async ({ topic }) => {
+          batteryTopics.map(async ({ topic }) => {
             try {
               return [topic, parseBatteryPercentage(await getROS2TopicData(topic))] as const;
             } catch {
@@ -210,7 +266,7 @@ export default function SystemPage() {
           })
         ),
         Promise.all(
-          CAMERA_TOPICS.map(async ({ topic }) => [topic, await getROS2TopicAvailability(topic)] as const)
+          cameraTopics.map(async ({ topic }) => [topic, await getROS2TopicAvailability(topic)] as const)
         ),
       ]);
       if (!cancelled) {
@@ -224,49 +280,58 @@ export default function SystemPage() {
       cancelled = true;
       clearTimeout(timeoutId);
     };
+  }, [batteryTopics, cameraTopics]);
+
+  usePolling(cycloIntelligenceService.loadStatus, STATUS_POLL_INTERVAL, {
+    enabled: Boolean(container && systemProfile),
+    resetKey: `${container}:cyclo-intelligence`,
+  });
+
+  const loadSerialPorts = useCallback(async () => {
+    try {
+      const res = await getSerialPorts();
+      setSerialPorts(res.ports);
+    } catch {
+      setSerialPorts([]);
+    }
   }, []);
 
-  useEffect(() => {
-    cycloIntelligenceService.loadStatus();
-  }, [CYCLO_INTELLIGENCE_CONTAINER, cycloIntelligenceService.loadStatus]);
+  usePolling(loadSerialPorts, STATUS_POLL_INTERVAL, {
+    enabled: Boolean(container && systemProfile),
+    resetKey: `${container}:serial-ports`,
+  });
 
-  useEffect(() => {
-    const interval = setInterval(() => {
-      cycloIntelligenceService.loadStatus();
-    }, STATUS_POLL_INTERVAL);
-    return () => clearInterval(interval);
-  }, [cycloIntelligenceService.loadStatus]);
-
-  const loadZenohDaemon = useCallback(async () => {
+  const loadExternalServiceContainers = useCallback(async () => {
     try {
       const res = await getDockerContainers(true);
-      const c = res.containers.find((d) => d.name === ZENOH_DAEMON_CONTAINER_NAME);
-      setZenohDaemonContainer(c ? { name: c.name, status: c.status } : null);
+      const cycloIntelligence = res.containers.find((d) => d.name === CYCLO_INTELLIGENCE_CONTAINER);
+      const zenohDaemon = res.containers.find((d) => d.name === ZENOH_DAEMON_CONTAINER_NAME);
+      setCycloIntelligenceContainerStatus(cycloIntelligence?.status ?? null);
+      setZenohDaemonContainer(
+        zenohDaemon ? { name: zenohDaemon.name, status: zenohDaemon.status } : null
+      );
     } catch {
+      setCycloIntelligenceContainerStatus(null);
       setZenohDaemonContainer(null);
     }
   }, []);
 
-  useEffect(() => {
-    loadZenohDaemon();
-  }, [loadZenohDaemon]);
+  usePolling(loadExternalServiceContainers, STATUS_POLL_INTERVAL, {
+    enabled: Boolean(container && systemProfile),
+    resetKey: `${container}:external-service-containers`,
+  });
 
   useEffect(() => {
-    const interval = setInterval(loadZenohDaemon, STATUS_POLL_INTERVAL);
-    return () => clearInterval(interval);
-  }, [loadZenohDaemon]);
-
-  useEffect(() => {
-    if (!container) return;
-    for (const { topic, msgType } of CONTROL_TOPICS) {
+    if (!container || !systemProfile) return;
+    for (const { topic, msgType } of controlTopics) {
       ros2Subscribe(topic, msgType).catch(() => {});
     }
     return () => {
-      for (const { topic } of CONTROL_TOPICS) {
+      for (const { topic } of controlTopics) {
         ros2Unsubscribe(topic).catch(() => {});
       }
     };
-  }, [container]);
+  }, [container, controlTopics, systemProfile]);
 
   const handleZenohDaemonBringup = useCallback(async () => {
     const isRunning = zenohDaemonContainer?.status?.toLowerCase() === "running";
@@ -274,11 +339,11 @@ export default function SystemPage() {
     setZenohDaemonActionLoading(action);
     try {
       await controlDockerContainer(ZENOH_DAEMON_CONTAINER_NAME, action);
-      await loadZenohDaemon();
+      await loadExternalServiceContainers();
     } finally {
       setZenohDaemonActionLoading(null);
     }
-  }, [zenohDaemonContainer?.status, loadZenohDaemon]);
+  }, [zenohDaemonContainer?.status, loadExternalServiceContainers]);
 
   useEffect(() => {
     if (!showZenohDaemonLogs) return;
@@ -298,63 +363,79 @@ export default function SystemPage() {
     const action: "up" | "down" = robotService.status?.is_up ? "down" : "up";
     const launchArgs = action === "up" ? robotBringupArgs : undefined;
     const robotTypeParam =
-      action === "up" && robotType ? followerModelToApi(robotType) : undefined;
+      action === "up" ? robotOption?.robotType : undefined;
     await robotService.handleControl(action, launchArgs, robotTypeParam);
-  }, [robotService, robotBringupArgs, robotType]);
+  }, [robotService, robotBringupArgs, robotOption]);
 
   const handleLeaderBringup = useCallback(async () => {
+    if (!activeSystemProfile.leaderServiceName) return;
     const action: "up" | "down" = leaderService.status?.is_up ? "down" : "up";
     const launchArgs = action === "up" ? leaderBringupArgs : undefined;
-    await leaderService.handleControl(action, launchArgs);
-  }, [leaderService, leaderBringupArgs]);
+    const robotTypeParam = action === "up" ? leaderOption?.robotType : undefined;
+    await leaderService.handleControl(action, launchArgs, robotTypeParam);
+  }, [
+    leaderService,
+    leaderBringupArgs,
+    leaderOption,
+    activeSystemProfile.leaderServiceName,
+  ]);
 
   useEffect(() => {
-    if (container) {
-      setRobotType(getStoredFollowerRobotModel(container));
-      setLeaderBringupArgs(getStoredBringupArgs(LG2_LEADER_AI_CONFIG, container));
+    if (container && systemProfile) {
+      setRobotType(getStoredProfileOptionValue(
+        container,
+        `robot_type_${container}`,
+        getDefaultProfileOptionValue(systemProfile.robotTypeOptions),
+        systemProfile.robotTypeOptions
+      ));
+      setLeaderType(getStoredProfileOptionValue(
+        container,
+        `leader_robot_type_${container}`,
+        getDefaultProfileOptionValue(systemProfile.leaderTypeOptions),
+        systemProfile.leaderTypeOptions
+      ));
+      setLeaderBringupArgs(leaderConfig ? getStoredBringupArgs(leaderConfig, container) : {});
     }
-  }, [container]);
+  }, [container, leaderConfig, systemProfile]);
 
   useEffect(() => {
-    if (container) {
-      const cfg = getFollowerLaunchConfig(robotType);
-      setRobotBringupArgs(getStoredBringupArgs(cfg, container));
+    if (container && systemProfile) {
+      setRobotBringupArgs(getStoredBringupArgs(robotConfig, container));
     }
-  }, [container, robotType]);
+  }, [container, robotConfig, systemProfile]);
 
   useEffect(() => {
-    if (container && robotType) {
+    if (container && systemProfile && robotType) {
       localStorage.setItem(`robot_type_${container}`, robotType);
     }
-  }, [container, robotType]);
+  }, [container, robotType, systemProfile]);
 
   useEffect(() => {
-    if (container && robotBringupArgs) {
+    if (container && systemProfile && leaderType) {
+      localStorage.setItem(`leader_robot_type_${container}`, leaderType);
+    }
+  }, [container, leaderType, systemProfile]);
+
+  useEffect(() => {
+    if (container && systemProfile && robotBringupArgs) {
       localStorage.setItem(getBringupArgsStorageKey(robotConfig, container), JSON.stringify(robotBringupArgs));
     }
-  }, [container, robotBringupArgs, robotConfig]);
+  }, [container, robotBringupArgs, robotConfig, systemProfile]);
 
   useEffect(() => {
-    if (container && leaderBringupArgs) {
-      localStorage.setItem(`bringup_args_${LG2_LEADER_AI_CONFIG.serviceId}_${container}`, JSON.stringify(leaderBringupArgs));
+    if (container && systemProfile && leaderConfig && leaderBringupArgs) {
+      localStorage.setItem(getBringupArgsStorageKey(leaderConfig, container), JSON.stringify(leaderBringupArgs));
     }
-  }, [container, leaderBringupArgs]);
+  }, [container, leaderBringupArgs, leaderConfig, systemProfile]);
 
-  useEffect(() => {
-    if (container) {
+  usePolling(
+    () => {
       robotService.loadStatus();
       leaderService.loadStatus();
-    }
-  }, [container, robotType, robotService, leaderService]);
-
-  useEffect(() => {
-    if (!container) return;
-    const interval = setInterval(() => {
-      robotService.loadStatus();
-      leaderService.loadStatus();
-    }, STATUS_POLL_INTERVAL);
-    return () => clearInterval(interval);
-  }, [container, robotType, robotService, leaderService]);
+    },
+    STATUS_POLL_INTERVAL,
+    { enabled: Boolean(container && systemProfile), resetKey: `${container ?? ""}:${robotType}:${leaderType}:${activeSystemProfile.robotServiceName}:${activeSystemProfile.leaderServiceName ?? ""}` }
+  );
 
   if (!container) {
     return (
@@ -364,75 +445,160 @@ export default function SystemPage() {
     );
   }
 
+  if (!systemProfile) {
+    return (
+      <div style={{ color: "var(--vscode-foreground)" }}>
+        Unsupported robot container: {container}. <Link href="/app" className="underline">Back to Apps</Link>
+      </div>
+    );
+  }
+
   return (
     <div
       className="relative flex flex-col overflow-hidden"
       style={{ height: "calc(100vh - 120px)", minHeight: "400px" }}
     >
-      <ControlToolbar
-        robotType={robotType}
-        onRobotTypeChange={(v) => {
-          const t = isFollowerRobotModel(v) ? v : "SG2";
-          setRobotType(t);
-          if (container) localStorage.setItem(`robot_type_${container}`, t);
+      <div
+        className="flex flex-wrap items-stretch gap-0 border-b py-2"
+        style={{
+          backgroundColor: "var(--vscode-editor-background)",
+          borderColor: "var(--vscode-panel-border)",
+          boxShadow: "0 1px 0 0 rgba(0,0,0,0.15)",
         }}
-        robotService={{
-          status: robotService.status,
-          loading: robotService.loading,
-          error: robotService.error,
-        }}
-        leaderService={{
-          status: leaderService.status,
-          loading: leaderService.loading,
-          error: leaderService.error,
-        }}
-        onRobotBringup={handleRobotBringup}
-        onLeaderBringup={handleLeaderBringup}
-        showLogs={showLogs}
-        showLeaderLogs={showLeaderLogs}
-        onToggleLogs={() => {
-          setShowLogs((prev) => !prev);
-          setShowLeaderLogs(false);
-          setShowCycloIntelligenceLogs(false);
-          setShowZenohDaemonLogs(false);
-        }}
-        onToggleLeaderLogs={() => {
-          setShowLeaderLogs((prev) => !prev);
-          setShowLogs(false);
-          setShowCycloIntelligenceLogs(false);
-          setShowZenohDaemonLogs(false);
-        }}
-        robotLaunchConfig={robotConfig}
-        robotBringupArgs={robotBringupArgs}
-        onRobotBringupArgsChange={setRobotBringupArgs}
-        leaderLaunchConfig={LG2_LEADER_AI_CONFIG}
-        leaderBringupArgs={leaderBringupArgs}
-        onLeaderBringupArgsChange={setLeaderBringupArgs}
-        cycloIntelligenceService={{
-          status: cycloIntelligenceService.status,
-          loading: cycloIntelligenceService.loading,
-        }}
-        onCycloIntelligenceBringup={handleCycloIntelligenceBringup}
-        showCycloIntelligenceLogs={showCycloIntelligenceLogs}
-        onToggleCycloIntelligenceLogs={() => {
-          setShowCycloIntelligenceLogs((prev) => !prev);
-          setShowLogs(false);
-          setShowLeaderLogs(false);
-          setShowZenohDaemonLogs(false);
-        }}
-        zenohDaemonService={{
-          status: zenohDaemonContainer?.status ?? "",
-          loading: zenohDaemonActionLoading !== null,
-        }}
-        onZenohDaemonBringup={handleZenohDaemonBringup}
-        showZenohDaemonLogs={showZenohDaemonLogs}
-        onToggleZenohDaemonLogs={() => {
-          setShowZenohDaemonLogs((prev) => !prev);
-          setShowLogs(false);
-          setShowLeaderLogs(false);
-          setShowCycloIntelligenceLogs(false);
-        }}
-      />
+      >
+        <ServiceControlBox
+          title="Robot"
+          status={robotService.status}
+          loading={robotService.loading}
+          onToggle={handleRobotBringup}
+          showLogs={showLogs}
+          onToggleLogs={() => {
+            setShowLogs((prev) => !prev);
+            setShowLeaderLogs(false);
+            setShowCycloIntelligenceLogs(false);
+            setShowZenohDaemonLogs(false);
+          }}
+          onSettings={robotConfig.args.length > 0 ? () => setShowRobotArgsPopup(true) : undefined}
+          typeSelect={{
+            value: robotType,
+            onChange: (v) => {
+              const t = isProfileOptionValue(v, activeSystemProfile.robotTypeOptions)
+                ? v
+                : getDefaultProfileOptionValue(activeSystemProfile.robotTypeOptions);
+              setRobotType(t);
+              if (container) localStorage.setItem(`robot_type_${container}`, t);
+            },
+            disabled: robotSelectDisabled,
+            options: activeSystemProfile.robotTypeOptions,
+          }}
+          help={{
+            text: TOOLBAR_HELP_TEXT.robot,
+            ariaLabel: TOOLBAR_HELP_ARIA.robot,
+          }}
+        />
+
+        <ServiceControlBox
+          title="Leader"
+          status={leaderService.status}
+          loading={leaderService.loading}
+          onToggle={handleLeaderBringup}
+          showLogs={showLeaderLogs}
+          onToggleLogs={() => {
+            setShowLeaderLogs((prev) => !prev);
+            setShowLogs(false);
+            setShowCycloIntelligenceLogs(false);
+            setShowZenohDaemonLogs(false);
+          }}
+          onSettings={() => setShowLeaderArgsPopup(true)}
+          typeSelect={{
+            value: leaderType,
+            onChange: (v) => {
+              const t = isProfileOptionValue(v, activeSystemProfile.leaderTypeOptions)
+                ? v
+                : getDefaultProfileOptionValue(activeSystemProfile.leaderTypeOptions);
+              setLeaderType(t);
+              if (container) localStorage.setItem(`leader_robot_type_${container}`, t);
+            },
+            disabled: leaderSelectDisabled,
+            options: activeSystemProfile.leaderTypeOptions,
+          }}
+          help={{
+            text: TOOLBAR_HELP_TEXT.leader,
+            ariaLabel: TOOLBAR_HELP_ARIA.leader,
+          }}
+        />
+
+        <ServiceControlBox
+          title="Cyclo Intelligence"
+          status={cycloIntelligenceService.status}
+          loading={cycloIntelligenceService.loading}
+          disabled={!cycloIntelligenceContainerRunning}
+          onToggle={handleCycloIntelligenceBringup}
+          showLogs={showCycloIntelligenceLogs}
+          onToggleLogs={() => {
+            setShowCycloIntelligenceLogs((prev) => !prev);
+            setShowLogs(false);
+            setShowLeaderLogs(false);
+            setShowZenohDaemonLogs(false);
+          }}
+          help={{
+            text: TOOLBAR_HELP_TEXT.intelligence,
+            ariaLabel: TOOLBAR_HELP_ARIA.intelligence,
+          }}
+        />
+
+        <ContainerControlBox
+          title="Zenoh Daemon"
+          status={zenohDaemonContainer?.status ?? ""}
+          loading={zenohDaemonActionLoading !== null}
+          onToggle={handleZenohDaemonBringup}
+          showLogs={showZenohDaemonLogs}
+          onToggleLogs={() => {
+            setShowZenohDaemonLogs((prev) => !prev);
+            setShowLogs(false);
+            setShowLeaderLogs(false);
+            setShowCycloIntelligenceLogs(false);
+          }}
+          help={{
+            text: TOOLBAR_HELP_TEXT.zenoh,
+            ariaLabel: TOOLBAR_HELP_ARIA.zenoh,
+          }}
+        />
+
+        <div className="flex-1 min-w-[8px]" style={{ flexBasis: 0 }} aria-hidden />
+
+        {(robotService.error || leaderService.error) && (
+          <div className="flex gap-3 w-full mt-2">
+            {robotService.error && (
+              <div className="text-sm px-3 py-2 rounded-md flex-1" style={ERROR_STYLES}>
+                Robot: {robotService.error}
+              </div>
+            )}
+            {leaderService.error && (
+              <div className="text-sm px-3 py-2 rounded-md flex-1" style={ERROR_STYLES}>
+                Leader: {leaderService.error}
+              </div>
+            )}
+          </div>
+        )}
+
+        <LaunchArgsSettingPopup
+          open={showRobotArgsPopup}
+          onClose={() => setShowRobotArgsPopup(false)}
+          config={robotConfig}
+          args={robotBringupArgs}
+          onChange={setRobotBringupArgs}
+          serialPorts={serialPorts}
+        />
+        <LaunchArgsSettingPopup
+          open={showLeaderArgsPopup}
+          onClose={() => setShowLeaderArgsPopup(false)}
+          config={leaderConfig ?? robotConfig}
+          args={leaderBringupArgs}
+          onChange={setLeaderBringupArgs}
+          serialPorts={serialPorts}
+        />
+      </div>
       <div className="flex gap-4 items-stretch mt-4 flex-1 min-h-0">
         <div className="flex-none flex flex-col gap-4" style={{ width: "500px" }}>
           <Robot3DViewer />
@@ -456,7 +622,7 @@ export default function SystemPage() {
                   value: robotService.status === null ? null : robotService.status.is_up ? "Running" : "Stopped",
                   ok: robotService.status?.is_up ?? null,
                 },
-                ...BATTERY_TOPICS.map(({ label, topic }) => {
+                ...batteryTopics.map(({ label, topic }) => {
                   const pct = batteryPercentage[topic] ?? null;
                   return {
                     label,
@@ -464,7 +630,7 @@ export default function SystemPage() {
                     ok: pct !== null ? pct > 20 : null,
                   };
                 }),
-                ...CAMERA_TOPICS.map(({ label, topic }) => {
+                ...cameraTopics.map(({ label, topic }) => {
                   const available = cameraAvailability[topic] ?? null;
                   return {
                     label,
@@ -499,12 +665,12 @@ export default function SystemPage() {
         </div>
         {showLogs && !showLeaderLogs && (
           <div style={PANEL_STYLES}>
-            <FixedLogPanel container={container} service={FOLLOWER_SERVICE_NAME} onClose={() => setShowLogs(false)} />
+            <FixedLogPanel container={container} service={activeSystemProfile.robotServiceName} onClose={() => setShowLogs(false)} />
           </div>
         )}
-        {showLeaderLogs && !showLogs && (
+        {activeSystemProfile.leaderServiceName && showLeaderLogs && !showLogs && (
           <div style={PANEL_STYLES}>
-            <FixedLogPanel container={container} service={LEADER_SERVICE_NAME} onClose={() => setShowLeaderLogs(false)} />
+            <FixedLogPanel container={container} service={activeSystemProfile.leaderServiceName} onClose={() => setShowLeaderLogs(false)} />
           </div>
         )}
         {showCycloIntelligenceLogs && (

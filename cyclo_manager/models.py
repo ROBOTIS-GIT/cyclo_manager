@@ -20,28 +20,15 @@
 
 from typing import Any, Literal, Optional
 
-from pydantic import BaseModel, Field, model_validator
-
-
-class ServiceInfo(BaseModel):
-    """Service information from configuration."""
-
-    id: str = Field(  # noqa: A003
-        ...,
-        description='Service identifier (matches s6 service name)',
-        examples=['ai_worker_bringup'],
-    )
-    label: str = Field(
-        ..., description='Human-readable service label', examples=['AI Worker Bringup']
-    )
+from pydantic import BaseModel, Field
 
 
 class SystemConfig(BaseModel):
     """Root configuration model."""
 
-    robot_container: str = Field(
-        default='ai_worker',
-        description='Name of the robot container managed by cyclo_manager',
+    supported_robot_containers: list[str] = Field(
+        default_factory=list,
+        description='Robot container names that can open the System page',
     )
     sockets: dict[str, str] = Field(
         default_factory=dict,
@@ -57,29 +44,6 @@ class SystemConfig(BaseModel):
     def host_agent_socket(self) -> str:
         """Socket path for the host agent."""
         return self.sockets.get('host_agent', '/agents/host/host_agent.sock')
-
-    @model_validator(mode='after')
-    def validate_config(self) -> 'SystemConfig':
-        containers = self.container_sockets
-        if not containers:
-            raise ValueError(
-                'sockets must include at least one container entry (besides host_agent)',
-            )
-        if not self.robot_container.strip():
-            raise ValueError('robot_container must not be empty')
-        if self.robot_container == 'host_agent':
-            raise ValueError('robot_container cannot be host_agent')
-        if self.robot_container not in containers:
-            raise ValueError(
-                f"robot_container '{self.robot_container}' must be a key in sockets "
-                f'(excluding host_agent); available: {sorted(containers)}',
-            )
-        for name, path in self.sockets.items():
-            if not name.strip():
-                raise ValueError('sockets keys must not be empty')
-            if not str(path).strip():
-                raise ValueError(f"sockets['{name}'] must not be empty")
-        return self
 
 
 # API Request/Response Models
@@ -100,33 +64,55 @@ class ServiceActionRequest(BaseModel):
     robot_type: str | None = Field(
         None,
         description=(
-            'Required for ai_worker_bringup up/restart. '
-            'One of: sg2, bg2, sh5, bh5, mobile.'
+            'Required for robot bringup services that select launch files by robot type. '
+            'ai_worker_bringup accepts sg2, bg2, sh5, bh5, f1, f2, mobile; '
+            'open_manipulator_bringup and leader_bringup accept omy, omx.'
         ),
     )
 
 
-class ConfiguredContainerInfo(BaseModel):
-    """Container information for API responses (from config)."""
+class SupportedRobotContainersResponse(BaseModel):
+    """Response for GET /containers."""
 
-    name: str = Field(..., description='Container name', examples=['ai_worker'])
-    socket_path: str = Field(
-        ..., description='Path to agent socket', examples=['/agents/ai_worker/s6_agent.sock']
+    supported_robot_containers: list[str] = Field(
+        ..., description='Container names that can open the System page'
     )
 
 
-class ConfiguredContainerListResponse(BaseModel):
-    """Response for GET /containers."""
-
-    containers: list[ConfiguredContainerInfo] = Field(..., description='List of known containers')
-    robot_container: str = Field(..., description='Name of the robot container')
-
-
-class ServiceListResponse(BaseModel):
-    """Response for GET /containers/{container}/services."""
+class S6AgentStatusResponse(BaseModel):
+    """Container s6 agent status and compatibility."""
 
     container: str = Field(..., description='Container name')
-    services: list[ServiceInfo] = Field(..., description='List of services in the container')
+    status: Literal[
+        'up_to_date',
+        'compatible',
+        'outdated',
+        'unreachable',
+        'unknown_version',
+    ] = Field(
+        ..., description='Agent compatibility status'
+    )
+    version: Optional[str] = Field(None, description='Installed s6 agent version')
+    minimum_required_version: str = Field(
+        ..., description='Minimum s6 agent version supported by this manager'
+    )
+    message: Optional[str] = Field(None, description='User-facing status message')
+
+
+class S6AgentStatusListResponse(BaseModel):
+    """Response for GET /containers/agents/status."""
+
+    agents: list[S6AgentStatusResponse] = Field(..., description='Container agent statuses')
+
+
+class S6AgentUpdateResponse(BaseModel):
+    """Response for POST /containers/{container}/agent/update."""
+
+    container: str = Field(..., description='Container name')
+    target_ref: str = Field(..., description='Git ref used to update the container agent')
+    success: bool = Field(..., description='Whether the update command succeeded')
+    exit_code: int = Field(..., description='Docker exec command exit code')
+    output: str = Field(..., description='Command output')
 
 
 class ServiceStatusResponse(BaseModel):
@@ -145,17 +131,6 @@ class ServiceStatusResponse(BaseModel):
     is_up: bool = Field(..., description='Whether service is running')
     pid: Optional[int] = Field(None, description='Process ID if running')
     uptime_seconds: Optional[int] = Field(None, description='Uptime in seconds if running')
-
-
-class ServiceStatusListResponse(BaseModel):
-    """
-    Response for GET /containers/{container}/services/status.
-
-    Returns status for all services in a container in a single request.
-    """
-
-    container: str = Field(..., description='Container name')
-    statuses: list[ServiceStatusResponse] = Field(..., description='List of service statuses')
 
 
 class ServiceControlResponse(BaseModel):
@@ -187,27 +162,44 @@ class DockerContainerInfo(BaseModel):
     created: str = Field(..., description='Container creation timestamp')
 
 
-class DockerContainerStatus(BaseModel):
-    """Detailed Docker container status."""
-
-    id: str = Field(..., description='Container ID')  # noqa: A003
-    name: str = Field(..., description='Container name')
-    status: str = Field(..., description='Container status')
-    state: str = Field(..., description='Container state (running, stopped, etc.)')
-    running: bool = Field(..., description='Whether container is running')
-    restarting: bool = Field(..., description='Whether container is restarting')
-    paused: bool = Field(..., description='Whether container is paused')
-    image: str = Field(..., description='Container image')
-    created: str = Field(..., description='Container creation timestamp')
-    started_at: Optional[str] = Field(None, description='Container start timestamp')
-    finished_at: Optional[str] = Field(None, description='Container finish timestamp')
-    exit_code: Optional[int] = Field(None, description='Container exit code if stopped')
-
-
 class DockerContainerListResponse(BaseModel):
     """Response for GET /docker/containers."""
 
     containers: list[DockerContainerInfo] = Field(..., description='List of Docker containers')
+
+
+class DockerImageInfo(BaseModel):
+    """Docker image information."""
+
+    id: str = Field(..., description='Image ID', examples=['sha256:abc123def456'])  # noqa: A003
+    short_id: str = Field(..., description='Short image ID', examples=['abc123def456'])
+    tags: list[str] = Field(..., description='Image tags')
+    size_bytes: int = Field(..., description='Image size in bytes')
+    created: str = Field(..., description='Image creation timestamp')
+    used_by: list[str] = Field(..., description='Names of containers using this image')
+    dangling: bool = Field(..., description='Whether this image has no repository tag')
+
+
+class DockerImageListResponse(BaseModel):
+    """Response for GET /docker/images."""
+
+    images: list[DockerImageInfo] = Field(..., description='List of Docker images')
+
+
+class DockerImageDeleteResponse(BaseModel):
+    """Response for DELETE /docker/images/{image_id}."""
+
+    image_id: str = Field(..., description='Image ID that was requested for deletion')
+    deleted: bool = Field(..., description='Whether the image was deleted')
+    message: str = Field(..., description='Result message')
+
+
+class DockerImagePruneResponse(BaseModel):
+    """Response for POST /docker/images/prune."""
+
+    deleted: list[str] = Field(..., description='Deleted image IDs')
+    space_reclaimed_bytes: int = Field(..., description='Reclaimed disk space in bytes')
+    message: str = Field(..., description='Result message')
 
 
 class DockerContainerActionRequest(BaseModel):
@@ -258,16 +250,6 @@ class CycloManagerVersionResponse(BaseModel):
     update_available: bool = Field(..., description='Whether an update is available')
 
 
-class ServiceLogsResponse(BaseModel):
-    """Response for GET /containers/{container}/services/{service}/logs."""
-
-    container: str = Field(..., description='Container name')
-    service: str = Field(..., description='Service ID')
-    logs: str = Field(..., description='Service logs from s6-overlay')
-    tail: int = Field(..., description='Number of log lines returned')
-    log_path: Optional[str] = Field(None, description='Path to log file in container')
-
-
 class ServiceLogsClearResponse(BaseModel):
     """Response for DELETE /containers/{container}/services/{service}/logs."""
 
@@ -275,21 +257,6 @@ class ServiceLogsClearResponse(BaseModel):
     service: str = Field(..., description='Service ID')
     message: str = Field(..., description='Success message')
     log_path: Optional[str] = Field(None, description='Path to log file in container')
-
-
-class ServiceRunScriptResponse(BaseModel):
-    """Response for GET /containers/{container}/services/{service}/run."""
-
-    container: str = Field(..., description='Container name')
-    service: str = Field(..., description='Service ID')
-    path: str = Field(..., description='Filesystem path to the service run script')
-    content: str = Field(..., description='Contents of the run script')
-
-
-class ServiceRunScriptUpdateRequest(BaseModel):
-    """Request body for updating a service run script."""
-
-    content: str = Field(..., description='New contents of the run script')
 
 
 class BashrcResponse(BaseModel):
@@ -304,6 +271,20 @@ class BashrcUpdateRequest(BaseModel):
     """Request body for PUT /{container}/bashrc."""
 
     content: str = Field(..., description='New contents of ~/.bashrc')
+
+
+class SerialPortInfo(BaseModel):
+    """Detected serial port information."""
+
+    path: str = Field(..., description='Preferred device path to use in launch arguments')
+    real_path: Optional[str] = Field(None, description='Resolved /dev path if path is a symlink')
+    label: str = Field(..., description='User-facing serial port label')
+
+
+class SerialPortsResponse(BaseModel):
+    """Response for GET /system/serial-ports."""
+
+    ports: list[SerialPortInfo] = Field(..., description='Detected serial port candidates')
 
 
 # ROS2 Plugin Models
@@ -378,5 +359,8 @@ class SystemStatsResponse(BaseModel):
     memory_total_mb: int
     disk_used_gb: float
     disk_total_gb: float
+    ssd_used_gb: Optional[float] = None
+    ssd_total_gb: Optional[float] = None
+    ssd_mount_path: Optional[str] = None
     uptime_seconds: int
     temperature_celsius: Optional[float] = None

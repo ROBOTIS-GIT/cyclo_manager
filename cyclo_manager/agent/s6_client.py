@@ -21,6 +21,7 @@
 import logging
 from pathlib import Path
 import re
+import shlex
 import subprocess
 import time
 from typing import Optional
@@ -31,40 +32,6 @@ logger = logging.getLogger(__name__)
 
 # Default s6 service directory
 S6_SERVICE_DIR = Path('/run/service')
-
-
-def list_services() -> list[str]:
-    """
-    List all available s6 services.
-
-    Returns
-    -------
-    List of service names found in /run/service.
-
-    Raises
-    ------
-    OSError: If /run/service directory cannot be accessed.
-
-    """
-    try:
-        if not S6_SERVICE_DIR.exists():
-            logger.warning(f'Service directory {S6_SERVICE_DIR} does not exist')
-            return []
-
-        services = []
-        for item in S6_SERVICE_DIR.iterdir():
-            if item.is_dir():
-                # Check if it looks like an s6 service directory
-                # s6 services typically have a 'run' file
-                if (item / 'run').exists() or (item / 'type').exists():
-                    services.append(item.name)
-
-        logger.debug(f'Found {len(services)} services: {services}')
-        return sorted(services)
-
-    except OSError as e:
-        logger.error(f'Failed to list services: {e}')
-        raise
 
 
 def get_service_status(name: str) -> ServiceStatus:
@@ -143,60 +110,38 @@ def get_service_status(name: str) -> ServiceStatus:
         raise
 
 
-def get_all_services_status() -> list[ServiceStatus]:
-    """
-    Get status of all s6 services.
-
-    This is more efficient than calling get_service_status() for each service
-    individually, as it processes all services in a single pass.
-
-    Returns
-    -------
-    List of ServiceStatus objects for all available services.
-
-    Note
-    ----
-    Services that fail to get status are skipped (logged but not included).
-
-    """
-    try:
-        services = list_services()
-        statuses: list[ServiceStatus] = []
-
-        for service_name in services:
-            try:
-                status = get_service_status(service_name)
-                statuses.append(status)
-            except Exception as e:
-                # Log but don't fail - continue with other services
-                logger.warning(f"Failed to get status for service '{service_name}': {e}")
-
-        return statuses
-    except Exception as e:
-        logger.error(f'Failed to get all services status: {e}')
-        raise
-
-
 LAUNCH_ARGS_DIR = Path('/run/launch_args')
 ROBOT_TYPE_FILE = Path('/run/robot_type')
+LEADER_TYPE_FILE = Path('/run/leader_type')
 
 
-_AI_WORKER_ROBOT_TYPES = frozenset({'sg2', 'bg2', 'sh5', 'bh5', 'mobile'})
+_ROBOT_TYPE_BY_SERVICE = {
+    'ai_worker_bringup': frozenset({'sg2', 'bg2', 'sh5', 'bh5', 'f1', 'f2', 'mobile'}),
+    'open_manipulator_bringup': frozenset({'omy', 'omx'}),
+    'leader_bringup': frozenset({'omy', 'omx'}),
+}
+
+_ROBOT_TYPE_FILE_BY_SERVICE = {
+    'ai_worker_bringup': ROBOT_TYPE_FILE,
+    'open_manipulator_bringup': ROBOT_TYPE_FILE,
+    'leader_bringup': LEADER_TYPE_FILE,
+}
 
 
-def _write_robot_type(robot_type: str) -> None:
-    """
-    Write robot type to file for ai_worker_bringup run script.
-
-    Allowed values: sg2, bg2, sh5, bh5, mobile.
-    """
+def _write_robot_type(service_name: str, robot_type: str) -> None:
+    """Write robot type to file for run scripts that dispatch by robot type."""
     normalized = robot_type.strip().lower()
-    if normalized not in _AI_WORKER_ROBOT_TYPES:
+    allowed = _ROBOT_TYPE_BY_SERVICE.get(service_name)
+    if allowed is None:
+        return
+    if normalized not in allowed:
         raise ValueError(
-            f'robot_type must be one of {sorted(_AI_WORKER_ROBOT_TYPES)!r}, got: {robot_type!r}'
+            f'robot_type for {service_name} must be one of {sorted(allowed)!r}, '
+            f'got: {robot_type!r}'
         )
-    ROBOT_TYPE_FILE.write_text(normalized, encoding='utf-8')
-    logger.info(f'Wrote robot_type to {ROBOT_TYPE_FILE}: {normalized}')
+    robot_type_file = _ROBOT_TYPE_FILE_BY_SERVICE[service_name]
+    robot_type_file.write_text(normalized, encoding='utf-8')
+    logger.info(f'Wrote robot_type for {service_name} to {robot_type_file}: {normalized}')
 
 
 def _write_launch_args(name: str, launch_args: dict[str, str]) -> None:
@@ -208,7 +153,7 @@ def _write_launch_args(name: str, launch_args: dict[str, str]) -> None:
     if not launch_args:
         return
     LAUNCH_ARGS_DIR.mkdir(parents=True, exist_ok=True)
-    args_str = ' '.join(f'{k}:={v}' for k, v in launch_args.items())
+    args_str = ' '.join(f'{k}:={shlex.quote(v)}' for k, v in launch_args.items())
     args_file = LAUNCH_ARGS_DIR / name
     args_file.write_text(args_str, encoding='utf-8')
     logger.info(f"Wrote launch args for service '{name}' to {args_file}")
@@ -231,7 +176,7 @@ def control_service(
     name: Service name.
     action: Action to perform ('up', 'down', or 'restart').
     launch_args: Optional launch arguments for ros2 launch (used for up/restart).
-    robot_type: Required for ai_worker_bringup up/restart. One of sg2, bg2, sh5, bh5, mobile.
+    robot_type: Required for services that select launch files by robot type.
 
     Raises
     ------
@@ -245,13 +190,14 @@ def control_service(
     if not service_path.exists():
         raise FileNotFoundError(f"Service '{name}' not found at {service_path}")
 
-    if action in ('up', 'restart') and name == 'ai_worker_bringup':
+    if action in ('up', 'restart') and name in _ROBOT_TYPE_BY_SERVICE:
         if not robot_type:
+            allowed = sorted(_ROBOT_TYPE_BY_SERVICE[name])
             raise ValueError(
-                'robot_type is required for ai_worker_bringup (up/restart). '
-                "Use 'sg2', 'bg2', 'sh5', 'bh5', or 'mobile'."
+                f'robot_type is required for {name} (up/restart). '
+                f'Use one of: {allowed!r}.'
             )
-        _write_robot_type(robot_type)
+        _write_robot_type(name, robot_type)
 
     # Write launch args before up/restart so the run script can read them
     if action in ('up', 'restart') and launch_args:

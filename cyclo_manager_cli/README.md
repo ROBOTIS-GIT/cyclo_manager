@@ -4,7 +4,7 @@
 **Console commands:** `cyclo_manager` (underscore), `cyclo-manager` (hyphen)  
 **Host agent:** `cyclo_host_agent` (installed by the package, run via systemd)
 
-This package is the **pip-installable launcher** for the cyclo_manager stack on a robot host. It:
+This package is the **pip-installable launcher** for the cyclo_manager stack on a robot host. It is intended for production robots that run the pre-built Docker images. It:
 
 1. Runs **`docker compose`** against a **bundled** [`cyclo_manager_cli/docker/docker-compose.yml`](cyclo_manager_cli/docker/docker-compose.yml) to start the **API** and **web UI** containers.
 2. Installs and maintains **`cyclo_host_agent`** as a **systemd** service for host-level operations (git repo updates, `cyclo_manager` package update from the UI).
@@ -36,11 +36,12 @@ For the full monorepo (API source, UI source, dev compose), see the [repository 
 
 ## Prerequisites
 
-- **Docker** with **Compose v2** (`docker compose` — the legacy `docker-compose` binary alone is not enough)
+- **Docker** with **Compose v2** (`docker compose`; the legacy `docker-compose` binary alone is not enough)
 - **Python 3.10+**
-- **`sudo`** — required to install the host agent systemd unit, socket directory permissions, and sudoers rules
+- **systemd**: required for the managed `cyclo_host_agent.service`
+- **`sudo`** — required on normal-user hosts to install the host agent systemd unit, socket directory permissions, and sudoers rules
 - For **`cyclo_manager update`:** **`pip`** or **`pip3`** on `PATH`
-- **Do not run as root** — the host agent runs as the invoking user (or `SUDO_USER` when using `sudo cyclo_manager up`). Running as root is rejected.
+- **Root shell handling** — `cyclo_manager up` rejects direct root execution when a normal login user exists. On root-only devices, the host agent is installed as root.
 - **Agent sockets** on the host under `/var/run/robotis/agent_sockets/` (robot containers and host agent). The bundled Compose file bind-mounts this tree into the API container as `/agents/`.
 
 ---
@@ -80,6 +81,8 @@ python3 -m cyclo_manager_cli.cli up
 | `cyclo_manager update --no-pull` | Same as `update`, but skip image pull (use locally cached images). |
 | `cyclo_manager --help` | Subcommand overview |
 
+The CLI also has an internal `refresh-host-agent` subcommand. It is used by the sudoers rule and should normally not be invoked by users directly.
+
 **`down` vs `update`:** `down` removes the host agent entirely. `update` only stops Docker containers, upgrades the pip package, restarts the stack, and refreshes the host agent — it does **not** call `cyclo_manager down`.
 
 ---
@@ -106,16 +109,21 @@ The pip package installs a small **FastAPI** server that listens on a **Unix dom
 |------|------|
 | Socket | `/var/run/robotis/agent_sockets/host/host_agent.sock` |
 | systemd unit | `cyclo_host_agent.service` |
-| sudoers | `/etc/sudoers.d/cyclo_manager` (`cp`, `udevadm` for container setup scripts) |
+| sudoers | `/etc/sudoers.d/cyclo_manager` (`cp`, `udevadm` for container setup scripts; `refresh-host-agent` CLI subcommand for package-update refresh; skipped on root-only devices) |
 
 The API container reaches it at `/agents/host/host_agent.sock` (see bundled `config.yml`).
 
 **Responsibilities:**
 
-- List and update **`~/ROBOTIS-GIT/*`** git repositories (Version Management in the UI)
-- Run **`cyclo_manager update`** when triggered from the UI (`POST /host/update`)
+- List managed **ROBOTIS-GIT** git repositories in the configured workspace.
+- Check update availability from remote tags and local `package.xml` versions.
+- Update repos on allowed branches (`main`, `jazzy`) using stash or reset workflows.
+- Stop/start a repo's `docker/container.sh` helper during an update when requested by the UI.
+- Run Cyclo Manager package updates from the UI by delegating to `cyclo_manager update`.
 
-`cyclo_manager up` and `cyclo_manager update` both call `_ensure_host_agent()`, which is idempotent — safe to run after upgrades or user changes.
+`cyclo_manager up` installs the `refresh-host-agent` CLI subcommand into sudoers. It is registered as `sys.executable -m cyclo_manager_cli.cli refresh-host-agent` with `SETENV`, so UI-triggered updates can pass the current `PYTHONPATH` to sudo and do not depend on `PATH`. The command is idempotent and refreshes the socket directory, sudoers file, systemd unit, and service state after package upgrades.
+
+Repository scanning uses `CYCLO_HOST_AGENT_WORKSPACE` when set. Otherwise it uses the service user's home directory, except root-only devices with `/data/docker`, where `/data/docker` is used automatically. Only repositories whose `origin` remote belongs to `ROBOTIS-GIT` are returned by the repo list/update endpoints.
 
 ---
 
@@ -125,8 +133,8 @@ Defined in [`cyclo_manager_cli/docker/docker-compose.yml`](cyclo_manager_cli/doc
 
 | Compose service | Container name | `cyclo_manager up` | Image (example) |
 |-----------------|----------------|--------------------|-----------------|
-| `cyclo_manager` | `cyclo_manager` | **Started** | `robotis/cyclo-manager:0.3.0` |
-| `ui` | `cyclo_manager_ui` | **Started** | `robotis/cyclo-manager-ui:0.3.0` |
+| `cyclo_manager` | `cyclo_manager` | **Started** | `robotis/cyclo-manager:1.0.0` |
+| `ui` | `cyclo_manager_ui` | **Started** | `robotis/cyclo-manager-ui:1.0.0` |
 | `rmw_zenoh` | `zenoh_daemon` | **Created only** | `robotis/zenoh-daemon:latest` |
 | `novnc-server` | `novnc-server` | **Created only** | `robotis/novnc-server:latest` |
 
@@ -146,7 +154,7 @@ The API reads it as `CONFIG_FILE=/app/config.yml` inside the container.
 
 | Key | Description |
 |-----|-------------|
-| **`robot_container`** | Primary robot Docker container name (e.g. `ai_worker`). Used by the UI System page and service bringup. Must be a key in `sockets` and cannot be `host_agent`. |
+| **`supported_robot_containers`** | Robot Docker container names that can open the System page (e.g. `ai_worker`, `open_manipulator`). Each must be a key in `sockets` and cannot be `host_agent`. |
 | **`sockets`** | Map of logical name → agent **Unix socket path as seen inside the API container** (under `/agents/...`). Include robot/service containers and `host_agent`. |
 
 s6 **service names** are not listed in config; each in-container agent reports them at runtime.
@@ -154,19 +162,16 @@ s6 **service names** are not listed in config; each in-container agent reports t
 ### Example (bundled default)
 
 ```yaml
-robot_container: ai_worker
+supported_robot_containers:
+  - ai_worker
+  - open_manipulator
 
 sockets:
   ai_worker: "/agents/ai_worker/s6_agent.sock"
+  open_manipulator: "/agents/open_manipulator/s6_agent.sock"
   cyclo_intelligence: "/agents/cyclo_intelligence/s6_agent.sock"
   host_agent: "/agents/host/host_agent.sock"
 ```
-
-### Validation (API startup)
-
-- At least one socket entry besides `host_agent`
-- `robot_container` must exist in `sockets`
-- All socket paths must be non-empty strings
 
 To use a different config layout, mounts, or local source builds, use the repository’s **`docker-compose.dev.yml`** — see [Custom config and development](#custom-config-and-development).
 
@@ -198,6 +203,7 @@ So `/agents/ai_worker/s6_agent.sock` in config corresponds to the host path abov
 | Variable | Set by | Purpose |
 |----------|--------|---------|
 | **`CYCLO_MANAGER_CONFIG_FILE`** | CLI (`up`, `down`, `update`) | Absolute path to bundled `config.yml` on the host; mounted into the API container |
+| **`CYCLO_HOST_AGENT_WORKSPACE`** | User or CLI-generated systemd unit | Workspace scanned by `cyclo_host_agent` for managed git repositories |
 | **`HOSTNAME`** | CLI (default: machine hostname) | Passed to API as `HOST_HOSTNAME` |
 | **`CONFIG_FILE`** | Compose (`/app/config.yml`) | Path inside the API container |
 | **`ROS_DOMAIN_ID`** | **Not** set by CLI | Set inside robot containers (e.g. `~/.bashrc`) so DDS matches your fleet |
@@ -239,7 +245,7 @@ Python dependencies declared in [`pyproject.toml`](pyproject.toml):
 |---------|---------|
 | **fastapi** | `cyclo_host_agent` HTTP API |
 | **uvicorn** | `cyclo_host_agent` server |
-| **psutil** | Host agent / system utilities |
+| **psutil** | Declared package dependency for host/system utility support |
 
 The **`cyclo_manager`** CLI itself uses only the Python standard library plus **`subprocess`** calls to **`docker compose`**, **`pip`**, **`systemctl`**, and **`sudo`**.
 

@@ -22,7 +22,7 @@ import logging
 
 from cyclo_manager.agent import __version__
 from cyclo_manager.agent.models import ErrorResponse
-from cyclo_manager.agent.routers import logs, scripts, services
+from cyclo_manager.agent.routers import logs, services
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import JSONResponse
 
@@ -65,4 +65,3 @@ async def root():
 # Include routers
 app.include_router(services.router)
 app.include_router(logs.router)
-app.include_router(scripts.router)

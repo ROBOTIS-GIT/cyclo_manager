@@ -17,7 +17,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { useROS2TopicWebSocket } from "@/lib/websocket";
+import { useROS2TopicWebSocket } from "@/hooks/useROS2TopicWebSocket";
 import { useTheme } from "@/contexts/ThemeContext";
 import * as THREE from "three";
 // @ts-ignore
@@ -49,6 +49,8 @@ const ROBOT_ROTATION_X = -Math.PI / 2;
 
 const URDF_LOADER_PACKAGES: Record<string, string> = {
   ffw_description: "/assets/ffw_description",
+  open_manipulator_description: "/assets/open_manipulator_description",
+  realsense2_description: "/assets/realsense2_description",
 };
 
 // -----------------------------------------------------------------------------
