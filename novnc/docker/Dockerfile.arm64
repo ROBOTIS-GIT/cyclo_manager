@@ -62,6 +62,8 @@ RUN mkdir -p /root/Desktop && \
     echo "StartupNotify=true" >> /root/Desktop/wizard.desktop && \
     chmod +x /root/Desktop/wizard.desktop
 
+RUN mkdir -p "$HOME/Documents/DYNAMIXEL Wizard2"
+
 RUN mkdir -p /root/Desktop && \
     echo "[Desktop Entry]" > /root/Desktop/terminal.desktop && \
     echo "Version=1.0" >> /root/Desktop/terminal.desktop && \
