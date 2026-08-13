@@ -17,6 +17,7 @@
 import axios, { AxiosError, type AxiosRequestConfig } from "axios";
 import type {
   ContainerScriptResponse,
+  ContainerStartStatusResponse,
   RepoStatusResponse,
   S6AgentStatusListResponse,
   S6AgentUpdateResponse,
@@ -418,9 +419,18 @@ export async function stopRepoContainer(name: string): Promise<ContainerScriptRe
   });
 }
 
-export async function startRepoContainer(name: string): Promise<ContainerScriptResponse> {
-  return request<ContainerScriptResponse>({
+export async function startRepoContainer(name: string): Promise<ContainerStartStatusResponse> {
+  return request<ContainerStartStatusResponse>({
     method: "POST",
     url: `/host/repos/${name}/container/start`,
+  });
+}
+
+export async function getStartRepoContainerStatus(
+  name: string
+): Promise<ContainerStartStatusResponse> {
+  return request<ContainerStartStatusResponse>({
+    method: "GET",
+    url: `/host/repos/${name}/container/start/status`,
   });
 }

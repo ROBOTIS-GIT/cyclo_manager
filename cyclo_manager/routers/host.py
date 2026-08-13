@@ -98,6 +98,13 @@ class ContainerScriptResponse(BaseModel):
     output: str
 
 
+class ContainerStartStatusResponse(BaseModel):
+    running: bool
+    output: str
+    success: bool | None = None
+    error: str = ''
+
+
 # ---------------------------------------------------------------------------
 # Helper
 # ---------------------------------------------------------------------------
@@ -179,14 +186,29 @@ async def stop_repo_container(
         raise _proxy_error(e)
 
 
-@router.post('/repos/{name}/container/start', response_model=ContainerScriptResponse)
+@router.post('/repos/{name}/container/start', response_model=ContainerStartStatusResponse)
 async def start_repo_container(
     name: str,
     client: HostAgentClient = Depends(get_host_agent_client),
-) -> ContainerScriptResponse:
+) -> ContainerStartStatusResponse:
     try:
         data = await client.start_repo_container(name)
-        return ContainerScriptResponse(**data)
+        return ContainerStartStatusResponse(**data)
+    except Exception as e:
+        raise _proxy_error(e)
+
+
+@router.get(
+    '/repos/{name}/container/start/status',
+    response_model=ContainerStartStatusResponse,
+)
+async def get_start_repo_container_status(
+    name: str,
+    client: HostAgentClient = Depends(get_host_agent_client),
+) -> ContainerStartStatusResponse:
+    try:
+        data = await client.get_start_repo_container_status(name)
+        return ContainerStartStatusResponse(**data)
     except Exception as e:
         raise _proxy_error(e)
 

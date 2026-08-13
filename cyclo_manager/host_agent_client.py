@@ -57,7 +57,14 @@ class HostAgentClient(SocketHttpClient):
         return await self.request_json(
             'POST',
             f'/repos/{name}/container/start',
-            timeout=300.0,
+            timeout=10.0,
+        )
+
+    async def get_start_repo_container_status(self, name: str) -> dict:
+        return await self.request_json(
+            'GET',
+            f'/repos/{name}/container/start/status',
+            timeout=10.0,
         )
 
     async def update_cyclo_manager(self) -> dict:

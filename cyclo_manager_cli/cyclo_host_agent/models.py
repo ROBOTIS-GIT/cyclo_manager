@@ -103,3 +103,12 @@ class ContainerScriptResponse(BaseModel):
     action: str
     success: bool
     output: str
+
+
+class ContainerStartStatusResponse(BaseModel):
+    """Current output/status for a container start operation."""
+
+    running: bool
+    output: str
+    success: bool | None = None
+    error: str = ''

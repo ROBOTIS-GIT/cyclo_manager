@@ -22,9 +22,11 @@ import asyncio
 import os
 from pathlib import Path
 import re
+import time
 from typing import Optional
 
 from cyclo_host_agent.models import (
+    ContainerStartStatusResponse,
     ContainerScriptResponse,
     FileChange,
     RepoBranchCheckResponse,
@@ -42,6 +44,9 @@ router = APIRouter(prefix='/repos', tags=['repos'])
 
 GIT_TIMEOUT = 120.0
 GIT_REMOTE_TIMEOUT = 5.0
+CONTAINER_SCRIPT_TIMEOUT = 600.0
+CONTAINER_JOB_RETENTION_SECONDS = 3600.0
+CONTAINER_JOB_OUTPUT_LIMIT = 40000
 
 
 def _resolve_workspace() -> Path:
@@ -337,6 +342,88 @@ async def _update_reset(repo_path: Path, preserve_files: list[str]) -> UpdateRes
 
 # ── container helper ───────────────────────────────────────────────────────────
 
+_container_start_status_by_repo: dict[str, dict] = {}
+
+
+def _prune_container_start_jobs() -> None:
+    now = time.time()
+    stale = [
+        name
+        for name, status_entry in _container_start_status_by_repo.items()
+        if now - float(status_entry.get('updated_at') or 0) > CONTAINER_JOB_RETENTION_SECONDS
+    ]
+    for name in stale:
+        _container_start_status_by_repo.pop(name, None)
+
+
+def _new_container_start_status(name: str) -> dict:
+    _prune_container_start_jobs()
+    now = time.time()
+    status_entry = {
+        'name': name,
+        'running': True,
+        'output': '',
+        'success': None,
+        'error': '',
+        'started_at': now,
+        'updated_at': now,
+    }
+    _container_start_status_by_repo[name] = status_entry
+    return status_entry
+
+
+def _append_container_job_output(job: dict, line: str) -> None:
+    if not line:
+        return
+    output = f"{job.get('output') or ''}{line}\n"
+    if len(output) > CONTAINER_JOB_OUTPUT_LIMIT:
+        output = output[-CONTAINER_JOB_OUTPUT_LIMIT:]
+    job['output'] = output
+    job['updated_at'] = time.time()
+
+
+def _set_container_job_status(
+    job: dict,
+    *,
+    running: Optional[bool] = None,
+    success: Optional[bool] = None,
+    error: Optional[str] = None,
+) -> None:
+    if running is not None:
+        job['running'] = running
+    if success is not None:
+        job['success'] = success
+    if error is not None:
+        job['error'] = error
+    job['updated_at'] = time.time()
+
+
+def _update_container_job_from_line(job: dict, line: str) -> None:
+    line = line.strip()
+    if not line:
+        return
+    _append_container_job_output(job, line)
+
+
+def _build_container_start_status_response(job: dict) -> ContainerStartStatusResponse:
+    return ContainerStartStatusResponse(
+        running=bool(job.get('running')),
+        output=job.get('output') or '',
+        success=job.get('success'),
+        error=job.get('error') or '',
+    )
+
+
+async def _read_container_job_stream(stream: asyncio.StreamReader, job: dict) -> None:
+    while True:
+        raw = await stream.readline()
+        if not raw:
+            break
+        text = raw.decode(errors='replace').replace('\r', '\n')
+        for line in text.splitlines():
+            _update_container_job_from_line(job, line)
+
+
 async def _run_container_sh(repo_path: Path, action: str) -> tuple[bool, str]:
     script = repo_path / 'docker' / 'container.sh'
     if not script.exists():
@@ -355,6 +442,71 @@ async def _run_container_sh(repo_path: Path, action: str) -> tuple[bool, str]:
         await proc.wait()
         return False, 'Timeout waiting for container.sh'
     return proc.returncode == 0, (stdout.decode() + stderr.decode()).strip()
+
+
+async def _run_container_start(repo_path: Path, name: str) -> None:
+    job = _container_start_status_by_repo.get(name)
+    if job is None:
+        return
+    script = repo_path / 'docker' / 'container.sh'
+    if not script.exists():
+        _set_container_job_status(
+            job,
+            running=False,
+            success=False,
+            error=f'container.sh not found at {script}',
+        )
+        return
+
+    env = os.environ.copy()
+    env['COMPOSE_PROGRESS'] = 'plain'
+    env['COMPOSE_ANSI'] = 'never'
+    proc = await asyncio.create_subprocess_exec(
+        'bash', str(script), 'start',
+        cwd=str(repo_path / 'docker'),
+        env=env,
+        stdin=asyncio.subprocess.PIPE,
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
+    )
+    if proc.stdin is not None:
+        proc.stdin.write(b'y\n')
+        await proc.stdin.drain()
+        proc.stdin.close()
+
+    readers = [
+        asyncio.create_task(_read_container_job_stream(proc.stdout, job)),
+        asyncio.create_task(_read_container_job_stream(proc.stderr, job)),
+    ]
+    try:
+        await asyncio.wait_for(proc.wait(), timeout=CONTAINER_SCRIPT_TIMEOUT)
+        await asyncio.gather(*readers)
+    except asyncio.TimeoutError:
+        proc.kill()
+        await proc.wait()
+        await asyncio.gather(*readers, return_exceptions=True)
+        _append_container_job_output(job, 'Timeout waiting for container.sh')
+        _set_container_job_status(
+            job,
+            running=False,
+            success=False,
+            error='Timeout waiting for container.sh',
+        )
+        return
+
+    if proc.returncode == 0:
+        _set_container_job_status(
+            job,
+            running=False,
+            success=True,
+        )
+    else:
+        _set_container_job_status(
+            job,
+            running=False,
+            success=False,
+            error=f'container.sh exited with code {proc.returncode}',
+        )
 
 
 # ── endpoints ──────────────────────────────────────────────────────────────────
@@ -409,11 +561,33 @@ async def stop_repo_container(name: str) -> ContainerScriptResponse:
     return ContainerScriptResponse(name=name, action='stop', success=success, output=output)
 
 
-@router.post('/{name}/container/start', response_model=ContainerScriptResponse)
-async def start_repo_container(name: str) -> ContainerScriptResponse:
+@router.post('/{name}/container/start', response_model=ContainerStartStatusResponse)
+async def start_repo_container(name: str) -> ContainerStartStatusResponse:
     repo_path = _get_repo(name)
-    success, output = await _run_container_sh(repo_path, 'start')
-    return ContainerScriptResponse(name=name, action='start', success=success, output=output)
+    existing = _container_start_status_by_repo.get(name)
+    if existing and existing.get('running'):
+        return _build_container_start_status_response(existing)
+
+    job = _new_container_start_status(name)
+    asyncio.create_task(_run_container_start(repo_path, name))
+    return _build_container_start_status_response(job)
+
+
+@router.get(
+    '/{name}/container/start/status',
+    response_model=ContainerStartStatusResponse,
+)
+async def get_start_repo_container_status(
+    name: str,
+) -> ContainerStartStatusResponse:
+    _get_repo(name)
+    job = _container_start_status_by_repo.get(name)
+    if job is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Container start status for '{name}' not found",
+        )
+    return _build_container_start_status_response(job)
 
 
 @router.post('/{name}/update', response_model=UpdateResponse)

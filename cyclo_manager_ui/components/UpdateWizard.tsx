@@ -17,7 +17,14 @@
 "use client";
 
 import { useEffect, useState, useCallback } from "react";
-import { getRepoBranchCheck, getRepoStatus, updateRepo, stopRepoContainer, startRepoContainer } from "@/lib/api";
+import {
+  getRepoBranchCheck,
+  getRepoStatus,
+  updateRepo,
+  stopRepoContainer,
+  startRepoContainer,
+  getStartRepoContainerStatus,
+} from "@/lib/api";
 import type { FileChange, RepoBranchCheckResponse, RepoUpdateStatus } from "@/types/api";
 import {
   btnPrimary,
@@ -32,6 +39,8 @@ import {
 
 type RunStatus = "idle" | "running" | "done" | "error";
 type Strategy = "stash" | "reset";
+const START_JOB_POLL_MS = 1000;
+const START_JOB_TIMEOUT_MS = 10 * 60 * 1000;
 
 interface PhaseState {
   status: RunStatus;
@@ -48,6 +57,10 @@ type BranchCheckState =
   | { status: "loading" }
   | { status: "error"; message: string }
   | { status: "done"; check: RepoBranchCheckResponse };
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
 
 // ── main component ────────────────────────────────────────────────────────────
 
@@ -145,8 +158,23 @@ export default function UpdateWizard({ repo, onClose, onDone }: Props) {
   const runStart = useCallback(async () => {
     setStart({ status: "running", output: "" });
     try {
-      const res = await startRepoContainer(repo.name);
-      setStart({ status: res.success ? "done" : "error", output: res.output });
+      await startRepoContainer(repo.name);
+      const startedAt = Date.now();
+
+      while (Date.now() - startedAt < START_JOB_TIMEOUT_MS) {
+        const status = await getStartRepoContainerStatus(repo.name);
+        const nextState: PhaseState = {
+          status: status.running ? "running" : status.success ? "done" : "error",
+          output: status.output || status.error,
+        };
+        setStart(nextState);
+        if (nextState.status !== "running") return;
+        await sleep(START_JOB_POLL_MS);
+      }
+      setStart({
+        status: "error",
+        output: "Container create/start timed out.",
+      });
     } catch (err) {
       setStart({ status: "error", output: err instanceof Error ? err.message : "Error" });
     }
@@ -223,7 +251,7 @@ export default function UpdateWizard({ repo, onClose, onDone }: Props) {
                 <li><strong style={{ color: "var(--vscode-foreground)" }}>Stop Container</strong> — stop the running container before updating</li>
                 <li><strong style={{ color: "var(--vscode-foreground)" }}>Choose Strategy</strong> — decide how to handle local changes</li>
                 <li><strong style={{ color: "var(--vscode-foreground)" }}>Update Repository</strong> — pull the latest code from remote</li>
-                <li><strong style={{ color: "var(--vscode-foreground)" }}>Start Container</strong> — restart the container with the new version</li>
+                <li><strong style={{ color: "var(--vscode-foreground)" }}>Create and Start Container</strong> — run the updated container stack</li>
               </ol>
             </div>
           )}
@@ -366,13 +394,15 @@ export default function UpdateWizard({ repo, onClose, onDone }: Props) {
     if (phase === "start") {
       return (
         <div className="flex flex-col gap-3">
-          {start.status === "running" && <RunningLabel label="Starting container" />}
+          {start.status === "running" && (
+            <RunningLabel label="Creating and starting container" />
+          )}
           {start.status === "done" && (
-            <div className="text-sm" style={{ color: "#3fb950" }}>Container started.</div>
+            <div className="text-sm" style={{ color: "#3fb950" }}>Container stack is running.</div>
           )}
           {start.status === "error" && (
             <div className="text-sm" style={{ color: "var(--vscode-errorForeground)" }}>
-              Failed to start container.
+              Failed to create and start container.
             </div>
           )}
           <OutputBox output={start.output} error={start.status === "error"} />

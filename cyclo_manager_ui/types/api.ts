@@ -198,6 +198,13 @@ export interface ContainerScriptResponse {
   output: string;
 }
 
+export interface ContainerStartStatusResponse {
+  running: boolean;
+  output: string;
+  success: boolean | null;
+  error: string;
+}
+
 export interface CycloManagerVersionResponse {
   current: string;
   latest: string;

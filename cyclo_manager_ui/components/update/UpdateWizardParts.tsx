@@ -23,7 +23,7 @@ const PHASES: { key: Phase; label: string }[] = [
   { key: "stop", label: "Stop Container" },
   { key: "choose", label: "Choose Strategy" },
   { key: "update", label: "Update Repository" },
-  { key: "start", label: "Start Container" },
+  { key: "start", label: "Create and Start Container" },
 ];
 
 export const overlay: CSSProperties = {
