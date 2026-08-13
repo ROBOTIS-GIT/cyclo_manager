@@ -78,6 +78,14 @@ KNOWN_TOPICS: dict[str, KnownTopicMeta] = {
             'depth': 10,
         },
     },
+    '/camera_head/camera_head/color/image_raw/compressed': {
+        'msg_type': 'sensor_msgs/msg/CompressedImage',
+        'qos': {
+            'durability': 'volatile',
+            'reliability': 'reliable',
+            'depth': 42,
+        },
+    },
     '/camera_left/camera_left/color/image_rect_raw/compressed': {
         'msg_type': 'sensor_msgs/msg/CompressedImage',
         'qos': {
