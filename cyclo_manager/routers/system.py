@@ -16,7 +16,7 @@
 #
 # Author: Hyungyu Kim
 
-"""System info and stats endpoints: reads directly from /proc inside the container."""
+"""System info and stats endpoints."""
 
 import asyncio
 import glob
@@ -24,24 +24,27 @@ import os
 from pathlib import Path
 import platform
 import socket
-import time
 from typing import Optional
 
+from cyclo_manager.host_agent_client import HostAgentClient
+from cyclo_manager.http_errors import proxy_error
 from cyclo_manager.models import (
     RobotInfoResponse,
     SerialPortInfo,
     SerialPortsResponse,
+    SystemProcessesResponse,
     SystemStatsResponse,
 )
-from fastapi import APIRouter
+from cyclo_manager.state import get_host_agent_client
+from fastapi import APIRouter, Depends, Query
 import psutil
 
 router = APIRouter(prefix='/system', tags=['system'])
 
 # Host filesystem mounted read-only at this path in docker-compose.
-# Used to read host disk usage and host OS info.
+# Used to read host OS info and serial device paths.
 _HOST_ROOT = '/host_root'
-_EXTRA_STORAGE_MOUNT_PATHS = ('/mnt/ssd', '/data')
+_PROCESS_DEFAULT_LIMIT = 80
 _SERIAL_PORT_GLOBS = (
     '/dev/serial/by-id/*',
     '/dev/ttyACM*',
@@ -81,41 +84,6 @@ def _os_info() -> str | None:
             if line.startswith('PRETTY_NAME='):
                 return line.split('=', 1)[1].strip('"')
     return platform.platform()
-
-
-def _temperature() -> float | None:
-    try:
-        sensors = psutil.sensors_temperatures()
-        if not sensors:
-            return None
-        for readings in sensors.values():
-            if readings:
-                return round(readings[0].current, 1)
-    except (AttributeError, Exception):
-        pass
-    return None
-
-
-def _mounted_disk_usage(path: str):
-    """Return disk usage for a mounted path, or None when unavailable."""
-    path_obj = Path(path)
-    if not path_obj.is_mount():
-        return None
-    try:
-        return psutil.disk_usage(path)
-    except OSError:
-        return None
-
-
-def _extra_storage_disk_usage():
-    """Return extra storage disk usage when a known host mount is visible."""
-    if not Path(_HOST_ROOT).is_mount():
-        return None, None
-    for mount_path in _EXTRA_STORAGE_MOUNT_PATHS:
-        usage = _mounted_disk_usage(f'{_HOST_ROOT}{mount_path}')
-        if usage:
-            return mount_path, usage
-    return None, None
 
 
 def _host_path(path: str) -> Path:
@@ -213,35 +181,28 @@ async def get_robot_info() -> RobotInfoResponse:
 
 
 @router.get('/status', response_model=SystemStatsResponse)
-async def get_system_stats() -> SystemStatsResponse:
-    """
-    Return CPU, memory, disk, and uptime stats.
+async def get_system_stats(
+    client: HostAgentClient = Depends(get_host_agent_client),
+) -> SystemStatsResponse:
+    """Return host CPU, memory, disk, and uptime stats from cyclo_host_agent."""
+    try:
+        data = await client.get_system_stats()
+        return SystemStatsResponse(**data)
+    except Exception as e:
+        raise proxy_error(e, 'Host agent')
 
-    CPU/memory/uptime are read from /proc (host values via bind mount).
-    Disk usage prefers /host_root (host root mount); falls back to /.
-    """
-    cpu_percent = psutil.cpu_percent(interval=0.2)
-    mem = psutil.virtual_memory()
-    disk_path = _HOST_ROOT if Path(_HOST_ROOT).is_mount() else '/'
-    disk = psutil.disk_usage(disk_path)
-    extra_storage_path, extra_storage_disk = _extra_storage_disk_usage()
-    uptime_seconds = int(time.time() - psutil.boot_time())
-    return SystemStatsResponse(
-        cpu_percent=round(cpu_percent, 1),
-        memory_used_mb=mem.used // (1024 * 1024),
-        memory_total_mb=mem.total // (1024 * 1024),
-        disk_used_gb=round(disk.used / (1024 ** 3), 1),
-        disk_total_gb=round(disk.total / (1024 ** 3), 1),
-        ssd_used_gb=(
-            round(extra_storage_disk.used / (1024 ** 3), 1) if extra_storage_disk else None
-        ),
-        ssd_total_gb=(
-            round(extra_storage_disk.total / (1024 ** 3), 1) if extra_storage_disk else None
-        ),
-        ssd_mount_path=extra_storage_path,
-        uptime_seconds=uptime_seconds,
-        temperature_celsius=_temperature(),
-    )
+
+@router.get('/processes', response_model=SystemProcessesResponse)
+async def get_system_processes(
+    limit: int = Query(_PROCESS_DEFAULT_LIMIT, ge=1, le=500),
+    client: HostAgentClient = Depends(get_host_agent_client),
+) -> SystemProcessesResponse:
+    """Return host process CPU/memory usage from cyclo_host_agent."""
+    try:
+        data = await client.get_system_processes(limit)
+        return SystemProcessesResponse(**data)
+    except Exception as e:
+        raise proxy_error(e, 'Host agent')
 
 
 @router.get('/serial-ports', response_model=SerialPortsResponse)

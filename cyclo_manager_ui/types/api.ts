@@ -228,7 +228,7 @@ export interface RobotInfoResponse {
   internet_connected: boolean;
 }
 
-export interface HostSystemStatsResponse {
+export interface SystemStatsResponse {
   cpu_percent: number;
   memory_used_mb: number;
   memory_total_mb: number;
@@ -239,6 +239,22 @@ export interface HostSystemStatsResponse {
   ssd_mount_path: string | null;
   uptime_seconds: number;
   temperature_celsius: number | null;
+}
+
+export interface SystemProcessInfo {
+  pid: number;
+  user: string;
+  cpu_percent: number;
+  memory_percent: number;
+  rss_kb: number | null;
+  command: string;
+}
+
+export interface SystemProcessesResponse {
+  cpu_percent: number;
+  memory_used_mb: number;
+  memory_total_mb: number;
+  processes: SystemProcessInfo[];
 }
 
 export interface SerialPortInfo {

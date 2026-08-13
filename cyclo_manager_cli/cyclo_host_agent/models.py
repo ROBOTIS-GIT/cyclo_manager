@@ -112,3 +112,38 @@ class ContainerStartStatusResponse(BaseModel):
     output: str
     success: bool | None = None
     error: str = ''
+
+
+class HostSystemStatsResponse(BaseModel):
+    """Host CPU/memory/disk/uptime/temperature status."""
+
+    cpu_percent: float
+    memory_used_mb: int
+    memory_total_mb: int
+    disk_used_gb: float
+    disk_total_gb: float
+    ssd_used_gb: float | None = None
+    ssd_total_gb: float | None = None
+    ssd_mount_path: str | None = None
+    uptime_seconds: int
+    temperature_celsius: float | None = None
+
+
+class HostProcessInfo(BaseModel):
+    """Single host process CPU/memory usage sample."""
+
+    pid: int
+    user: str
+    cpu_percent: float
+    memory_percent: float
+    rss_kb: int | None = None
+    command: str
+
+
+class HostProcessesResponse(BaseModel):
+    """Host process list with aggregate resource summary."""
+
+    cpu_percent: float
+    memory_used_mb: int
+    memory_total_mb: int
+    processes: list[HostProcessInfo]

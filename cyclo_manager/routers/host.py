@@ -22,9 +22,9 @@ import logging
 from typing import Optional
 
 from cyclo_manager.host_agent_client import HostAgentClient
+from cyclo_manager.http_errors import proxy_error
 from cyclo_manager.state import get_host_agent_client
-from fastapi import APIRouter, Depends, HTTPException, status
-import httpx
+from fastapi import APIRouter, Depends
 from pydantic import BaseModel
 
 logger = logging.getLogger(__name__)
@@ -106,25 +106,6 @@ class ContainerStartStatusResponse(BaseModel):
 
 
 # ---------------------------------------------------------------------------
-# Helper
-# ---------------------------------------------------------------------------
-
-def _proxy_error(e: Exception) -> HTTPException:
-    if isinstance(e, httpx.RequestError):
-        return HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail=f'Host agent unreachable: {e}',
-        )
-    if isinstance(e, httpx.HTTPStatusError):
-        try:
-            detail = e.response.json().get('detail', str(e))
-        except Exception:
-            detail = e.response.text or str(e)
-        return HTTPException(status_code=e.response.status_code, detail=detail)
-    return HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))
-
-
-# ---------------------------------------------------------------------------
 # Endpoints
 # ---------------------------------------------------------------------------
 
@@ -136,7 +117,7 @@ async def get_repo_updates(
         data = await client.get_repo_updates()
         return RepoUpdatesResponse(**data)
     except Exception as e:
-        raise _proxy_error(e)
+        raise proxy_error(e, 'Host agent')
 
 
 @router.get('/repos', response_model=RepoListResponse)
@@ -147,7 +128,7 @@ async def list_repos(
         data = await client.list_repos()
         return RepoListResponse(**data)
     except Exception as e:
-        raise _proxy_error(e)
+        raise proxy_error(e, 'Host agent')
 
 
 @router.get('/repos/{name}/branch', response_model=RepoBranchCheckResponse)
@@ -159,7 +140,7 @@ async def get_repo_branch(
         data = await client.get_repo_branch(name)
         return RepoBranchCheckResponse(**data)
     except Exception as e:
-        raise _proxy_error(e)
+        raise proxy_error(e, 'Host agent')
 
 
 @router.get('/repos/{name}/status', response_model=RepoStatusResponse)
@@ -171,7 +152,7 @@ async def get_repo_status(
         data = await client.get_repo_status(name)
         return RepoStatusResponse(**data)
     except Exception as e:
-        raise _proxy_error(e)
+        raise proxy_error(e, 'Host agent')
 
 
 @router.post('/repos/{name}/container/stop', response_model=ContainerScriptResponse)
@@ -183,7 +164,7 @@ async def stop_repo_container(
         data = await client.stop_repo_container(name)
         return ContainerScriptResponse(**data)
     except Exception as e:
-        raise _proxy_error(e)
+        raise proxy_error(e, 'Host agent')
 
 
 @router.post('/repos/{name}/container/start', response_model=ContainerStartStatusResponse)
@@ -195,7 +176,7 @@ async def start_repo_container(
         data = await client.start_repo_container(name)
         return ContainerStartStatusResponse(**data)
     except Exception as e:
-        raise _proxy_error(e)
+        raise proxy_error(e, 'Host agent')
 
 
 @router.get(
@@ -210,7 +191,7 @@ async def get_start_repo_container_status(
         data = await client.get_start_repo_container_status(name)
         return ContainerStartStatusResponse(**data)
     except Exception as e:
-        raise _proxy_error(e)
+        raise proxy_error(e, 'Host agent')
 
 
 @router.post('/repos/{name}/update', response_model=UpdateResponse)
@@ -223,7 +204,7 @@ async def update_repo(
         data = await client.update_repo(name, req.strategy, req.preserve_files)
         return UpdateResponse(**data)
     except Exception as e:
-        raise _proxy_error(e)
+        raise proxy_error(e, 'Host agent')
 
 
 @router.post('/update')
@@ -233,7 +214,7 @@ async def update_cyclo_manager(
     try:
         return await client.update_cyclo_manager()
     except Exception as e:
-        raise _proxy_error(e)
+        raise proxy_error(e, 'Host agent')
 
 
 @router.get('/update/status')
@@ -243,7 +224,7 @@ async def get_update_status(
     try:
         return await client.get_update_status()
     except Exception as e:
-        raise _proxy_error(e)
+        raise proxy_error(e, 'Host agent')
 
 
 @router.get('/version')
@@ -253,4 +234,4 @@ async def get_host_agent_version(
     try:
         return await client.get_version()
     except Exception as e:
-        raise _proxy_error(e)
+        raise proxy_error(e, 'Host agent')

@@ -48,7 +48,8 @@ import type {
   ROS2TopicsListResponse,
   ROS2TopicDataResponse,
   ROS2TwistPublishRequest,
-  HostSystemStatsResponse,
+  SystemStatsResponse,
+  SystemProcessesResponse,
   RobotInfoResponse,
   SerialPortsResponse,
 } from "@/types/api";
@@ -365,8 +366,16 @@ export async function getROS2TopicAvailability(topic: string): Promise<boolean> 
   }
 }
 
-export async function getSystemStats(): Promise<HostSystemStatsResponse> {
-  return request<HostSystemStatsResponse>({ method: "GET", url: "/system/status" });
+export async function getSystemStats(): Promise<SystemStatsResponse> {
+  return request<SystemStatsResponse>({ method: "GET", url: "/system/status" });
+}
+
+export async function getSystemProcesses(limit: number = 80): Promise<SystemProcessesResponse> {
+  return request<SystemProcessesResponse>({
+    method: "GET",
+    url: "/system/processes",
+    params: { limit },
+  });
 }
 
 export async function getRobotInfo(): Promise<RobotInfoResponse> {

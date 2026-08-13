@@ -20,7 +20,6 @@ import { useState, useCallback, useMemo } from "react";
 import Convert from "ansi-to-html";
 import { usePolling } from "@/hooks/usePolling";
 import {
-  btnStyle,
   Card,
   CircleGauge,
   ContainerRow,
@@ -30,6 +29,7 @@ import {
   pct,
 } from "@/components/dashboard/DashboardComponents";
 import DockerImagesModal from "@/components/dashboard/DockerImagesModal";
+import CpuUsageModal from "@/components/dashboard/CpuUsageModal";
 import VersionManagementPanel, {
   type InternetStatus,
 } from "@/components/dashboard/VersionManagementPanel";
@@ -43,8 +43,8 @@ import {
   updateBashrc,
 } from "@/lib/api";
 import type {
-  HostSystemStatsResponse,
   RobotInfoResponse,
+  SystemStatsResponse,
   DockerContainerInfo,
 } from "@/types/api";
 import { useTheme } from "@/contexts/ThemeContext";
@@ -57,9 +57,10 @@ export default function HomePage() {
   const { theme } = useTheme();
   const [robotInfo, setRobotInfo] = useState<RobotInfoResponse | null>(null);
   const [robotInfoCheckState, setRobotInfoCheckState] = useState<"loading" | "error" | "done">("loading");
-  const [systemStats, setSystemStats] = useState<HostSystemStatsResponse | null>(null);
+  const [systemStats, setSystemStats] = useState<SystemStatsResponse | null>(null);
   const [containers, setContainers] = useState<DockerContainerInfo[]>([]);
   const [showDockerImages, setShowDockerImages] = useState(false);
+  const [showCpuUsage, setShowCpuUsage] = useState(false);
   const [actionLoading, setActionLoading] = useState<{ container: string; action: string } | null>(null);
 
   // settings modal
@@ -200,6 +201,9 @@ export default function HomePage() {
       {showDockerImages && (
         <DockerImagesModal onClose={() => setShowDockerImages(false)} />
       )}
+      {showCpuUsage && (
+        <CpuUsageModal onClose={() => setShowCpuUsage(false)} />
+      )}
       <div className="flex flex-col gap-6">
 
         <div className="grid gap-4 items-stretch" style={{ gridTemplateColumns: "1fr 2fr 1fr" }}>
@@ -232,11 +236,26 @@ export default function HomePage() {
                   className="p-6 flex flex-nowrap justify-around overflow-hidden"
                   style={{ gap: hasSsdStats ? 12 : 24 }}
                 >
-                  <CircleGauge
-                    fill={systemStats.cpu_percent}
-                    label="CPU"
-                    size={systemGaugeSize}
-                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowCpuUsage(true)}
+                    title="Show CPU processes"
+                    aria-label="Show CPU processes"
+                    className="rounded-md transition-opacity hover:opacity-80 focus:outline-none"
+                    style={{
+                      background: "none",
+                      border: "none",
+                      padding: 0,
+                      cursor: "pointer",
+                      color: "inherit",
+                    }}
+                  >
+                    <CircleGauge
+                      fill={systemStats.cpu_percent}
+                      label="CPU"
+                      size={systemGaugeSize}
+                    />
+                  </button>
                   <CircleGauge
                     fill={memPct} label="Memory"
                     sub={`${(systemStats.memory_used_mb / 1024).toFixed(1)} / ${(systemStats.memory_total_mb / 1024).toFixed(1)} GB`}

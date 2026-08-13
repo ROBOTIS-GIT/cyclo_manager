@@ -75,3 +75,14 @@ class HostAgentClient(SocketHttpClient):
 
     async def get_version(self) -> dict:
         return await self.request_json('GET', '/system/version', timeout=10.0)
+
+    async def get_system_stats(self) -> dict:
+        return await self.request_json('GET', '/system/status', timeout=10.0)
+
+    async def get_system_processes(self, limit: int) -> dict:
+        return await self.request_json(
+            'GET',
+            '/system/processes',
+            params={'limit': limit},
+            timeout=10.0,
+        )

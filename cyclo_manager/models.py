@@ -364,3 +364,23 @@ class SystemStatsResponse(BaseModel):
     ssd_mount_path: Optional[str] = None
     uptime_seconds: int
     temperature_celsius: Optional[float] = None
+
+
+class SystemProcessInfo(BaseModel):
+    """Single host process CPU/memory usage sample."""
+
+    pid: int
+    user: str
+    cpu_percent: float
+    memory_percent: float
+    rss_kb: Optional[int] = None
+    command: str
+
+
+class SystemProcessesResponse(BaseModel):
+    """Response for GET /system/processes."""
+
+    cpu_percent: float
+    memory_used_mb: int
+    memory_total_mb: int
+    processes: list[SystemProcessInfo]
