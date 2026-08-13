@@ -46,6 +46,7 @@ import Robot3DViewer from "@/components/Robot3DViewer";
 import ContainerControlBox from "@/components/system/ContainerControlBox";
 import ServiceControlBox from "@/components/system/ServiceControlBox";
 import { useTheme } from "@/contexts/ThemeContext";
+import type { RobotType } from "@/types/api";
 
 const STATUS_POLL_INTERVAL = 2000;
 const ROBOT_DESCRIPTION_TOPIC = "/robot_description";
@@ -214,7 +215,9 @@ export default function SystemPage() {
   const robotConfig = robotOption?.config ?? activeSystemProfile.robotTypeOptions[0]?.config ?? UNSUPPORTED_LAUNCH_CONFIG;
   const leaderConfig = leaderOption?.config ?? null;
   const batteryTopics = activeSystemProfile.batteryTopics;
-  const cameraTopics = activeSystemProfile.cameraTopics;
+  const cameraTopics =
+    activeSystemProfile.cameraTopicsByRobotType?.[robotType as RobotType] ??
+    activeSystemProfile.cameraTopics;
   const controlTopics = useMemo<SystemControlTopic[]>(
     () => {
       if (!systemProfile) return [];
