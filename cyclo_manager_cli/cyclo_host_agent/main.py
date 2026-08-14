@@ -21,7 +21,7 @@
 import logging
 from pathlib import Path
 
-from cyclo_host_agent.routers import repos, system_stats, update
+from cyclo_host_agent.routers import files, repos, system_stats, update
 from cyclo_manager_cli import __version__
 from fastapi import FastAPI
 import uvicorn
@@ -41,6 +41,7 @@ app = FastAPI(
 )
 
 app.include_router(repos.router)
+app.include_router(files.router)
 app.include_router(system_stats.router)
 app.include_router(update.router)
 

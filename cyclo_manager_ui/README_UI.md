@@ -14,9 +14,10 @@ Next.js web interface for **cyclo_manager** (ROS 2 robot containers, s6 services
   - **Robot Status** panel: bringup state, left/right battery percentage (WebSocket on `/ai_worker/battery/{left,right}/state`), and head/wrist camera activity (`GET /ros2/topics/{topic}/available` polling)
 - **Topics** (`/topics`): Discover topics (`GET /ros2/topics`) and stream message JSON via WebSocket (`/ws/ros2/topics/{topic}`); optional **Info** tab (`GET /ros2/topics/{topic}/info`)
 - **Terminal** (`/terminal`, optional `?container={name}`): Multi-tab xterm.js shells into running containers, process list with kill; links from Dashboard when a container is running
+- **Files** (`/files`): Browse and edit UTF-8 text files on the robot host under the host agent file root (create, rename, delete; hidden files optional)
 - **noVNC** (`/novnc`): Start/stop `novnc-server` and open the remote desktop viewer
 
-The VS Code–style sidebar (Dashboard, System, Topics, Terminal, noVNC) is shown on all routes **except** `/app`.
+The VS Code–style sidebar (Dashboard, System, Topics, Terminal, Files, noVNC) is shown on all routes **except** `/app`.
 
 ## Development
 
@@ -85,6 +86,7 @@ The UI calls the cyclo_manager **REST API** and **WebSockets**:
 | Service logs | `WebSocket /ws/{container}/services/{service}/logs` |
 | ROS topic data | `WebSocket /ws/ros2/topics/{topic}` — on connect the API resolves the message type, subscribes if needed, then polls its cache and pushes JSON when data changes |
 | Container terminal | `WebSocket /terminal/{name}/ws?session_id=...` |
+| Host files | `GET /host/files/tree`, `GET /host/files/read`, `POST /host/files/write`, etc. |
 
 Launch arguments and robot type for bringup are stored in **`localStorage`** per container (and per follower model for `ai_worker`).
 
@@ -100,6 +102,7 @@ Configuration for default launch args lives in **`config/launchArgs.ts`** (edite
 | `/{container}/system` | Bringup, 3D viewer, robot status |
 | `/topics` | ROS 2 topic list + live viewer |
 | `/terminal` | Multi-tab container shells |
+| `/files` | Host file browser and text editor |
 | `/novnc` | noVNC |
 
 For the full stack and API, see the repository **[README.md](../README.md)**.

@@ -38,6 +38,9 @@ import type {
   DockerImagePruneResponse,
   DockerTopResponse,
   ErrorResponse,
+  FileOperationResponse,
+  FileReadResponse,
+  FileTreeResponse,
   BashrcResponse,
   RepoUpdatesResponse,
   RepoBranchCheckResponse,
@@ -441,5 +444,74 @@ export async function getStartRepoContainerStatus(
   return request<ContainerStartStatusResponse>({
     method: "GET",
     url: `/host/repos/${name}/container/start/status`,
+  });
+}
+
+export async function getFileTree(
+  path: string = "",
+  showHidden: boolean = false
+): Promise<FileTreeResponse> {
+  return request<FileTreeResponse>({
+    method: "GET",
+    url: "/host/files/tree",
+    params: { path, show_hidden: showHidden },
+  });
+}
+
+export async function readFile(path: string): Promise<FileReadResponse> {
+  return request<FileReadResponse>({
+    method: "GET",
+    url: "/host/files/read",
+    params: { path },
+  });
+}
+
+export async function writeFile(
+  path: string,
+  content: string,
+  expectedModified: number | null
+): Promise<FileOperationResponse> {
+  return request<FileOperationResponse>({
+    method: "POST",
+    url: "/host/files/write",
+    data: {
+      path,
+      content,
+      expected_modified: expectedModified,
+    },
+  });
+}
+
+export async function createFilePath(
+  path: string,
+  type: "file" | "directory",
+  content: string = ""
+): Promise<FileOperationResponse> {
+  return request<FileOperationResponse>({
+    method: "POST",
+    url: "/host/files/create",
+    data: { path, type, content },
+  });
+}
+
+export async function renameFilePath(
+  path: string,
+  newName: string
+): Promise<FileOperationResponse> {
+  return request<FileOperationResponse>({
+    method: "POST",
+    url: "/host/files/rename",
+    data: { path, new_name: newName },
+  });
+}
+
+export async function deleteFilePath(
+  path: string,
+  recursive: boolean = false
+): Promise<FileOperationResponse> {
+  return request<FileOperationResponse>({
+    method: "DELETE",
+    url: "/host/files",
+    params: { path, recursive },
   });
 }

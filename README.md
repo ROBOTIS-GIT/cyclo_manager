@@ -112,6 +112,7 @@ Bundled copy for pip installs: `cyclo_manager_cli/cyclo_manager_cli/config/confi
 | Jog | `/jog` | `/cmd_vel` teleop for supported robot models (SG2, SH5, F2, Mobile) |
 | Topics | `/topics` | ROS 2 topic browser; live data via WebSocket |
 | Terminal | `/terminal` | Multi-tab bash into running containers (`?container={name}` optional) |
+| Files | `/files` | Host file browser and text editor (scoped to host agent file root; see Security) |
 | noVNC | `/novnc` | Remote display (when `novnc-server` is running) |
 
 The VS Code–style sidebar is shown on all routes except `/app`. The **System** button uses `supported_robot_containers` from `GET /containers`: one entry opens that System page directly, and multiple entries ask the user to choose.
@@ -130,7 +131,7 @@ Interactive docs: `http://<host>:8081/docs`
 | Config | `GET /containers` | Supported robot containers for the System page |
 | | `GET /containers/agents/status` | Container s6 agent version compatibility |
 | | `POST /containers/{container}/agent/update` | Checkout agent code to the manager version and restart the container |
-| System | `GET /system/info`, `GET /system/status` | Hostname, internet, CPU/memory/disk |
+| System | `GET /system/info`, `GET /system/status`, `GET /system/processes` | Hostname, internet, CPU/memory/disk, top processes |
 | | `GET /system/serial-ports` | Serial device candidates from the host `/dev` tree |
 | Services | `GET /{container}/services/{service}/status` | Single s6 service status |
 | | `POST /{container}/services/{service}` | `up` / `down` / `restart`; optional `launch_args`, `robot_type` (AI Worker: SG2/BG2/SH5/BH5/F1/F2/Mobile) |
@@ -161,6 +162,12 @@ Interactive docs: `http://<host>:8081/docs`
 | | `POST /host/update` | Start one-click `cyclo_manager` package update through the host agent |
 | | `GET /host/update/status` | Poll package update phase, output, and error |
 | | `GET /host/version` | Running `cyclo_host_agent` package version |
+| | `GET /host/files/tree` | List one directory under the host file root; optional `?path=` and `?show_hidden=true` |
+| | `GET /host/files/read` | Read a UTF-8 text file (`?path=`) |
+| | `POST /host/files/write` | Save a text file; optional `expected_modified` for conflict detection |
+| | `POST /host/files/create` | Create a file or directory |
+| | `POST /host/files/rename` | Rename a file or directory |
+| | `DELETE /host/files` | Delete a file or directory; optional `?recursive=true` for folders |
 | Version | `GET /version` | Installed vs PyPI `cyclo-manager`; optional `?check_latest=false` |
 | WebSocket | `/ws/{container}/services/{service}/logs` | Live s6 logs (agent NDJSON stream → browser) |
 | | `/ws/ros2/topics/{topic}` | Live topic data (see below) |
@@ -190,6 +197,8 @@ cyclo_manager/
 ## Security
 
 The API is **unauthenticated** by default and mounts **`docker.sock`** (high privilege). Restrict network access, tighten **CORS** in production, and treat `/docs`, WebSockets, and `/host/*` as sensitive when exposed.
+
+**Host file API (`/host/files/*`):** Proxied to `cyclo_host_agent` and can read, write, create, rename, and delete files under the configured host file root (default: the host agent service user's home directory, e.g. `/root` when running as root). Override with `CYCLO_HOST_AGENT_FILE_ROOT`. Treat this as full access to that directory tree when the UI or API is reachable.
 
 ---
 

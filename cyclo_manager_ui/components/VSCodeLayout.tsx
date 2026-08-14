@@ -50,6 +50,7 @@ export default function VSCodeLayout({
     { href: "/terminal", label: "Terminal", icon: "🖥️", isTerminal: true },
     { href: "/novnc", label: "noVNC", icon: "📺" },
     { label: "Jog", icon: "🎮", isJog: true },
+    { href: "/files", label: "Files", icon: "📁" },
   ];
 
   async function handleSystemClick() {
@@ -231,7 +232,7 @@ export default function VSCodeLayout({
         className="flex-1 flex flex-col overflow-hidden"
         style={{ backgroundColor: "var(--vscode-editor-background)" }}
       >
-        <div className="flex-1 overflow-auto p-6">
+        <div className="flex-1 min-h-0 overflow-auto p-6">
           {children}
         </div>
       </main>

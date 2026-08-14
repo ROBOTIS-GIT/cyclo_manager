@@ -147,3 +147,65 @@ class HostProcessesResponse(BaseModel):
     memory_used_mb: int
     memory_total_mb: int
     processes: list[HostProcessInfo]
+
+
+class FileTreeEntry(BaseModel):
+    """Single file browser entry."""
+
+    name: str
+    path: str
+    type: str
+    size: int | None = None
+    modified: float | None = None
+    readonly: bool = False
+    hidden: bool = False
+    symlink: bool = False
+
+
+class FileTreeResponse(BaseModel):
+    """Response for GET /files/tree."""
+
+    root_path: str
+    path: str
+    entries: list[FileTreeEntry]
+
+
+class FileReadResponse(BaseModel):
+    """Response for GET /files/read."""
+
+    path: str
+    content: str
+    size: int
+    modified: float
+    readonly: bool = False
+
+
+class FileWriteRequest(BaseModel):
+    """Request body for POST /files/write."""
+
+    path: str
+    content: str
+    expected_modified: float | None = None
+
+
+class FileCreateRequest(BaseModel):
+    """Request body for POST /files/create."""
+
+    path: str
+    type: str
+    content: str = ''
+
+
+class FileRenameRequest(BaseModel):
+    """Request body for POST /files/rename."""
+
+    path: str
+    new_name: str
+
+
+class FileOperationResponse(BaseModel):
+    """Generic file operation response."""
+
+    path: str
+    success: bool
+    message: str

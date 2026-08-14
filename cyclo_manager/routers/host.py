@@ -105,6 +105,23 @@ class ContainerStartStatusResponse(BaseModel):
     error: str = ''
 
 
+class FileWriteRequest(BaseModel):
+    path: str
+    content: str
+    expected_modified: float | None = None
+
+
+class FileCreateRequest(BaseModel):
+    path: str
+    type: str
+    content: str = ''
+
+
+class FileRenameRequest(BaseModel):
+    path: str
+    new_name: str
+
+
 # ---------------------------------------------------------------------------
 # Endpoints
 # ---------------------------------------------------------------------------
@@ -233,5 +250,73 @@ async def get_host_agent_version(
 ) -> dict:
     try:
         return await client.get_version()
+    except Exception as e:
+        raise proxy_error(e, 'Host agent')
+
+
+@router.get('/files/tree')
+async def list_files(
+    path: str = '',
+    show_hidden: bool = False,
+    client: HostAgentClient = Depends(get_host_agent_client),
+) -> dict:
+    try:
+        return await client.list_files(path, show_hidden)
+    except Exception as e:
+        raise proxy_error(e, 'Host agent')
+
+
+@router.get('/files/read')
+async def read_file(
+    path: str,
+    client: HostAgentClient = Depends(get_host_agent_client),
+) -> dict:
+    try:
+        return await client.read_file(path)
+    except Exception as e:
+        raise proxy_error(e, 'Host agent')
+
+
+@router.post('/files/write')
+async def write_file(
+    req: FileWriteRequest,
+    client: HostAgentClient = Depends(get_host_agent_client),
+) -> dict:
+    try:
+        return await client.write_file(req.path, req.content, req.expected_modified)
+    except Exception as e:
+        raise proxy_error(e, 'Host agent')
+
+
+@router.post('/files/create')
+async def create_file_path(
+    req: FileCreateRequest,
+    client: HostAgentClient = Depends(get_host_agent_client),
+) -> dict:
+    try:
+        return await client.create_file_path(req.path, req.type, req.content)
+    except Exception as e:
+        raise proxy_error(e, 'Host agent')
+
+
+@router.post('/files/rename')
+async def rename_file_path(
+    req: FileRenameRequest,
+    client: HostAgentClient = Depends(get_host_agent_client),
+) -> dict:
+    try:
+        return await client.rename_file_path(req.path, req.new_name)
+    except Exception as e:
+        raise proxy_error(e, 'Host agent')
+
+
+@router.delete('/files')
+async def delete_file_path(
+    path: str,
+    recursive: bool = False,
+    client: HostAgentClient = Depends(get_host_agent_client),
+) -> dict:
+    try:
+        return await client.delete_file_path(path, recursive)
     except Exception as e:
         raise proxy_error(e, 'Host agent')

@@ -205,6 +205,37 @@ export interface ContainerStartStatusResponse {
   error: string;
 }
 
+export interface FileTreeEntry {
+  name: string;
+  path: string;
+  type: "file" | "directory";
+  size: number | null;
+  modified: number | null;
+  readonly: boolean;
+  hidden: boolean;
+  symlink: boolean;
+}
+
+export interface FileTreeResponse {
+  root_path: string;
+  path: string;
+  entries: FileTreeEntry[];
+}
+
+export interface FileReadResponse {
+  path: string;
+  content: string;
+  size: number;
+  modified: number;
+  readonly: boolean;
+}
+
+export interface FileOperationResponse {
+  path: string;
+  success: boolean;
+  message: string;
+}
+
 export interface CycloManagerVersionResponse {
   current: string;
   latest: string;

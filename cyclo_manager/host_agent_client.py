@@ -86,3 +86,60 @@ class HostAgentClient(SocketHttpClient):
             params={'limit': limit},
             timeout=10.0,
         )
+
+    async def list_files(self, path: str, show_hidden: bool) -> dict:
+        return await self.request_json(
+            'GET',
+            '/files/tree',
+            params={'path': path, 'show_hidden': show_hidden},
+            timeout=10.0,
+        )
+
+    async def read_file(self, path: str) -> dict:
+        return await self.request_json(
+            'GET',
+            '/files/read',
+            params={'path': path},
+            timeout=10.0,
+        )
+
+    async def write_file(
+        self,
+        path: str,
+        content: str,
+        expected_modified: float | None,
+    ) -> dict:
+        return await self.request_json(
+            'POST',
+            '/files/write',
+            json={
+                'path': path,
+                'content': content,
+                'expected_modified': expected_modified,
+            },
+            timeout=30.0,
+        )
+
+    async def create_file_path(self, path: str, item_type: str, content: str) -> dict:
+        return await self.request_json(
+            'POST',
+            '/files/create',
+            json={'path': path, 'type': item_type, 'content': content},
+            timeout=30.0,
+        )
+
+    async def rename_file_path(self, path: str, new_name: str) -> dict:
+        return await self.request_json(
+            'POST',
+            '/files/rename',
+            json={'path': path, 'new_name': new_name},
+            timeout=30.0,
+        )
+
+    async def delete_file_path(self, path: str, recursive: bool) -> dict:
+        return await self.request_json(
+            'DELETE',
+            '/files',
+            params={'path': path, 'recursive': recursive},
+            timeout=30.0,
+        )

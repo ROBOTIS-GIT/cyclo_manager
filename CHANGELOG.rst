@@ -2,6 +2,12 @@
 Changelog for package cyclo_manager
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
+1.1.0 (unreleased)
+------------------
+* Added a **Files** page and ``/host/files/*`` API for browsing and editing UTF-8 text files on the robot host through ``cyclo_host_agent``.
+* Moved host CPU/memory/disk stats to ``cyclo_host_agent`` and added ``GET /system/processes`` with a dashboard CPU usage modal.
+* Contributors: Hyungyu Kim
+
 1.0.0 (2026-08-05)
 ------------------
 * Improved ROS 2 bridge request synchronization with per-request response queues for discovery, subscription, QoS lookup, publishing, and unsubscribe results.

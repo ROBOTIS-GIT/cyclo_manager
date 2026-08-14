@@ -204,6 +204,7 @@ So `/agents/ai_worker/s6_agent.sock` in config corresponds to the host path abov
 |----------|--------|---------|
 | **`CYCLO_MANAGER_CONFIG_FILE`** | CLI (`up`, `down`, `update`) | Absolute path to bundled `config.yml` on the host; mounted into the API container |
 | **`CYCLO_HOST_AGENT_WORKSPACE`** | User or CLI-generated systemd unit | Workspace scanned by `cyclo_host_agent` for managed git repositories |
+| **`CYCLO_HOST_AGENT_FILE_ROOT`** | User (optional) | Root directory for the Files UI/API. Defaults to the host agent service user's home (`$HOME`, e.g. `/root` when running as root) |
 | **`HOSTNAME`** | CLI (default: machine hostname) | Passed to API as `HOST_HOSTNAME` |
 | **`CONFIG_FILE`** | Compose (`/app/config.yml`) | Path inside the API container |
 | **`ROS_DOMAIN_ID`** | **Not** set by CLI | Set inside robot containers (e.g. `~/.bashrc`) so DDS matches your fleet |
