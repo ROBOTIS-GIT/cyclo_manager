@@ -222,6 +222,14 @@ export interface FileTreeResponse {
   entries: FileTreeEntry[];
 }
 
+export interface FileSearchResponse {
+  root_path: string;
+  path: string;
+  query: string;
+  entries: FileTreeEntry[];
+  truncated: boolean;
+}
+
 export interface FileReadResponse {
   path: string;
   content: string;

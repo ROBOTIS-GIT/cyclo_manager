@@ -277,6 +277,20 @@ async def read_file(
         raise proxy_error(e, 'Host agent')
 
 
+@router.get('/files/search')
+async def search_files(
+    query: str,
+    path: str = '',
+    show_hidden: bool = False,
+    limit: int = 200,
+    client: HostAgentClient = Depends(get_host_agent_client),
+) -> dict:
+    try:
+        return await client.search_files(path, query, show_hidden, limit)
+    except Exception as e:
+        raise proxy_error(e, 'Host agent')
+
+
 @router.post('/files/write')
 async def write_file(
     req: FileWriteRequest,

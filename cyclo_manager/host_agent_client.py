@@ -103,6 +103,19 @@ class HostAgentClient(SocketHttpClient):
             timeout=10.0,
         )
 
+    async def search_files(self, path: str, query: str, show_hidden: bool, limit: int) -> dict:
+        return await self.request_json(
+            'GET',
+            '/files/search',
+            params={
+                'path': path,
+                'query': query,
+                'show_hidden': show_hidden,
+                'limit': limit,
+            },
+            timeout=30.0,
+        )
+
     async def write_file(
         self,
         path: str,

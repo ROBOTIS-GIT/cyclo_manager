@@ -23,6 +23,7 @@ import {
   getFileTree,
   readFile,
   renameFilePath,
+  searchFiles,
   writeFile,
 } from "@/lib/api";
 import type { FileTreeEntry } from "@/types/api";
@@ -109,6 +110,10 @@ export default function FilesPage() {
   const [loading, setLoading] = useState(false);
   const [busy, setBusy] = useState(false);
   const [showHidden, setShowHidden] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [searching, setSearching] = useState(false);
+  const [searchMode, setSearchMode] = useState(false);
+  const [searchTruncated, setSearchTruncated] = useState(false);
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
 
@@ -159,6 +164,8 @@ export default function FilesPage() {
       setCurrentPath(response.path);
       setEntries(response.entries);
       setSelectedEntryPath("");
+      setSearchMode(false);
+      setSearchTruncated(false);
       if (clearOpenFile) clearEditor();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to load directory");
@@ -200,6 +207,45 @@ export default function FilesPage() {
       setBusy(false);
     }
   }
+
+  const runSearch = useCallback(async (queryValue: string, pathValue: string, showHiddenValue: boolean) => {
+    const query = queryValue.trim();
+    if (!query) {
+      setSearchMode(false);
+      setSearchTruncated(false);
+      await loadDirectory(pathValue, showHiddenValue, false);
+      return;
+    }
+    clearNotice();
+    setSearching(true);
+    setLoading(true);
+    try {
+      const response = await searchFiles(pathValue, query, showHiddenValue);
+      setEntries(response.entries);
+      setSearchMode(true);
+      setSearchTruncated(response.truncated);
+      setSelectedEntryPath("");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to search files");
+    } finally {
+      setSearching(false);
+      setLoading(false);
+    }
+  }, [clearNotice, loadDirectory]);
+
+  async function clearSearch() {
+    setSearchQuery("");
+    setSearchMode(false);
+    setSearchTruncated(false);
+    await loadDirectory(currentPath, showHidden, false);
+  }
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      void runSearch(searchQuery, currentPath, showHidden);
+    }, 250);
+    return () => window.clearTimeout(timer);
+  }, [currentPath, runSearch, searchQuery, showHidden]);
 
   async function saveFile() {
     if (!selectedPath || readonly) return;
@@ -362,31 +408,76 @@ export default function FilesPage() {
           style={{ backgroundColor: "var(--vscode-sidebar-background)", borderColor: "var(--vscode-panel-border)" }}
         >
           <div className="px-3 py-2 border-b flex items-center gap-1 overflow-x-auto" style={{ borderColor: "var(--vscode-panel-border)" }}>
-            <button
-              type="button"
-              onClick={openRoot}
-              className="text-xs font-semibold rounded px-1.5 py-1"
-              style={{ color: "var(--vscode-textLink-foreground)", background: "transparent", border: "none" }}
-            >
-              {rootLabel}
-            </button>
-            {breadcrumbs.map((crumb) => (
-              <span key={crumb.path} className="flex items-center gap-1 shrink-0">
-                <span className="text-xs" style={{ color: "var(--vscode-descriptionForeground)" }}>/</span>
-                <button
-                  type="button"
-                  onClick={() => openDirectory(crumb.path)}
-                  className="text-xs rounded px-1.5 py-1"
-                  style={{ color: "var(--vscode-textLink-foreground)", background: "transparent", border: "none" }}
-                >
-                  {crumb.label}
-                </button>
-              </span>
-            ))}
+            <div className="min-w-0 flex-1 flex items-center gap-1 overflow-x-auto">
+              <button
+                type="button"
+                onClick={openRoot}
+                className="text-xs font-semibold rounded px-1.5 py-1"
+                style={{ color: "var(--vscode-textLink-foreground)", background: "transparent", border: "none" }}
+              >
+                {rootLabel}
+              </button>
+              {breadcrumbs.map((crumb) => (
+                <span key={crumb.path} className="flex items-center gap-1 shrink-0">
+                  <span className="text-xs" style={{ color: "var(--vscode-descriptionForeground)" }}>/</span>
+                  <button
+                    type="button"
+                    onClick={() => openDirectory(crumb.path)}
+                    className="text-xs rounded px-1.5 py-1"
+                    style={{ color: "var(--vscode-textLink-foreground)", background: "transparent", border: "none" }}
+                  >
+                    {crumb.label}
+                  </button>
+                </span>
+              ))}
+            </div>
+            <input
+              type="search"
+              value={searchQuery}
+              onChange={(event) => setSearchQuery(event.currentTarget.value)}
+              onKeyDown={(event) => {
+                if (event.key === "Escape") void clearSearch();
+              }}
+              placeholder="Search"
+              className="w-40 h-7 rounded border px-2 text-xs shrink-0"
+              style={{
+                color: "var(--vscode-input-foreground)",
+                backgroundColor: "var(--vscode-input-background)",
+                borderColor: "var(--vscode-input-border)",
+              }}
+            />
+            {searchMode && (
+              <button
+                type="button"
+                title="Clear search"
+                onClick={() => void clearSearch()}
+                disabled={searching}
+                className="h-7 px-2 rounded text-xs shrink-0"
+                style={{
+                  color: "var(--vscode-descriptionForeground)",
+                  background: "transparent",
+                  border: "1px solid var(--vscode-panel-border)",
+                }}
+              >
+                Clear
+              </button>
+            )}
           </div>
 
+          {searchMode && (
+            <div
+              className="px-3 py-1.5 border-b text-xs"
+              style={{
+                borderColor: "var(--vscode-panel-border)",
+                color: searchTruncated ? "var(--vscode-warningForeground)" : "var(--vscode-descriptionForeground)",
+              }}
+            >
+              Search results for &quot;{searchQuery}&quot;{searchTruncated ? " (truncated)" : ""}
+            </div>
+          )}
+
           <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain">
-            {currentPath && (
+            {currentPath && !searchMode && (
               <button
                 type="button"
                 onClick={() => openDirectory(parentPath(currentPath))}
@@ -427,6 +518,11 @@ export default function FilesPage() {
                       <span className="truncate text-sm">{entry.name}</span>
                       {entry.readonly && <span className="text-[10px] shrink-0" style={{ color: "var(--vscode-warningForeground)" }}>RO</span>}
                     </div>
+                    {searchMode && (
+                      <div className="text-[11px] truncate mt-0.5 pl-7" style={{ color: "var(--vscode-descriptionForeground)" }}>
+                        {entry.path}
+                      </div>
+                    )}
                   </button>
                   <div className="flex items-center gap-1 pr-2">
                     <button

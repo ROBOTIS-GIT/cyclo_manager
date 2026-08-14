@@ -27,6 +27,7 @@ from cyclo_host_agent.models import (
     FileOperationResponse,
     FileReadResponse,
     FileRenameRequest,
+    FileSearchResponse,
     FileTreeEntry,
     FileTreeResponse,
     FileWriteRequest,
@@ -37,6 +38,8 @@ router = APIRouter(prefix='/files', tags=['files'])
 
 MAX_READ_BYTES = 2 * 1024 * 1024
 MAX_WRITE_BYTES = 4 * 1024 * 1024
+MAX_SEARCH_RESULTS = 200
+MAX_SEARCH_VISITS = 20000
 
 
 def _resolve_file_root() -> Path:
@@ -100,6 +103,60 @@ async def list_directory(
         except OSError:
             continue
     return FileTreeResponse(root_path=str(FILE_ROOT_PATH), path=rel, entries=entries)
+
+
+@router.get('/search', response_model=FileSearchResponse)
+async def search_files(
+    query: str,
+    path: str = '',
+    show_hidden: bool = Query(False),
+    limit: int = Query(MAX_SEARCH_RESULTS, ge=1, le=1000),
+) -> FileSearchResponse:
+    """Search file and folder names recursively under the current directory."""
+    target, rel = _safe_path(path)
+    if not target.is_dir():
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail='Path is not a directory')
+    normalized_query = query.strip().lower()
+    if not normalized_query:
+        return FileSearchResponse(root_path=str(FILE_ROOT_PATH), path=rel, query=query, entries=[])
+
+    entries: list[FileTreeEntry] = []
+    visits = 0
+    truncated = False
+    stack = [target]
+    while stack:
+        current = stack.pop()
+        try:
+            children = sorted(current.iterdir(), key=lambda item: item.name.lower(), reverse=True)
+        except OSError:
+            continue
+        for child in children:
+            visits += 1
+            if visits > MAX_SEARCH_VISITS:
+                truncated = True
+                stack.clear()
+                break
+            if not show_hidden and child.name.startswith('.'):
+                continue
+            if normalized_query in child.name.lower():
+                try:
+                    entries.append(_entry(child))
+                except OSError:
+                    pass
+                if len(entries) >= limit:
+                    truncated = True
+                    stack.clear()
+                    break
+            if child.is_dir() and not child.is_symlink():
+                stack.append(child)
+
+    return FileSearchResponse(
+        root_path=str(FILE_ROOT_PATH),
+        path=rel,
+        query=query,
+        entries=entries,
+        truncated=truncated,
+    )
 
 
 @router.get('/read', response_model=FileReadResponse)

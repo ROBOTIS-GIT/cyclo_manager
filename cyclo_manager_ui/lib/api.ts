@@ -40,6 +40,7 @@ import type {
   ErrorResponse,
   FileOperationResponse,
   FileReadResponse,
+  FileSearchResponse,
   FileTreeResponse,
   BashrcResponse,
   RepoUpdatesResponse,
@@ -463,6 +464,19 @@ export async function readFile(path: string): Promise<FileReadResponse> {
     method: "GET",
     url: "/host/files/read",
     params: { path },
+  });
+}
+
+export async function searchFiles(
+  path: string,
+  query: string,
+  showHidden: boolean = false,
+  limit: number = 200
+): Promise<FileSearchResponse> {
+  return request<FileSearchResponse>({
+    method: "GET",
+    url: "/host/files/search",
+    params: { path, query, show_hidden: showHidden, limit },
   });
 }
 

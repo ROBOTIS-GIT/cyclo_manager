@@ -170,6 +170,16 @@ class FileTreeResponse(BaseModel):
     entries: list[FileTreeEntry]
 
 
+class FileSearchResponse(BaseModel):
+    """Response for GET /files/search."""
+
+    root_path: str
+    path: str
+    query: str
+    entries: list[FileTreeEntry]
+    truncated: bool = False
+
+
 class FileReadResponse(BaseModel):
     """Response for GET /files/read."""
 
