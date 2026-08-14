@@ -214,6 +214,7 @@ export interface FileTreeEntry {
   readonly: boolean;
   hidden: boolean;
   symlink: boolean;
+  git_status: "modified" | "untracked" | null;
 }
 
 export interface FileTreeResponse {
@@ -236,6 +237,13 @@ export interface FileReadResponse {
   size: number;
   modified: number;
   readonly: boolean;
+}
+
+export interface FileDiffResponse {
+  path: string;
+  status: "modified" | "untracked";
+  original_content: string;
+  current_content: string;
 }
 
 export interface FileOperationResponse {

@@ -160,6 +160,7 @@ class FileTreeEntry(BaseModel):
     readonly: bool = False
     hidden: bool = False
     symlink: bool = False
+    git_status: str | None = None
 
 
 class FileTreeResponse(BaseModel):
@@ -188,6 +189,15 @@ class FileReadResponse(BaseModel):
     size: int
     modified: float
     readonly: bool = False
+
+
+class FileDiffResponse(BaseModel):
+    """Response for GET /files/diff."""
+
+    path: str
+    status: str
+    original_content: str
+    current_content: str
 
 
 class FileWriteRequest(BaseModel):

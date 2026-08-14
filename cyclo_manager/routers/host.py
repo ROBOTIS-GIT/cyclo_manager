@@ -277,6 +277,17 @@ async def read_file(
         raise proxy_error(e, 'Host agent')
 
 
+@router.get('/files/diff')
+async def get_file_diff(
+    path: str,
+    client: HostAgentClient = Depends(get_host_agent_client),
+) -> dict:
+    try:
+        return await client.get_file_diff(path)
+    except Exception as e:
+        raise proxy_error(e, 'Host agent')
+
+
 @router.get('/files/search')
 async def search_files(
     query: str,

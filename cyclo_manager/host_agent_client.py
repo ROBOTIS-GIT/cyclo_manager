@@ -103,6 +103,14 @@ class HostAgentClient(SocketHttpClient):
             timeout=10.0,
         )
 
+    async def get_file_diff(self, path: str) -> dict:
+        return await self.request_json(
+            'GET',
+            '/files/diff',
+            params={'path': path},
+            timeout=10.0,
+        )
+
     async def search_files(self, path: str, query: str, show_hidden: bool, limit: int) -> dict:
         return await self.request_json(
             'GET',

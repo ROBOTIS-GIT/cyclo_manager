@@ -20,10 +20,12 @@
 
 import os
 import shutil
+import subprocess
 from pathlib import Path
 
 from cyclo_host_agent.models import (
     FileCreateRequest,
+    FileDiffResponse,
     FileOperationResponse,
     FileReadResponse,
     FileRenameRequest,
@@ -40,6 +42,9 @@ MAX_READ_BYTES = 2 * 1024 * 1024
 MAX_WRITE_BYTES = 4 * 1024 * 1024
 MAX_SEARCH_RESULTS = 200
 MAX_SEARCH_VISITS = 20000
+GIT_STATUS_TIMEOUT_SECONDS = 0.5
+GIT_DIFF_TIMEOUT_SECONDS = 2.0
+MAX_DIFF_BYTES = 2 * 1024 * 1024
 
 
 def _resolve_file_root() -> Path:
@@ -70,7 +75,7 @@ def _is_binary(path: Path) -> bool:
         return True
 
 
-def _entry(path: Path) -> FileTreeEntry:
+def _entry(path: Path, git_status: str | None = None) -> FileTreeEntry:
     stat = path.lstat()
     return FileTreeEntry(
         name=path.name,
@@ -81,7 +86,169 @@ def _entry(path: Path) -> FileTreeEntry:
         readonly=not os.access(path, os.W_OK),
         hidden=path.name.startswith('.'),
         symlink=path.is_symlink(),
+        git_status=git_status,
     )
+
+
+def _run_git_text(
+    args: list[str],
+    cwd: Path,
+    timeout: float = GIT_STATUS_TIMEOUT_SECONDS,
+) -> subprocess.CompletedProcess[str] | None:
+    env = os.environ.copy()
+    env['GIT_OPTIONAL_LOCKS'] = '0'
+    try:
+        return subprocess.run(
+            ['git', *args],
+            cwd=cwd,
+            env=env,
+            capture_output=True,
+            text=True,
+            encoding='utf-8',
+            errors='replace',
+            timeout=timeout,
+            check=False,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+
+
+def _run_git_bytes(args: list[str], cwd: Path) -> subprocess.CompletedProcess[bytes] | None:
+    env = os.environ.copy()
+    env['GIT_OPTIONAL_LOCKS'] = '0'
+    try:
+        return subprocess.run(
+            ['git', *args],
+            cwd=cwd,
+            env=env,
+            capture_output=True,
+            timeout=GIT_STATUS_TIMEOUT_SECONDS,
+            check=False,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+
+
+def _merge_git_status(current: str | None, incoming: str) -> str:
+    if current == 'modified' or incoming == 'modified':
+        return 'modified'
+    return incoming
+
+
+def _git_status_by_entry_path(directory: Path, entries: list[FileTreeEntry]) -> dict[str, str]:
+    if not entries:
+        return {}
+
+    root_result = _run_git_text(['rev-parse', '--show-toplevel'], directory)
+    if not root_result or root_result.returncode != 0:
+        return {}
+
+    try:
+        repo_root = Path(root_result.stdout.strip()).resolve()
+        directory_rel = '' if directory == repo_root else directory.relative_to(repo_root).as_posix()
+    except (OSError, ValueError):
+        return {}
+
+    entry_by_repo_path: dict[str, str] = {}
+    for entry in entries:
+        try:
+            entry_abs = (FILE_ROOT_PATH / entry.path).resolve()
+            entry_repo_path = entry_abs.relative_to(repo_root).as_posix()
+        except (OSError, ValueError):
+            continue
+        entry_by_repo_path[entry_repo_path] = entry.path
+
+    pathspec = '.' if not directory_rel else directory_rel
+    status_result = _run_git_bytes(
+        ['status', '--porcelain=v1', '-z', '--untracked-files=normal', '--', pathspec],
+        repo_root,
+    )
+    if not status_result or status_result.returncode != 0:
+        return {}
+
+    statuses: dict[str, str] = {}
+    records = status_result.stdout.split(b'\0')
+    index = 0
+    while index < len(records):
+        record = records[index]
+        index += 1
+        if len(record) < 4:
+            continue
+        raw_status = record[:2].decode('ascii', errors='replace')
+        git_path = record[3:].decode('utf-8', errors='surrogateescape')
+        if raw_status[0] in {'R', 'C'} or raw_status[1] in {'R', 'C'}:
+            index += 1
+
+        if directory_rel:
+            if git_path == directory_rel:
+                continue
+            prefix = f'{directory_rel}/'
+            if not git_path.startswith(prefix):
+                continue
+            remainder = git_path[len(prefix):]
+        else:
+            remainder = git_path
+
+        child_name = remainder.split('/', 1)[0]
+        child_repo_path = f'{directory_rel}/{child_name}' if directory_rel else child_name
+        entry_path = entry_by_repo_path.get(child_repo_path)
+        if not entry_path:
+            continue
+
+        status_value = 'untracked' if raw_status == '??' else 'modified'
+        statuses[entry_path] = _merge_git_status(statuses.get(entry_path), status_value)
+
+    return statuses
+
+
+def _git_root_for_path(path: Path) -> Path | None:
+    cwd = path if path.is_dir() else path.parent
+    result = _run_git_text(['rev-parse', '--show-toplevel'], cwd)
+    if not result or result.returncode != 0:
+        return None
+    try:
+        return Path(result.stdout.strip()).resolve()
+    except OSError:
+        return None
+
+
+def _git_status_for_file(repo_root: Path, repo_path: str) -> str | None:
+    result = _run_git_bytes(
+        ['status', '--porcelain=v1', '-z', '--untracked-files=normal', '--', repo_path],
+        repo_root,
+    )
+    if not result or result.returncode != 0:
+        return None
+    first_record = result.stdout.split(b'\0', 1)[0]
+    if len(first_record) < 4:
+        return None
+    raw_status = first_record[:2].decode('ascii', errors='replace')
+    return 'untracked' if raw_status == '??' else 'modified'
+
+
+def _read_text_file_for_diff(path: Path) -> str:
+    stat = path.stat()
+    if stat.st_size > MAX_DIFF_BYTES:
+        raise HTTPException(status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, detail='File is too large to diff')
+    if _is_binary(path):
+        raise HTTPException(status_code=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE, detail='Binary files are not diffable')
+    try:
+        return path.read_text(encoding='utf-8', errors='replace')
+    except OSError as exc:
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(exc))
+
+
+def _git_head_content(repo_root: Path, repo_path: str) -> str:
+    result = _run_git_text(
+        ['show', f'HEAD:{repo_path}'],
+        repo_root,
+        timeout=GIT_DIFF_TIMEOUT_SECONDS,
+    )
+    if not result or result.returncode != 0:
+        return ''
+    if len(result.stdout.encode('utf-8')) > MAX_DIFF_BYTES:
+        raise HTTPException(status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, detail='Original file is too large to diff')
+    return result.stdout
 
 
 @router.get('/tree', response_model=FileTreeResponse)
@@ -102,6 +269,9 @@ async def list_directory(
             entries.append(_entry(child))
         except OSError:
             continue
+    git_statuses = _git_status_by_entry_path(target, entries)
+    for entry in entries:
+        entry.git_status = git_statuses.get(entry.path)
     return FileTreeResponse(root_path=str(FILE_ROOT_PATH), path=rel, entries=entries)
 
 
@@ -182,6 +352,37 @@ async def read_file(
         size=stat.st_size,
         modified=stat.st_mtime,
         readonly=not os.access(target, os.W_OK),
+    )
+
+
+@router.get('/diff', response_model=FileDiffResponse)
+async def diff_file(
+    path: str,
+) -> FileDiffResponse:
+    """Return original and current file content for a git diff view."""
+    target, rel = _safe_path(path)
+    if not target.is_file():
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail='Path is not a file')
+
+    repo_root = _git_root_for_path(target)
+    if not repo_root:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail='Path is not in a git repository')
+    try:
+        repo_path = target.relative_to(repo_root).as_posix()
+    except ValueError:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail='Path is not in a git repository')
+
+    git_status = _git_status_for_file(repo_root, repo_path)
+    if not git_status:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail='File has no git changes')
+
+    current_content = _read_text_file_for_diff(target)
+    original_content = '' if git_status == 'untracked' else _git_head_content(repo_root, repo_path)
+    return FileDiffResponse(
+        path=rel,
+        status=git_status,
+        original_content=original_content,
+        current_content=current_content,
     )
 
 

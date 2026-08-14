@@ -38,6 +38,7 @@ import type {
   DockerImagePruneResponse,
   DockerTopResponse,
   ErrorResponse,
+  FileDiffResponse,
   FileOperationResponse,
   FileReadResponse,
   FileSearchResponse,
@@ -463,6 +464,14 @@ export async function readFile(path: string): Promise<FileReadResponse> {
   return request<FileReadResponse>({
     method: "GET",
     url: "/host/files/read",
+    params: { path },
+  });
+}
+
+export async function getFileDiff(path: string): Promise<FileDiffResponse> {
+  return request<FileDiffResponse>({
+    method: "GET",
+    url: "/host/files/diff",
     params: { path },
   });
 }

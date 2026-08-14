@@ -20,6 +20,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   createFilePath,
   deleteFilePath,
+  getFileDiff,
   getFileTree,
   readFile,
   renameFilePath,
@@ -64,6 +65,142 @@ function fileLanguage(path: string): string {
   return "Text";
 }
 
+function gitStatusLabel(status: FileTreeEntry["git_status"]): string {
+  if (status === "modified") return "M";
+  if (status === "untracked") return "U";
+  return "";
+}
+
+function gitStatusTitle(status: FileTreeEntry["git_status"]): string {
+  if (status === "modified") return "Modified";
+  if (status === "untracked") return "Untracked";
+  return "";
+}
+
+type DiffRowKind = "same" | "added" | "removed" | "changed";
+
+type DiffRow = {
+  key: string;
+  kind: DiffRowKind;
+  leftLine: number | null;
+  rightLine: number | null;
+  leftText: string;
+  rightText: string;
+};
+
+type DiffOp = {
+  type: "same" | "added" | "removed";
+  text: string;
+  leftLine: number | null;
+  rightLine: number | null;
+};
+
+function splitDiffLines(value: string): string[] {
+  if (value === "") return [];
+  const lines = value.split(/\r?\n/);
+  if (lines.length > 0 && lines[lines.length - 1] === "") lines.pop();
+  return lines;
+}
+
+function simpleLineDiff(left: string[], right: string[]): DiffRow[] {
+  const rowCount = Math.max(left.length, right.length);
+  return Array.from({ length: rowCount }, (_, index) => {
+    const hasLeft = index < left.length;
+    const hasRight = index < right.length;
+    const leftText = hasLeft ? left[index] : "";
+    const rightText = hasRight ? right[index] : "";
+    const same = hasLeft && hasRight && leftText === rightText;
+    return {
+      key: `simple-${index}`,
+      kind: same ? "same" : hasLeft && hasRight ? "changed" : hasLeft ? "removed" : "added",
+      leftLine: hasLeft ? index + 1 : null,
+      rightLine: hasRight ? index + 1 : null,
+      leftText,
+      rightText,
+    };
+  });
+}
+
+function flushDiffRows(rows: DiffRow[], removed: DiffOp[], added: DiffOp[]) {
+  const rowCount = Math.max(removed.length, added.length);
+  for (let index = 0; index < rowCount; index += 1) {
+    const left = removed[index];
+    const right = added[index];
+    rows.push({
+      key: `diff-${rows.length}`,
+      kind: left && right ? "changed" : left ? "removed" : "added",
+      leftLine: left?.leftLine ?? null,
+      rightLine: right?.rightLine ?? null,
+      leftText: left?.text ?? "",
+      rightText: right?.text ?? "",
+    });
+  }
+}
+
+function buildSideBySideDiff(originalContent: string, currentContent: string): DiffRow[] {
+  const left = splitDiffLines(originalContent);
+  const right = splitDiffLines(currentContent);
+  if (left.length * right.length > 400000) return simpleLineDiff(left, right);
+
+  const dp = Array.from({ length: left.length + 1 }, () => new Uint32Array(right.length + 1));
+  for (let leftIndex = left.length - 1; leftIndex >= 0; leftIndex -= 1) {
+    for (let rightIndex = right.length - 1; rightIndex >= 0; rightIndex -= 1) {
+      dp[leftIndex][rightIndex] = left[leftIndex] === right[rightIndex]
+        ? dp[leftIndex + 1][rightIndex + 1] + 1
+        : Math.max(dp[leftIndex + 1][rightIndex], dp[leftIndex][rightIndex + 1]);
+    }
+  }
+
+  const ops: DiffOp[] = [];
+  let leftIndex = 0;
+  let rightIndex = 0;
+  while (leftIndex < left.length || rightIndex < right.length) {
+    if (leftIndex < left.length && rightIndex < right.length && left[leftIndex] === right[rightIndex]) {
+      ops.push({ type: "same", text: left[leftIndex], leftLine: leftIndex + 1, rightLine: rightIndex + 1 });
+      leftIndex += 1;
+      rightIndex += 1;
+    } else if (rightIndex >= right.length || (leftIndex < left.length && dp[leftIndex + 1][rightIndex] >= dp[leftIndex][rightIndex + 1])) {
+      ops.push({ type: "removed", text: left[leftIndex], leftLine: leftIndex + 1, rightLine: null });
+      leftIndex += 1;
+    } else {
+      ops.push({ type: "added", text: right[rightIndex], leftLine: null, rightLine: rightIndex + 1 });
+      rightIndex += 1;
+    }
+  }
+
+  const rows: DiffRow[] = [];
+  let pendingRemoved: DiffOp[] = [];
+  let pendingAdded: DiffOp[] = [];
+  for (const op of ops) {
+    if (op.type === "same") {
+      flushDiffRows(rows, pendingRemoved, pendingAdded);
+      pendingRemoved = [];
+      pendingAdded = [];
+      rows.push({
+        key: `same-${rows.length}`,
+        kind: "same",
+        leftLine: op.leftLine,
+        rightLine: op.rightLine,
+        leftText: op.text,
+        rightText: op.text,
+      });
+    } else if (op.type === "removed") {
+      pendingRemoved.push(op);
+    } else {
+      pendingAdded.push(op);
+    }
+  }
+  flushDiffRows(rows, pendingRemoved, pendingAdded);
+  return rows;
+}
+
+function diffCellBackground(kind: DiffRowKind, side: "left" | "right"): string {
+  if (kind === "removed" && side === "left") return "rgba(248,81,73,0.16)";
+  if (kind === "added" && side === "right") return "rgba(63,185,80,0.16)";
+  if (kind === "changed") return side === "left" ? "rgba(248,81,73,0.14)" : "rgba(63,185,80,0.14)";
+  return "transparent";
+}
+
 function ToolbarButton({
   children,
   disabled,
@@ -104,6 +241,11 @@ export default function FilesPage() {
   const [selectedPath, setSelectedPath] = useState("");
   const [content, setContent] = useState("");
   const [originalContent, setOriginalContent] = useState("");
+  const [viewMode, setViewMode] = useState<"edit" | "diff">("edit");
+  const [diffOriginalContent, setDiffOriginalContent] = useState("");
+  const [diffCurrentContent, setDiffCurrentContent] = useState("");
+  const [diffStatus, setDiffStatus] = useState<FileTreeEntry["git_status"]>(null);
+  const [selectedGitStatus, setSelectedGitStatus] = useState<FileTreeEntry["git_status"]>(null);
   const [fileModified, setFileModified] = useState<number | null>(null);
   const [fileSize, setFileSize] = useState<number | null>(null);
   const [readonly, setReadonly] = useState(false);
@@ -119,10 +261,15 @@ export default function FilesPage() {
 
   const dirty = selectedPath !== "" && content !== originalContent;
   const editorOpen = selectedPath !== "";
+  const diffAvailable = selectedGitStatus === "modified" || selectedGitStatus === "untracked";
   const rootLabel = rootPath.split("/").filter(Boolean).pop() || rootPath || "Home";
   const sortedEntries = useMemo(
     () => entries.slice().sort((a, b) => Number(a.type !== "directory") - Number(b.type !== "directory") || a.name.localeCompare(b.name)),
     [entries]
+  );
+  const diffRows = useMemo(
+    () => buildSideBySideDiff(diffOriginalContent, diffCurrentContent),
+    [diffCurrentContent, diffOriginalContent]
   );
   const breadcrumbs = useMemo(() => {
     const parts = currentPath.split("/").filter(Boolean);
@@ -146,6 +293,11 @@ export default function FilesPage() {
     setSelectedPath("");
     setContent("");
     setOriginalContent("");
+    setViewMode("edit");
+    setDiffOriginalContent("");
+    setDiffCurrentContent("");
+    setDiffStatus(null);
+    setSelectedGitStatus(null);
     setFileModified(null);
     setFileSize(null);
     setReadonly(false);
@@ -193,14 +345,27 @@ export default function FilesPage() {
     clearNotice();
     setBusy(true);
     try {
+      const shouldClearSearch = searchMode || searchQuery.trim() !== "";
       const response = await readFile(entry.path);
       setSelectedPath(response.path);
       setSelectedEntryPath(response.path);
+      setSearchQuery("");
+      setSearchMode(false);
+      setSearchTruncated(false);
+      setViewMode("edit");
+      setDiffOriginalContent("");
+      setDiffCurrentContent("");
+      setDiffStatus(null);
+      setSelectedGitStatus(entry.git_status);
       setContent(response.content);
       setOriginalContent(response.content);
       setFileModified(response.modified);
       setFileSize(response.size);
       setReadonly(response.readonly);
+      if (shouldClearSearch) {
+        await loadDirectory(currentPath, showHidden, false);
+        setSelectedEntryPath(response.path);
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to open file");
     } finally {
@@ -241,11 +406,30 @@ export default function FilesPage() {
   }
 
   useEffect(() => {
+    if (editorOpen) return;
     const timer = window.setTimeout(() => {
       void runSearch(searchQuery, currentPath, showHidden);
     }, 250);
     return () => window.clearTimeout(timer);
-  }, [currentPath, runSearch, searchQuery, showHidden]);
+  }, [currentPath, editorOpen, runSearch, searchQuery, showHidden]);
+
+  async function showDiff() {
+    if (!selectedPath || !diffAvailable) return;
+    if (dirty && !window.confirm("Current file has unsaved changes. Show diff anyway?")) return;
+    clearNotice();
+    setBusy(true);
+    try {
+      const response = await getFileDiff(selectedPath);
+      setDiffOriginalContent(response.original_content);
+      setDiffCurrentContent(response.current_content);
+      setDiffStatus(response.status);
+      setViewMode("diff");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to load diff");
+    } finally {
+      setBusy(false);
+    }
+  }
 
   async function saveFile() {
     if (!selectedPath || readonly) return;
@@ -263,6 +447,11 @@ export default function FilesPage() {
       setSelectedPath(response.path);
       setContent(response.content);
       setOriginalContent(response.content);
+      setViewMode("edit");
+      setDiffOriginalContent("");
+      setDiffCurrentContent("");
+      setDiffStatus(null);
+      setSelectedGitStatus(null);
       setMessage("Saved");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to save file");
@@ -283,7 +472,7 @@ export default function FilesPage() {
       await loadDirectory(currentPath, showHidden);
       setMessage(type === "file" ? "File created" : "Folder created");
       if (type === "file") {
-        const created = { name: name.trim(), path, type: "file", size: 0, modified: null, readonly: false, hidden: false, symlink: false } as FileTreeEntry;
+        const created = { name: name.trim(), path, type: "file", size: 0, modified: null, readonly: false, hidden: false, symlink: false, git_status: null } as FileTreeEntry;
         await openFile(created);
       }
     } catch (err) {
@@ -312,6 +501,11 @@ export default function FilesPage() {
           setFileSize(renamed.size);
           setReadonly(renamed.readonly);
         }
+        setViewMode("edit");
+        setDiffOriginalContent("");
+        setDiffCurrentContent("");
+        setDiffStatus(null);
+        setSelectedGitStatus(null);
       }
       setMessage("Renamed");
     } catch (err) {
@@ -335,6 +529,11 @@ export default function FilesPage() {
         setSelectedPath("");
         setContent("");
         setOriginalContent("");
+        setViewMode("edit");
+        setDiffOriginalContent("");
+        setDiffCurrentContent("");
+        setDiffStatus(null);
+        setSelectedGitStatus(null);
         setFileModified(null);
         setFileSize(null);
         setReadonly(false);
@@ -380,7 +579,7 @@ export default function FilesPage() {
           <ToolbarButton onClick={() => createItem("file")} disabled={busy}>New File</ToolbarButton>
           <ToolbarButton onClick={() => createItem("directory")} disabled={busy}>New Folder</ToolbarButton>
           <ToolbarButton onClick={() => loadDirectory(currentPath, showHidden, false)} disabled={loading}>Refresh</ToolbarButton>
-          {editorOpen && (
+          {editorOpen && viewMode === "edit" && (
             <ToolbarButton onClick={saveFile} disabled={!dirty || readonly || busy} primary>Save</ToolbarButton>
           )}
         </div>
@@ -431,36 +630,40 @@ export default function FilesPage() {
                 </span>
               ))}
             </div>
-            <input
-              type="search"
-              value={searchQuery}
-              onChange={(event) => setSearchQuery(event.currentTarget.value)}
-              onKeyDown={(event) => {
-                if (event.key === "Escape") void clearSearch();
-              }}
-              placeholder="Search"
-              className="w-40 h-7 rounded border px-2 text-xs shrink-0"
-              style={{
-                color: "var(--vscode-input-foreground)",
-                backgroundColor: "var(--vscode-input-background)",
-                borderColor: "var(--vscode-input-border)",
-              }}
-            />
-            {searchMode && (
-              <button
-                type="button"
-                title="Clear search"
-                onClick={() => void clearSearch()}
-                disabled={searching}
-                className="h-7 px-2 rounded text-xs shrink-0"
-                style={{
-                  color: "var(--vscode-descriptionForeground)",
-                  background: "transparent",
-                  border: "1px solid var(--vscode-panel-border)",
-                }}
-              >
-                Clear
-              </button>
+            {!editorOpen && (
+              <>
+                <input
+                  type="search"
+                  value={searchQuery}
+                  onChange={(event) => setSearchQuery(event.currentTarget.value)}
+                  onKeyDown={(event) => {
+                    if (event.key === "Escape") void clearSearch();
+                  }}
+                  placeholder="Search"
+                  className="w-40 h-7 rounded border px-2 text-xs shrink-0"
+                  style={{
+                    color: "var(--vscode-input-foreground)",
+                    backgroundColor: "var(--vscode-input-background)",
+                    borderColor: "var(--vscode-input-border)",
+                  }}
+                />
+                {searchMode && (
+                  <button
+                    type="button"
+                    title="Clear search"
+                    onClick={() => void clearSearch()}
+                    disabled={searching}
+                    className="h-7 px-2 rounded text-xs shrink-0"
+                    style={{
+                      color: "var(--vscode-descriptionForeground)",
+                      background: "transparent",
+                      border: "1px solid var(--vscode-panel-border)",
+                    }}
+                  >
+                    Clear
+                  </button>
+                )}
+              </>
             )}
           </div>
 
@@ -491,6 +694,7 @@ export default function FilesPage() {
               <div className="p-3 text-sm" style={{ color: "var(--vscode-descriptionForeground)" }}>Loading...</div>
             ) : sortedEntries.map((entry) => {
               const active = selectedEntryPath === entry.path;
+              const gitLabel = gitStatusLabel(entry.git_status);
               return (
                 <div
                   key={entry.path}
@@ -516,6 +720,18 @@ export default function FilesPage() {
                         {entry.type === "directory" ? "📁" : "📄"}
                       </span>
                       <span className="truncate text-sm">{entry.name}</span>
+                      {gitLabel && (
+                        <span
+                          title={gitStatusTitle(entry.git_status)}
+                          className="h-4 min-w-4 px-1 rounded text-[10px] font-semibold leading-4 text-center shrink-0"
+                          style={{
+                            color: entry.git_status === "modified" ? "var(--vscode-warningForeground)" : "var(--vscode-textLink-foreground)",
+                            backgroundColor: entry.git_status === "modified" ? "rgba(255,193,7,0.12)" : "rgba(88,166,255,0.12)",
+                          }}
+                        >
+                          {gitLabel}
+                        </span>
+                      )}
                       {entry.readonly && <span className="text-[10px] shrink-0" style={{ color: "var(--vscode-warningForeground)" }}>RO</span>}
                     </div>
                     {searchMode && (
@@ -568,6 +784,40 @@ export default function FilesPage() {
                 {fileSize != null && <span>{formatBytes(fileSize)}</span>}
                 {fileModified != null && <span>{formatTime(fileModified)}</span>}
                 {readonly && <span style={{ color: "var(--vscode-warningForeground)" }}>Read only</span>}
+                {viewMode === "edit" && (
+                  <button
+                    type="button"
+                    title={diffAvailable ? "Show diff" : "No git changes"}
+                    aria-label="Show diff"
+                    onClick={showDiff}
+                    disabled={!diffAvailable || busy}
+                    className="h-7 px-2 rounded text-xs font-semibold disabled:cursor-not-allowed"
+                    style={{
+                      color: "var(--vscode-foreground)",
+                      backgroundColor: "var(--vscode-button-secondaryBackground)",
+                      border: "1px solid var(--vscode-panel-border)",
+                      opacity: !diffAvailable || busy ? 0.45 : 1,
+                    }}
+                  >
+                    Diff
+                  </button>
+                )}
+                {viewMode === "diff" && (
+                  <button
+                    type="button"
+                    title="Back to edit"
+                    aria-label="Back to edit"
+                    onClick={() => setViewMode("edit")}
+                    className="h-7 px-2 rounded text-xs font-semibold"
+                    style={{
+                      color: "var(--vscode-foreground)",
+                      backgroundColor: "var(--vscode-button-secondaryBackground)",
+                      border: "1px solid var(--vscode-panel-border)",
+                    }}
+                  >
+                    Edit
+                  </button>
+                )}
                 <button
                   type="button"
                   title="Close"
@@ -585,23 +835,94 @@ export default function FilesPage() {
               </div>
             </div>
 
-            <textarea
-              value={content}
-              onChange={(event) => setContent(event.currentTarget.value)}
-              spellCheck={false}
-              readOnly={readonly || busy}
-              className="flex-1 min-h-0 w-full resize-none p-4 outline-none font-mono text-sm leading-6"
-              style={{
-                color: "var(--vscode-foreground)",
-                backgroundColor: "var(--vscode-editor-background)",
-                border: "none",
-                tabSize: 2,
-              }}
-            />
+            {viewMode === "diff" ? (
+              <div
+                className="flex-1 min-h-0 overflow-auto font-mono text-xs leading-5"
+                style={{
+                  color: "var(--vscode-foreground)",
+                  backgroundColor: "var(--vscode-editor-background)",
+                  tabSize: 2,
+                }}
+              >
+                <div className="min-w-[900px]">
+                  <div
+                    className="sticky top-0 z-10 grid grid-cols-[4rem_minmax(0,1fr)_4rem_minmax(0,1fr)] border-b"
+                    style={{
+                      color: "var(--vscode-descriptionForeground)",
+                      backgroundColor: "var(--vscode-editor-background)",
+                      borderColor: "var(--vscode-panel-border)",
+                    }}
+                  >
+                    <div className="px-2 py-1 text-right select-none">Old</div>
+                    <div className="min-w-0 px-2 py-1 border-r" style={{ borderColor: "var(--vscode-panel-border)" }}>Original</div>
+                    <div className="px-2 py-1 text-right select-none">New</div>
+                    <div className="min-w-0 px-2 py-1">Current</div>
+                  </div>
+                  {diffRows.length === 0 ? (
+                    <div className="p-4 text-sm" style={{ color: "var(--vscode-descriptionForeground)" }}>
+                      No changes
+                    </div>
+                  ) : diffRows.map((row) => (
+                    <div
+                      key={row.key}
+                      className="grid grid-cols-[4rem_minmax(0,1fr)_4rem_minmax(0,1fr)]"
+                    >
+                      <div
+                        className="px-2 text-right select-none"
+                        style={{
+                          color: "var(--vscode-descriptionForeground)",
+                          backgroundColor: diffCellBackground(row.kind, "left"),
+                        }}
+                      >
+                        {row.leftLine ?? ""}
+                      </div>
+                      <div
+                        className="min-w-0 px-2 whitespace-pre-wrap break-words border-r"
+                        style={{
+                          backgroundColor: diffCellBackground(row.kind, "left"),
+                          borderColor: "var(--vscode-panel-border)",
+                        }}
+                      >
+                        {row.leftText}
+                      </div>
+                      <div
+                        className="px-2 text-right select-none"
+                        style={{
+                          color: "var(--vscode-descriptionForeground)",
+                          backgroundColor: diffCellBackground(row.kind, "right"),
+                        }}
+                      >
+                        {row.rightLine ?? ""}
+                      </div>
+                      <div
+                        className="min-w-0 px-2 whitespace-pre-wrap break-words"
+                        style={{ backgroundColor: diffCellBackground(row.kind, "right") }}
+                      >
+                        {row.rightText}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ) : (
+              <textarea
+                value={content}
+                onChange={(event) => setContent(event.currentTarget.value)}
+                spellCheck={false}
+                readOnly={readonly || busy}
+                className="flex-1 min-h-0 w-full resize-none p-4 outline-none font-mono text-sm leading-6"
+                style={{
+                  color: "var(--vscode-foreground)",
+                  backgroundColor: "var(--vscode-editor-background)",
+                  border: "none",
+                  tabSize: 2,
+                }}
+              />
+            )}
 
             <div className="h-8 px-4 border-t flex items-center justify-between text-xs" style={{ borderColor: "var(--vscode-panel-border)", color: "var(--vscode-descriptionForeground)" }}>
               <span className="truncate">{selectedPath}</span>
-              <span>{busy ? "Working..." : dirty ? "Unsaved changes" : "Ready"}</span>
+              <span>{busy ? "Working..." : viewMode === "diff" ? gitStatusTitle(diffStatus) : dirty ? "Unsaved changes" : "Ready"}</span>
             </div>
           </section>
         )}
