@@ -43,6 +43,7 @@ import type {
   FileReadResponse,
   FileSearchResponse,
   FileTreeResponse,
+  FileUploadResponse,
   BashrcResponse,
   RepoUpdatesResponse,
   RepoBranchCheckResponse,
@@ -525,6 +526,22 @@ export async function renameFilePath(
     method: "POST",
     url: "/host/files/rename",
     data: { path, new_name: newName },
+  });
+}
+
+export async function uploadFile(
+  path: string,
+  file: File,
+  overwrite: boolean = false
+): Promise<FileUploadResponse> {
+  return request<FileUploadResponse>({
+    method: "POST",
+    url: "/host/files/upload",
+    params: { path, filename: file.name, overwrite },
+    data: file,
+    headers: {
+      "Content-Type": file.type || "application/octet-stream",
+    },
   });
 }
 

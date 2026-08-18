@@ -246,6 +246,15 @@ export interface FileDiffResponse {
   current_content: string;
 }
 
+export interface FileUploadResponse {
+  name: string;
+  path: string;
+  size: number;
+  overwritten: boolean;
+  success: boolean;
+  message: string;
+}
+
 export interface FileOperationResponse {
   path: string;
   success: boolean;

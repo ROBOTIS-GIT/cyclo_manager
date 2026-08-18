@@ -223,6 +223,17 @@ class FileRenameRequest(BaseModel):
     new_name: str
 
 
+class FileUploadResponse(BaseModel):
+    """Response for POST /files/upload."""
+
+    name: str
+    path: str
+    size: int
+    overwritten: bool = False
+    success: bool
+    message: str
+
+
 class FileOperationResponse(BaseModel):
     """Generic file operation response."""
 

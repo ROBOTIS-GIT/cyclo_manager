@@ -157,6 +157,23 @@ class HostAgentClient(SocketHttpClient):
             timeout=30.0,
         )
 
+    async def upload_file(
+        self,
+        path: str,
+        filename: str,
+        content: bytes,
+        overwrite: bool,
+        content_type: str,
+    ) -> dict:
+        return await self.request_json(
+            'POST',
+            '/files/upload',
+            params={'path': path, 'filename': filename, 'overwrite': overwrite},
+            content=content,
+            headers={'Content-Type': content_type},
+            timeout=60.0,
+        )
+
     async def delete_file_path(self, path: str, recursive: bool) -> dict:
         return await self.request_json(
             'DELETE',

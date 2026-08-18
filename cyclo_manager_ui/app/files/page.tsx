@@ -25,9 +25,12 @@ import {
   readFile,
   renameFilePath,
   searchFiles,
+  uploadFile,
   writeFile,
 } from "@/lib/api";
 import type { FileTreeEntry } from "@/types/api";
+
+const MAX_UPLOAD_BYTES = 20 * 1024 * 1024;
 
 function joinPath(base: string, name: string): string {
   return base ? `${base}/${name}` : name;
@@ -251,6 +254,8 @@ export default function FilesPage() {
   const [readonly, setReadonly] = useState(false);
   const [loading, setLoading] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [uploading, setUploading] = useState(false);
+  const [dragDepth, setDragDepth] = useState(0);
   const [showHidden, setShowHidden] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [searching, setSearching] = useState(false);
@@ -262,6 +267,7 @@ export default function FilesPage() {
   const dirty = selectedPath !== "" && content !== originalContent;
   const editorOpen = selectedPath !== "";
   const diffAvailable = selectedGitStatus === "modified" || selectedGitStatus === "untracked";
+  const draggingFiles = dragDepth > 0;
   const rootLabel = rootPath.split("/").filter(Boolean).pop() || rootPath || "Home";
   const sortedEntries = useMemo(
     () => entries.slice().sort((a, b) => Number(a.type !== "directory") - Number(b.type !== "directory") || a.name.localeCompare(b.name)),
@@ -559,8 +565,98 @@ export default function FilesPage() {
     }
   }
 
+  async function uploadDroppedFiles(files: File[]) {
+    if (files.length === 0 || uploading) return;
+    clearNotice();
+
+    const oversized = files.find((file) => file.size > MAX_UPLOAD_BYTES);
+    if (oversized) {
+      setError(`${oversized.name} is larger than ${formatBytes(MAX_UPLOAD_BYTES)}`);
+      return;
+    }
+
+    const existingNames = new Set(entries.map((entry) => entry.name));
+    const conflicts = files.filter((file) => existingNames.has(file.name));
+    let overwrite = false;
+    if (conflicts.length > 0) {
+      overwrite = window.confirm(`${conflicts.length} file(s) already exist. Overwrite them?`);
+      if (!overwrite) return;
+    }
+
+    setUploading(true);
+    try {
+      for (const file of files) {
+        await uploadFile(currentPath, file, overwrite);
+      }
+      await loadDirectory(currentPath, showHidden, false);
+      setMessage(`${files.length} file(s) uploaded`);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to upload files");
+      await loadDirectory(currentPath, showHidden, false);
+    } finally {
+      setUploading(false);
+    }
+  }
+
+  function isFileDrag(event: React.DragEvent<HTMLDivElement>): boolean {
+    return Array.from(event.dataTransfer.types).includes("Files");
+  }
+
+  function handleDragEnter(event: React.DragEvent<HTMLDivElement>) {
+    if (!isFileDrag(event)) return;
+    event.preventDefault();
+    setDragDepth((value) => value + 1);
+  }
+
+  function handleDragOver(event: React.DragEvent<HTMLDivElement>) {
+    if (!isFileDrag(event)) return;
+    event.preventDefault();
+    event.dataTransfer.dropEffect = "copy";
+  }
+
+  function handleDragLeave(event: React.DragEvent<HTMLDivElement>) {
+    if (!isFileDrag(event)) return;
+    event.preventDefault();
+    setDragDepth((value) => Math.max(0, value - 1));
+  }
+
+  function handleDrop(event: React.DragEvent<HTMLDivElement>) {
+    if (!isFileDrag(event)) return;
+    event.preventDefault();
+    const droppedFiles = Array.from(event.dataTransfer.files);
+    setDragDepth(0);
+    void uploadDroppedFiles(droppedFiles);
+  }
+
   return (
-    <div className="h-full min-h-0 flex flex-col overflow-hidden">
+    <div
+      className="relative h-full min-h-0 flex flex-col overflow-hidden"
+      onDragEnter={handleDragEnter}
+      onDragOver={handleDragOver}
+      onDragLeave={handleDragLeave}
+      onDrop={handleDrop}
+    >
+      {draggingFiles && (
+        <div
+          className="pointer-events-none absolute inset-0 z-30 flex items-center justify-center border-2 border-dashed"
+          style={{
+            color: "var(--vscode-textLink-foreground)",
+            backgroundColor: "rgba(31,111,235,0.12)",
+            borderColor: "var(--vscode-focusBorder)",
+          }}
+        >
+          <div
+            className="px-4 py-3 rounded border text-sm font-semibold"
+            style={{
+              color: "var(--vscode-foreground)",
+              backgroundColor: "var(--vscode-editor-background)",
+              borderColor: "var(--vscode-panel-border)",
+            }}
+          >
+            Drop files to upload to {currentPath || rootLabel}
+          </div>
+        </div>
+      )}
       <div className="flex items-center justify-end gap-4 pb-3">
         <div className="flex items-center gap-2 shrink-0">
           <label className="h-8 flex items-center gap-2 px-2 text-xs" style={{ color: "var(--vscode-foreground)" }}>
@@ -576,11 +672,11 @@ export default function FilesPage() {
             />
             <span>Show hidden</span>
           </label>
-          <ToolbarButton onClick={() => createItem("file")} disabled={busy}>New File</ToolbarButton>
-          <ToolbarButton onClick={() => createItem("directory")} disabled={busy}>New Folder</ToolbarButton>
-          <ToolbarButton onClick={() => loadDirectory(currentPath, showHidden, false)} disabled={loading}>Refresh</ToolbarButton>
+          <ToolbarButton onClick={() => createItem("file")} disabled={busy || uploading}>New File</ToolbarButton>
+          <ToolbarButton onClick={() => createItem("directory")} disabled={busy || uploading}>New Folder</ToolbarButton>
+          <ToolbarButton onClick={() => loadDirectory(currentPath, showHidden, false)} disabled={loading || uploading}>Refresh</ToolbarButton>
           {editorOpen && viewMode === "edit" && (
-            <ToolbarButton onClick={saveFile} disabled={!dirty || readonly || busy} primary>Save</ToolbarButton>
+            <ToolbarButton onClick={saveFile} disabled={!dirty || readonly || busy || uploading} primary>Save</ToolbarButton>
           )}
         </div>
       </div>
@@ -692,6 +788,8 @@ export default function FilesPage() {
             )}
             {loading ? (
               <div className="p-3 text-sm" style={{ color: "var(--vscode-descriptionForeground)" }}>Loading...</div>
+            ) : uploading ? (
+              <div className="p-3 text-sm" style={{ color: "var(--vscode-descriptionForeground)" }}>Uploading...</div>
             ) : sortedEntries.map((entry) => {
               const active = selectedEntryPath === entry.path;
               const gitLabel = gitStatusLabel(entry.git_status);

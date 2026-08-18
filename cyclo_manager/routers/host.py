@@ -24,7 +24,7 @@ from typing import Optional
 from cyclo_manager.host_agent_client import HostAgentClient
 from cyclo_manager.http_errors import proxy_error
 from cyclo_manager.state import get_host_agent_client
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Request
 from pydantic import BaseModel
 
 logger = logging.getLogger(__name__)
@@ -331,6 +331,22 @@ async def rename_file_path(
 ) -> dict:
     try:
         return await client.rename_file_path(req.path, req.new_name)
+    except Exception as e:
+        raise proxy_error(e, 'Host agent')
+
+
+@router.post('/files/upload')
+async def upload_file(
+    request: Request,
+    path: str = '',
+    filename: str = '',
+    overwrite: bool = False,
+    client: HostAgentClient = Depends(get_host_agent_client),
+) -> dict:
+    try:
+        content = await request.body()
+        content_type = request.headers.get('content-type', 'application/octet-stream')
+        return await client.upload_file(path, filename, content, overwrite, content_type)
     except Exception as e:
         raise proxy_error(e, 'Host agent')
 

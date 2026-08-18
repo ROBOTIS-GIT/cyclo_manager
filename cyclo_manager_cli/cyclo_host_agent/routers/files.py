@@ -21,6 +21,7 @@
 import os
 import shutil
 import subprocess
+import uuid
 from pathlib import Path
 
 from cyclo_host_agent.models import (
@@ -32,14 +33,16 @@ from cyclo_host_agent.models import (
     FileSearchResponse,
     FileTreeEntry,
     FileTreeResponse,
+    FileUploadResponse,
     FileWriteRequest,
 )
-from fastapi import APIRouter, HTTPException, Query, status
+from fastapi import APIRouter, HTTPException, Query, Request, status
 
 router = APIRouter(prefix='/files', tags=['files'])
 
 MAX_READ_BYTES = 2 * 1024 * 1024
 MAX_WRITE_BYTES = 4 * 1024 * 1024
+MAX_UPLOAD_BYTES = 20 * 1024 * 1024
 MAX_SEARCH_RESULTS = 200
 MAX_SEARCH_VISITS = 20000
 GIT_STATUS_TIMEOUT_SECONDS = 0.5
@@ -66,6 +69,13 @@ def _safe_path(relative_path: str = '') -> tuple[Path, str]:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail='Path escapes file root')
     rel = '' if target == FILE_ROOT_PATH else target.relative_to(FILE_ROOT_PATH).as_posix()
     return target, rel
+
+
+def _safe_filename(filename: str) -> str:
+    name = Path(filename).name
+    if name in {'', '.', '..'} or name != filename or '/' in filename or '\\' in filename:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail='Invalid filename')
+    return name
 
 
 def _is_binary(path: Path) -> bool:
@@ -448,6 +458,62 @@ async def rename_path(req: FileRenameRequest) -> FileOperationResponse:
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(exc))
     rel = '' if destination == FILE_ROOT_PATH else destination.relative_to(FILE_ROOT_PATH).as_posix()
     return FileOperationResponse(path=rel, success=True, message='Renamed')
+
+
+@router.post('/upload', response_model=FileUploadResponse)
+async def upload_file(
+    request: Request,
+    path: str = '',
+    filename: str = Query(...),
+    overwrite: bool = False,
+) -> FileUploadResponse:
+    """Upload one file into a directory under the configured file root."""
+    target_dir, _ = _safe_path(path)
+    if not target_dir.is_dir():
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail='Path is not a directory')
+
+    safe_name = _safe_filename(filename)
+    destination = (target_dir / safe_name).resolve()
+    if destination != FILE_ROOT_PATH and FILE_ROOT_PATH not in destination.parents:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail='Path escapes file root')
+    if destination.exists() and destination.is_dir():
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail='A folder with that name already exists')
+    overwritten = destination.exists()
+    if overwritten and not overwrite:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail='File already exists')
+
+    temp_path = target_dir / f'.{safe_name}.{uuid.uuid4().hex}.uploading'
+    size_bytes = 0
+    try:
+        with temp_path.open('wb') as output:
+            async for chunk in request.stream():
+                size_bytes += len(chunk)
+                if size_bytes > MAX_UPLOAD_BYTES:
+                    raise HTTPException(status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, detail='File is too large to upload')
+                output.write(chunk)
+        os.replace(temp_path, destination)
+    except HTTPException:
+        try:
+            temp_path.unlink(missing_ok=True)
+        except OSError:
+            pass
+        raise
+    except OSError as exc:
+        try:
+            temp_path.unlink(missing_ok=True)
+        except OSError:
+            pass
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(exc))
+
+    rel = destination.relative_to(FILE_ROOT_PATH).as_posix()
+    return FileUploadResponse(
+        name=safe_name,
+        path=rel,
+        size=size_bytes,
+        overwritten=overwritten,
+        success=True,
+        message='Uploaded',
+    )
 
 
 @router.delete('', response_model=FileOperationResponse)
