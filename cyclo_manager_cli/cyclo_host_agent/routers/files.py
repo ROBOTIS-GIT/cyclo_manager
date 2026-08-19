@@ -71,6 +71,21 @@ def _safe_path(relative_path: str = '') -> tuple[Path, str]:
     return target, rel
 
 
+def _safe_nofollow_path(relative_path: str = '') -> tuple[Path, str]:
+    raw_path = Path(relative_path)
+    if raw_path.is_absolute() or '..' in raw_path.parts:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail='Path escapes file root')
+
+    lexical_target = FILE_ROOT_PATH / raw_path
+    parent = lexical_target.parent.resolve()
+    if parent != FILE_ROOT_PATH and FILE_ROOT_PATH not in parent.parents:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail='Path escapes file root')
+
+    target = parent / lexical_target.name
+    rel = '' if target == FILE_ROOT_PATH else target.relative_to(FILE_ROOT_PATH).as_posix()
+    return target, rel
+
+
 def _safe_filename(filename: str) -> str:
     name = Path(filename).name
     if name in {'', '.', '..'} or name != filename or '/' in filename or '\\' in filename:
@@ -419,8 +434,8 @@ async def write_file(req: FileWriteRequest) -> FileOperationResponse:
 @router.post('/create', response_model=FileOperationResponse)
 async def create_path(req: FileCreateRequest) -> FileOperationResponse:
     """Create a file or folder under the configured file root."""
-    target, rel = _safe_path(req.path)
-    if target.exists():
+    target, rel = _safe_nofollow_path(req.path)
+    if target.exists() or target.is_symlink():
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail='Path already exists')
     try:
         if req.type == 'directory':
@@ -442,15 +457,15 @@ async def create_path(req: FileCreateRequest) -> FileOperationResponse:
 @router.post('/rename', response_model=FileOperationResponse)
 async def rename_path(req: FileRenameRequest) -> FileOperationResponse:
     """Rename a file or folder under the configured file root."""
-    target, _ = _safe_path(req.path)
-    if not target.exists():
+    target, _ = _safe_nofollow_path(req.path)
+    if not target.exists() and not target.is_symlink():
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail='Path not found')
     if '/' in req.new_name or '\\' in req.new_name or req.new_name in {'', '.', '..'}:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail='Invalid name')
-    destination = (target.parent / req.new_name).resolve()
+    destination = target.parent / req.new_name
     if destination != FILE_ROOT_PATH and FILE_ROOT_PATH not in destination.parents:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail='Path escapes file root')
-    if destination.exists():
+    if destination.exists() or destination.is_symlink():
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail='Destination already exists')
     try:
         target.rename(destination)
@@ -473,12 +488,12 @@ async def upload_file(
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail='Path is not a directory')
 
     safe_name = _safe_filename(filename)
-    destination = (target_dir / safe_name).resolve()
+    destination = target_dir / safe_name
     if destination != FILE_ROOT_PATH and FILE_ROOT_PATH not in destination.parents:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail='Path escapes file root')
     if destination.exists() and destination.is_dir():
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail='A folder with that name already exists')
-    overwritten = destination.exists()
+    overwritten = destination.exists() or destination.is_symlink()
     if overwritten and not overwrite:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail='File already exists')
 
@@ -522,13 +537,15 @@ async def delete_path(
     recursive: bool = Query(False),
 ) -> FileOperationResponse:
     """Delete a file or folder under the configured file root."""
-    target, rel = _safe_path(path)
+    target, rel = _safe_nofollow_path(path)
     if target == FILE_ROOT_PATH:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail='Cannot delete file root')
-    if not target.exists():
+    if not target.exists() and not target.is_symlink():
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail='Path not found')
     try:
-        if target.is_dir():
+        if target.is_symlink():
+            target.unlink()
+        elif target.is_dir():
             if recursive:
                 shutil.rmtree(target)
             else:
