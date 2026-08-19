@@ -123,7 +123,7 @@ The API container reaches it at `/agents/host/host_agent.sock` (see bundled `con
 
 `cyclo_manager up` installs the `refresh-host-agent` CLI subcommand into sudoers. It is registered as `sys.executable -m cyclo_manager_cli.cli refresh-host-agent` with `SETENV`, so UI-triggered updates can pass the current `PYTHONPATH` to sudo and do not depend on `PATH`. The command is idempotent and refreshes the socket directory, sudoers file, systemd unit, and service state after package upgrades.
 
-Repository scanning uses `CYCLO_HOST_AGENT_WORKSPACE` when set. Otherwise it uses the service user's home directory, except root-only devices with `/data/docker`, where `/data/docker` is used automatically. Only repositories whose `origin` remote belongs to `ROBOTIS-GIT` are returned by the repo list/update endpoints.
+Repository scanning and the Files UI use `CYCLO_HOST_AGENT_WORKSPACE` when set. Otherwise they use the service user's home directory, except root-only devices with `/data/docker`, where `/data/docker` is used automatically. Only repositories whose `origin` remote belongs to `ROBOTIS-GIT` are returned by the repo list/update endpoints.
 
 ---
 
@@ -203,8 +203,7 @@ So `/agents/ai_worker/s6_agent.sock` in config corresponds to the host path abov
 | Variable | Set by | Purpose |
 |----------|--------|---------|
 | **`CYCLO_MANAGER_CONFIG_FILE`** | CLI (`up`, `down`, `update`) | Absolute path to bundled `config.yml` on the host; mounted into the API container |
-| **`CYCLO_HOST_AGENT_WORKSPACE`** | User or CLI-generated systemd unit | Workspace scanned by `cyclo_host_agent` for managed git repositories |
-| **`CYCLO_HOST_AGENT_FILE_ROOT`** | User (optional) | Root directory for the Files UI/API. Defaults to the host agent service user's home (`$HOME`, e.g. `/root` when running as root) |
+| **`CYCLO_HOST_AGENT_WORKSPACE`** | User or CLI-generated systemd unit | Workspace scanned by `cyclo_host_agent` for managed git repositories and used as the Files UI/API root |
 | **`HOSTNAME`** | CLI (default: machine hostname) | Passed to API as `HOST_HOSTNAME` |
 | **`CONFIG_FILE`** | Compose (`/app/config.yml`) | Path inside the API container |
 | **`ROS_DOMAIN_ID`** | **Not** set by CLI | Set inside robot containers (e.g. `~/.bashrc`) so DDS matches your fleet |

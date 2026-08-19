@@ -198,7 +198,7 @@ cyclo_manager/
 
 The API is **unauthenticated** by default and mounts **`docker.sock`** (high privilege). Restrict network access, tighten **CORS** in production, and treat `/docs`, WebSockets, and `/host/*` as sensitive when exposed.
 
-**Host file API (`/host/files/*`):** Proxied to `cyclo_host_agent` and can read, write, create, rename, and delete files under the configured host file root (default: the host agent service user's home directory, e.g. `/root` when running as root). Override with `CYCLO_HOST_AGENT_FILE_ROOT`. Treat this as full access to that directory tree when the UI or API is reachable.
+**Host file API (`/host/files/*`):** Proxied to `cyclo_host_agent` and can read, write, create, rename, upload, and delete files under the configured host agent workspace (`CYCLO_HOST_AGENT_WORKSPACE`). By default this is the host agent service user's home directory, except root-only devices with `/data/docker`, where `/data/docker` is used automatically. Treat this as full access to that directory tree when the UI or API is reachable.
 
 ---
 

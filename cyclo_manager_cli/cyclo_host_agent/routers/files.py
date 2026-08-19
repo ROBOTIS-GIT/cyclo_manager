@@ -51,9 +51,9 @@ MAX_DIFF_BYTES = 2 * 1024 * 1024
 
 
 def _resolve_file_root() -> Path:
-    configured_root = os.environ.get('CYCLO_HOST_AGENT_FILE_ROOT')
-    if configured_root:
-        return Path(configured_root).expanduser().resolve()
+    configured_workspace = os.environ.get('CYCLO_HOST_AGENT_WORKSPACE')
+    if configured_workspace:
+        return Path(configured_workspace).expanduser().resolve()
     sudo_user = os.environ.get('SUDO_USER')
     if sudo_user:
         return Path(f'/home/{sudo_user}').resolve()
