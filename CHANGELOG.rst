@@ -4,8 +4,12 @@ Changelog for package cyclo_manager
 
 1.1.0 (unreleased)
 ------------------
-* Added a **Files** page and ``/host/files/*`` API for browsing and editing UTF-8 text files on the robot host through ``cyclo_host_agent``.
-* Moved host CPU/memory/disk stats to ``cyclo_host_agent`` and added ``GET /system/processes`` with a dashboard CPU usage modal.
+* Added a Files page and ``/host/files/*`` API for browsing, searching, uploading, creating, renaming, deleting, and editing host files through ``cyclo_host_agent``.
+* Added git status and diff view for workspace files, scoped to ``CYCLO_HOST_AGENT_WORKSPACE``.
+* Moved host CPU, memory, and disk stats to ``cyclo_host_agent`` and added ``GET /system/processes`` with a dashboard CPU usage modal.
+* Changed repository update container start to a background job that streams create and start logs, including Docker image pull output.
+* Changed the F2 robot status head camera topic to ``/camera_head/camera_head/color/image_raw/compressed``.
+* Updated Dynamixel Wizard 2 AppImages in noVNC and created the ``DYNAMIXEL Wizard2`` documents directory.
 * Contributors: Hyungyu Kim
 
 1.0.0 (2026-08-05)
