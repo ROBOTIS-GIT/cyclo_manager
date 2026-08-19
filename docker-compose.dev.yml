@@ -79,4 +79,5 @@ services:
     volumes:
       - /dev:/dev
       - /dev/shm:/dev/shm
+      - "./novnc/wizard/DYNAMIXEL Wizard2:/root/Documents/DYNAMIXEL Wizard2"
     privileged: true
