@@ -109,12 +109,8 @@ export const SYSTEM_PROFILES: Record<string, SystemProfile> = {
     batteryTopics: AI_WORKER_BATTERY_TOPICS,
     cameraTopics: AI_WORKER_CAMERA_TOPICS,
     cameraTopicsByRobotType: {
-<<<<<<< HEAD
-      f2: AI_WORKER_F2_CAMERA_TOPICS,
-=======
       f1: AI_WORKER_F1_F2_CAMERA_TOPICS,
       f2: AI_WORKER_F1_F2_CAMERA_TOPICS,
->>>>>>> 6bdf945c967ec50a10d4efcf579a27ddd5e1a865
     },
   },
   open_manipulator: {
