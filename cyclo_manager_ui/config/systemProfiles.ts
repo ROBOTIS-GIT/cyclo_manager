@@ -55,6 +55,7 @@ export type SystemProfile = {
   leaderTypeOptions: readonly SystemRobotOption[];
   batteryTopics: readonly SystemTopic[];
   cameraTopics: readonly SystemTopic[];
+  cameraTopicsByRobotType?: Partial<Record<RobotType, readonly SystemTopic[]>>;
 };
 
 const AI_WORKER_BATTERY_TOPICS = [
@@ -64,6 +65,12 @@ const AI_WORKER_BATTERY_TOPICS = [
 
 const AI_WORKER_CAMERA_TOPICS = [
   { label: "Camera (Head)", topic: "/zed/zed_node/left/image_rect_color/compressed" },
+  { label: "Camera (Wrist L)", topic: "/camera_left/camera_left/color/image_rect_raw/compressed" },
+  { label: "Camera (Wrist R)", topic: "/camera_right/camera_right/color/image_rect_raw/compressed" },
+] as const;
+
+const AI_WORKER_F1_F2_CAMERA_TOPICS = [
+  { label: "Camera (Head)", topic: "/camera_head/camera_head/color/image_raw/compressed" },
   { label: "Camera (Wrist L)", topic: "/camera_left/camera_left/color/image_rect_raw/compressed" },
   { label: "Camera (Wrist R)", topic: "/camera_right/camera_right/color/image_rect_raw/compressed" },
 ] as const;
@@ -101,6 +108,10 @@ export const SYSTEM_PROFILES: Record<string, SystemProfile> = {
     leaderTypeOptions: AI_WORKER_LEADER_TYPE_OPTIONS,
     batteryTopics: AI_WORKER_BATTERY_TOPICS,
     cameraTopics: AI_WORKER_CAMERA_TOPICS,
+    cameraTopicsByRobotType: {
+      f1: AI_WORKER_F1_F2_CAMERA_TOPICS,
+      f2: AI_WORKER_F1_F2_CAMERA_TOPICS,
+    },
   },
   open_manipulator: {
     label: "Open Manipulator",

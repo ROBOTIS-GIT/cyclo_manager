@@ -2,6 +2,11 @@
 Changelog for package cyclo_manager
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
+1.0.1 (2026-08-19)
+------------------
+* Fixed the F1/F2 robot status camera topic to use the head camera topic.
+* Contributors: Hyungyu Kim
+
 1.0.0 (2026-08-05)
 ------------------
 * Improved ROS 2 bridge request synchronization with per-request response queues for discovery, subscription, QoS lookup, publishing, and unsubscribe results.
