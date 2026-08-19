@@ -2,7 +2,7 @@
 Changelog for package cyclo_manager
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
-1.0.1 (unreleased)
+1.0.1 (2026-08-19)
 ------------------
 * Fixed the F2 robot status camera topic to use the head camera topic.
 * Contributors: Hyungyu Kim
