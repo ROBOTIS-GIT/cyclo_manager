@@ -18,4 +18,4 @@
 
 """cyclo_manager CLI - pip-installable launcher for cyclo_manager server and UI containers."""
 
-__version__ = '1.0.0'
+__version__ = '1.0.1'
