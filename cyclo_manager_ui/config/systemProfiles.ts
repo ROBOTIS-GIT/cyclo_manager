@@ -69,7 +69,7 @@ const AI_WORKER_CAMERA_TOPICS = [
   { label: "Camera (Wrist R)", topic: "/camera_right/camera_right/color/image_rect_raw/compressed" },
 ] as const;
 
-const AI_WORKER_F2_CAMERA_TOPICS = [
+const AI_WORKER_F1_F2_CAMERA_TOPICS = [
   { label: "Camera (Head)", topic: "/camera_head/camera_head/color/image_raw/compressed" },
   { label: "Camera (Wrist L)", topic: "/camera_left/camera_left/color/image_rect_raw/compressed" },
   { label: "Camera (Wrist R)", topic: "/camera_right/camera_right/color/image_rect_raw/compressed" },
@@ -109,7 +109,8 @@ export const SYSTEM_PROFILES: Record<string, SystemProfile> = {
     batteryTopics: AI_WORKER_BATTERY_TOPICS,
     cameraTopics: AI_WORKER_CAMERA_TOPICS,
     cameraTopicsByRobotType: {
-      f2: AI_WORKER_F2_CAMERA_TOPICS,
+      f1: AI_WORKER_F1_F2_CAMERA_TOPICS,
+      f2: AI_WORKER_F1_F2_CAMERA_TOPICS,
     },
   },
   open_manipulator: {
