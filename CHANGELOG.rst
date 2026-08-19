@@ -10,6 +10,10 @@ Changelog for package cyclo_manager
 * Changed repository update container start to a background job that streams create and start logs, including Docker image pull output.
 * Changed the F2 robot status head camera topic to ``/camera_head/camera_head/color/image_raw/compressed``.
 * Updated Dynamixel Wizard 2 AppImages in noVNC and created the ``DYNAMIXEL Wizard2`` documents directory.
+
+1.0.1 (2026-08-19)
+------------------
+* Fixed the F1/F2 robot status camera topic to use the head camera topic.
 * Contributors: Hyungyu Kim
 
 1.0.0 (2026-08-05)
