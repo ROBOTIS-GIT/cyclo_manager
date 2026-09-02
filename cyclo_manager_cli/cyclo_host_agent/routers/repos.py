@@ -424,6 +424,20 @@ async def _read_container_job_stream(stream: asyncio.StreamReader, job: dict) ->
             _update_container_job_from_line(job, line)
 
 
+async def _stop_container_start_process(
+    proc: asyncio.subprocess.Process | None,
+    readers: list[asyncio.Task],
+) -> None:
+    """Stop a container-start subprocess and consume its reader tasks."""
+    if proc is not None and proc.returncode is None:
+        try:
+            proc.kill()
+        except ProcessLookupError:
+            pass
+        await proc.wait()
+    await asyncio.gather(*readers, return_exceptions=True)
+
+
 async def _run_container_sh(repo_path: Path, action: str) -> tuple[bool, str]:
     script = repo_path / 'docker' / 'container.sh'
     if not script.exists():
@@ -448,52 +462,58 @@ async def _run_container_start(repo_path: Path, name: str) -> None:
     job = _container_start_status_by_repo.get(name)
     if job is None:
         return
-    script = repo_path / 'docker' / 'container.sh'
-    if not script.exists():
-        _set_container_job_status(
-            job,
-            running=False,
-            success=False,
-            error=f'container.sh not found at {script}',
-        )
-        return
-
-    env = os.environ.copy()
-    env['COMPOSE_PROGRESS'] = 'plain'
-    env['COMPOSE_ANSI'] = 'never'
-    proc = await asyncio.create_subprocess_exec(
-        'bash', str(script), 'start',
-        cwd=str(repo_path / 'docker'),
-        env=env,
-        stdin=asyncio.subprocess.PIPE,
-        stdout=asyncio.subprocess.PIPE,
-        stderr=asyncio.subprocess.PIPE,
-    )
-    if proc.stdin is not None:
-        proc.stdin.write(b'y\n')
-        await proc.stdin.drain()
-        proc.stdin.close()
-
-    readers = [
-        asyncio.create_task(_read_container_job_stream(proc.stdout, job)),
-        asyncio.create_task(_read_container_job_stream(proc.stderr, job)),
-    ]
+    proc: asyncio.subprocess.Process | None = None
+    readers: list[asyncio.Task] = []
     try:
+        script = repo_path / 'docker' / 'container.sh'
+        if not script.exists():
+            raise FileNotFoundError(f'container.sh not found at {script}')
+
+        env = os.environ.copy()
+        env['COMPOSE_PROGRESS'] = 'plain'
+        env['COMPOSE_ANSI'] = 'never'
+        proc = await asyncio.create_subprocess_exec(
+            'bash', str(script), 'start',
+            cwd=str(repo_path / 'docker'),
+            env=env,
+            stdin=asyncio.subprocess.PIPE,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        if proc.stdin is not None:
+            proc.stdin.write(b'y\n')
+            await proc.stdin.drain()
+            proc.stdin.close()
+
+        readers = [
+            asyncio.create_task(_read_container_job_stream(proc.stdout, job)),
+            asyncio.create_task(_read_container_job_stream(proc.stderr, job)),
+        ]
         await asyncio.wait_for(proc.wait(), timeout=CONTAINER_SCRIPT_TIMEOUT)
         await asyncio.gather(*readers)
     except asyncio.TimeoutError:
-        proc.kill()
-        await proc.wait()
-        await asyncio.gather(*readers, return_exceptions=True)
-        _append_container_job_output(job, 'Timeout waiting for container.sh')
+        error = 'Timeout waiting for container.sh'
+        await _stop_container_start_process(proc, readers)
+        _append_container_job_output(job, error)
+        _set_container_job_status(job, running=False, success=False, error=error)
+        return
+    except asyncio.CancelledError:
+        await _stop_container_start_process(proc, readers)
         _set_container_job_status(
             job,
             running=False,
             success=False,
-            error='Timeout waiting for container.sh',
+            error='Container start operation was cancelled',
         )
+        raise
+    except Exception as exc:
+        await _stop_container_start_process(proc, readers)
+        error = str(exc) or type(exc).__name__
+        _append_container_job_output(job, error)
+        _set_container_job_status(job, running=False, success=False, error=error)
         return
 
+    assert proc is not None
     if proc.returncode == 0:
         _set_container_job_status(
             job,

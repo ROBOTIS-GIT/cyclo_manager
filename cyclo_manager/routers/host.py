@@ -24,12 +24,14 @@ from typing import Optional
 from cyclo_manager.host_agent_client import HostAgentClient
 from cyclo_manager.http_errors import proxy_error
 from cyclo_manager.state import get_host_agent_client
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pydantic import BaseModel
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix='/host', tags=['host'])
+
+MAX_FILE_UPLOAD_BYTES = 20 * 1024 * 1024
 
 
 # ---------------------------------------------------------------------------
@@ -343,10 +345,38 @@ async def upload_file(
     overwrite: bool = False,
     client: HostAgentClient = Depends(get_host_agent_client),
 ) -> dict:
+    content_length = request.headers.get('content-length')
+    if content_length is not None:
+        try:
+            if int(content_length) > MAX_FILE_UPLOAD_BYTES:
+                raise HTTPException(
+                    status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+                    detail='File is too large to upload',
+                )
+        except ValueError:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail='Invalid Content-Length header',
+            )
+
+    content = bytearray()
+    async for chunk in request.stream():
+        content.extend(chunk)
+        if len(content) > MAX_FILE_UPLOAD_BYTES:
+            raise HTTPException(
+                status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+                detail='File is too large to upload',
+            )
+
     try:
-        content = await request.body()
         content_type = request.headers.get('content-type', 'application/octet-stream')
-        return await client.upload_file(path, filename, content, overwrite, content_type)
+        return await client.upload_file(
+            path,
+            filename,
+            bytes(content),
+            overwrite,
+            content_type,
+        )
     except Exception as e:
         raise proxy_error(e, 'Host agent')
 

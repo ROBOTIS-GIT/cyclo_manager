@@ -467,6 +467,7 @@ export default function FilesPage() {
   }
 
   async function createItem(type: "file" | "directory") {
+    if (!confirmDirty()) return;
     clearNotice();
     const label = type === "file" ? "file" : "folder";
     const name = window.prompt(`New ${label} name`);
@@ -489,6 +490,7 @@ export default function FilesPage() {
   }
 
   async function renameItem(entry: FileTreeEntry) {
+    if (!confirmDirty()) return;
     clearNotice();
     const newName = window.prompt("Rename", entry.name);
     if (!newName || newName === entry.name) return;
@@ -522,6 +524,7 @@ export default function FilesPage() {
   }
 
   async function deleteItem(entry: FileTreeEntry) {
+    if (!confirmDirty()) return;
     clearNotice();
     const recursive = entry.type === "directory";
     const confirmed = window.confirm(`Delete ${entry.name}?`);
