@@ -8,7 +8,6 @@ Changelog for package cyclo_manager
 * Added git status and diff view for workspace files, scoped to ``CYCLO_HOST_AGENT_WORKSPACE``.
 * Moved host CPU, memory, and disk stats to ``cyclo_host_agent`` and added ``GET /system/processes`` with a dashboard CPU usage modal.
 * Changed repository update container start to a background job that streams create and start logs, including Docker image pull output.
-* Changed the F2 robot status head camera topic to ``/camera_head/camera_head/color/image_raw/compressed``.
 * Updated Dynamixel Wizard 2 AppImages in noVNC and created the ``DYNAMIXEL Wizard2`` documents directory.
 
 1.0.1 (2026-08-19)
