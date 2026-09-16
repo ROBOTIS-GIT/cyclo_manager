@@ -230,9 +230,21 @@ export const MOBILE_CONFIG: LaunchArgsConfig = {
 /** avatar_bringup - ffw_lg2_leader_ai.launch.py */
 export const LG2_CONFIG: LaunchArgsConfig = {
   serviceId: "avatar_bringup",
-  title: "avatar_bringup Launch Arguments",
+  title: "Leader Bringup (LG2) Launch Arguments",
   args: [
     { key: "description_file", label: "Description File (URDF/XACRO)", type: "string", default: "ffw_lg2_leader.urdf.xacro" },
+  ],
+};
+
+/** avatar_bringup - ffw_a2_leader_ai.launch.py */
+export const A2_CONFIG: LaunchArgsConfig = {
+  serviceId: "avatar_bringup",
+  storageKey: "avatar_bringup_a2",
+  title: "Leader Bringup (A2) Launch Arguments",
+  args: [
+    { key: "description_file", label: "Description File (URDF/XACRO)", type: "string", default: "ffw_a2_leader.urdf.xacro" },
+    { key: "use_mock_hardware", label: "Use Mock Hardware", type: "bool", default: "false" },
+    { key: "start_teleoperation_controller", label: "Start Teleoperation Controller", type: "bool", default: "true" },
   ],
 };
 

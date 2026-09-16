@@ -15,6 +15,7 @@
 // Author: Hyungyu Kim
 
 import {
+  A2_CONFIG,
   BG2_CONFIG,
   BH5_CONFIG,
   F1_CONFIG,
@@ -91,7 +92,8 @@ const OPEN_MANIPULATOR_ROBOT_TYPE_OPTIONS = [
 ] as const;
 
 const AI_WORKER_LEADER_TYPE_OPTIONS = [
-  { value: "lg2", label: "LG2", config: LG2_CONFIG },
+  { value: "lg2", label: "LG2", config: LG2_CONFIG, robotType: "lg2" },
+  { value: "a2", label: "A2", config: A2_CONFIG, robotType: "a2" },
 ] as const;
 
 const OPEN_MANIPULATOR_LEADER_TYPE_OPTIONS = [

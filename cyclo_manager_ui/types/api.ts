@@ -53,7 +53,8 @@ export interface ServiceStatusResponse {
 
 export type AiWorkerRobotType = "sg2" | "bg2" | "sh5" | "bh5" | "f1" | "f2" | "mobile";
 export type OpenManipulatorRobotType = "omy" | "omx";
-export type RobotType = AiWorkerRobotType | OpenManipulatorRobotType;
+export type AiWorkerLeaderType = "lg2" | "a2";
+export type RobotType = AiWorkerRobotType | AiWorkerLeaderType | OpenManipulatorRobotType;
 
 export interface ServiceActionRequest {
   action: "up" | "down" | "restart";

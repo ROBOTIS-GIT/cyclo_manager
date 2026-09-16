@@ -9,7 +9,7 @@ Next.js web interface for **cyclo_manager** (ROS 2 robot containers, s6 services
 - **System** (`/{container}/system`):
   - Follower bringup (`ai_worker_bringup`) with robot model **SG2 / BG2 / SH5 / BH5 / F1 / F2 / Mobile**
   - **Launch arguments** popup (gear icon): bool/string fields; **Init Position File** as dropdown (model default YAML, `pack_position.yaml`, or custom filename)
-  - Leader bringup (`avatar_bringup`), **Cyclo Intelligence** (`cyclo_intelligence`), Zenoh daemon
+  - Leader bringup (`avatar_bringup`) with leader model **LG2 / A2**, **Cyclo Intelligence** (`cyclo_intelligence`), Zenoh daemon
   - Live service logs and **3D URDF viewer** (`/robot_description`, `/joint_states` via WebSocket)
   - **Robot Status** panel: bringup state, left/right battery percentage (WebSocket on `/ai_worker/battery/{left,right}/state`), and head/wrist camera activity (`GET /ros2/topics/{topic}/available` polling)
 - **Topics** (`/topics`): Discover topics (`GET /ros2/topics`) and stream message JSON via WebSocket (`/ws/ros2/topics/{topic}`); optional **Info** tab (`GET /ros2/topics/{topic}/info`)

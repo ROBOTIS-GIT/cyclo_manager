@@ -116,12 +116,14 @@ LEADER_TYPE_FILE = Path('/run/leader_type')
 
 
 _ROBOT_TYPE_BY_SERVICE = {
+    'avatar_bringup': frozenset({'lg2', 'a2'}),
     'ai_worker_bringup': frozenset({'sg2', 'bg2', 'sh5', 'bh5', 'f1', 'f2', 'mobile'}),
     'open_manipulator_bringup': frozenset({'omy', 'omx'}),
     'leader_bringup': frozenset({'omy', 'omx'}),
 }
 
 _ROBOT_TYPE_FILE_BY_SERVICE = {
+    'avatar_bringup': LEADER_TYPE_FILE,
     'ai_worker_bringup': ROBOT_TYPE_FILE,
     'open_manipulator_bringup': ROBOT_TYPE_FILE,
     'leader_bringup': LEADER_TYPE_FILE,
@@ -181,7 +183,7 @@ def control_service(
     Raises
     ------
     FileNotFoundError: If service does not exist.
-    ValueError: If action is invalid or robot_type missing/invalid for ai_worker_bringup.
+    ValueError: If action is invalid or a required robot_type is missing/invalid.
     subprocess.CalledProcessError: If command fails.
 
     """
@@ -191,6 +193,9 @@ def control_service(
         raise FileNotFoundError(f"Service '{name}' not found at {service_path}")
 
     if action in ('up', 'restart') and name in _ROBOT_TYPE_BY_SERVICE:
+        # Older clients start the LG2 leader without specifying a robot type.
+        if name == 'avatar_bringup' and robot_type is None:
+            robot_type = 'lg2'
         if not robot_type:
             allowed = sorted(_ROBOT_TYPE_BY_SERVICE[name])
             raise ValueError(
