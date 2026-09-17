@@ -16,7 +16,7 @@
 
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   createFilePath,
   deleteFilePath,
@@ -260,6 +260,7 @@ export default function FilesPage() {
   const [searchQuery, setSearchQuery] = useState("");
   const [searching, setSearching] = useState(false);
   const [searchMode, setSearchMode] = useState(false);
+  const searchModeRef = useRef(false);
   const [searchTruncated, setSearchTruncated] = useState(false);
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
@@ -325,6 +326,7 @@ export default function FilesPage() {
       setSearchMode(false);
       setSearchTruncated(false);
       if (clearOpenFile) clearEditor();
+      return response;
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to load directory");
     } finally {
@@ -412,7 +414,15 @@ export default function FilesPage() {
   }
 
   useEffect(() => {
+    searchModeRef.current = searchMode;
+  }, [searchMode]);
+
+  useEffect(() => {
     if (editorOpen) return;
+    // An empty query only needs to run while results are on screen, so that clearing
+    // the box restores the listing without re-fetching on every directory change.
+    // searchMode is read through a ref so flipping it does not re-trigger the search.
+    if (!searchQuery.trim() && !searchModeRef.current) return;
     const timer = window.setTimeout(() => {
       void runSearch(searchQuery, currentPath, showHidden);
     }, 250);
@@ -449,7 +459,7 @@ export default function FilesPage() {
       setFileModified(response.modified);
       setFileSize(response.size);
       setReadonly(response.readonly);
-      await loadDirectory(currentPath, showHidden, false);
+      const directory = await loadDirectory(currentPath, showHidden, false);
       setSelectedPath(response.path);
       setContent(response.content);
       setOriginalContent(response.content);
@@ -457,7 +467,8 @@ export default function FilesPage() {
       setDiffOriginalContent("");
       setDiffCurrentContent("");
       setDiffStatus(null);
-      setSelectedGitStatus(null);
+      const savedEntry = directory?.entries.find((entry) => entry.path === response.path);
+      setSelectedGitStatus(savedEntry?.git_status ?? null);
       setMessage("Saved");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to save file");
@@ -578,21 +589,23 @@ export default function FilesPage() {
       return;
     }
 
-    const existingNames = new Set(entries.map((entry) => entry.name));
-    const conflicts = files.filter((file) => existingNames.has(file.name));
-    let overwrite = false;
-    if (conflicts.length > 0) {
-      overwrite = window.confirm(`${conflicts.length} file(s) already exist. Overwrite them?`);
-      if (!overwrite) return;
-    }
-
     setUploading(true);
     try {
+      const directory = await getFileTree(currentPath, true);
+      const existingNames = new Set(directory.entries.map((entry) => entry.name));
+      let uploadedCount = 0;
       for (const file of files) {
+        const exists = existingNames.has(file.name);
+        const overwrite = exists
+          ? window.confirm(`${file.name} already exists. Overwrite it?`)
+          : false;
+        if (exists && !overwrite) continue;
         await uploadFile(currentPath, file, overwrite);
+        existingNames.add(file.name);
+        uploadedCount += 1;
       }
       await loadDirectory(currentPath, showHidden, false);
-      setMessage(`${files.length} file(s) uploaded`);
+      setMessage(`${uploadedCount} file(s) uploaded`);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to upload files");
       await loadDirectory(currentPath, showHidden, false);

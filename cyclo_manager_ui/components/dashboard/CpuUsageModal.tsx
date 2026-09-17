@@ -16,11 +16,11 @@
 
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 import { getSystemProcesses } from "@/lib/api";
 import type { SystemProcessesResponse, SystemProcessInfo } from "@/types/api";
 
-const PROCESS_POLL_INTERVAL_MS = 2000;
+const PROCESS_POLL_INTERVAL_MS = 1000;
 const PROCESS_LIMIT = 80;
 
 function formatRss(rssKb: number | null): string {
@@ -65,41 +65,44 @@ function SummaryMetric({
   );
 }
 
-export default function CpuUsageModal({ onClose }: { onClose: () => void }) {
+interface CpuUsageModalProps {
+  summary: Omit<SystemProcessesResponse, "processes"> | null;
+  onClose: () => void;
+}
+
+export default function CpuUsageModal({ summary, onClose }: CpuUsageModalProps) {
   const [processes, setProcesses] = useState<SystemProcessInfo[]>([]);
-  const [summary, setSummary] = useState<Omit<SystemProcessesResponse, "processes"> | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
-  const loadProcesses = useCallback(async () => {
-    try {
-      const response = await getSystemProcesses(PROCESS_LIMIT);
-      setProcesses(response.processes);
-      setSummary({
-        cpu_percent: response.cpu_percent,
-        memory_used_mb: response.memory_used_mb,
-        memory_total_mb: response.memory_total_mb,
-      });
-      setError("");
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to load processes");
-    } finally {
-      setLoading(false);
-    }
-  }, []);
-
   useEffect(() => {
     let cancelled = false;
+    let inFlight = false;
     const run = async () => {
-      if (!cancelled) await loadProcesses();
+      if (cancelled || inFlight) return;
+      inFlight = true;
+      try {
+        const response = await getSystemProcesses(PROCESS_LIMIT);
+        if (cancelled) return;
+        // The total CPU/memory summary comes from the dashboard's shared sample.
+        setProcesses(response.processes);
+        setError("");
+      } catch (err) {
+        if (!cancelled) {
+          setError(err instanceof Error ? err.message : "Failed to load processes");
+        }
+      } finally {
+        inFlight = false;
+        if (!cancelled) setLoading(false);
+      }
     };
-    run();
-    const timer = window.setInterval(run, PROCESS_POLL_INTERVAL_MS);
+    void run();
+    const timer = window.setInterval(() => void run(), PROCESS_POLL_INTERVAL_MS);
     return () => {
       cancelled = true;
       window.clearInterval(timer);
     };
-  }, [loadProcesses]);
+  }, []);
 
   return (
     <div
@@ -164,7 +167,7 @@ export default function CpuUsageModal({ onClose }: { onClose: () => void }) {
                 borderColor: "var(--vscode-panel-border)",
               }}
             >
-              <SummaryMetric label="CPU" value={`${summary.cpu_percent.toFixed(1)}%`} detail="Total usage" />
+              <SummaryMetric label="CPU" value={`${summary.cpu_percent.toFixed(1)}%`} detail="Total usage · 3s average" />
               <SummaryMetric
                 label="Memory"
                 value={percent(summary.memory_used_mb, summary.memory_total_mb)}

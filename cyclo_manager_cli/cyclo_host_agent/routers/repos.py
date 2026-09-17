@@ -343,6 +343,7 @@ async def _update_reset(repo_path: Path, preserve_files: list[str]) -> UpdateRes
 # ── container helper ───────────────────────────────────────────────────────────
 
 _container_start_status_by_repo: dict[str, dict] = {}
+_container_start_tasks: set[asyncio.Task[None]] = set()
 
 
 def _prune_container_start_jobs() -> None:
@@ -589,7 +590,9 @@ async def start_repo_container(name: str) -> ContainerStartStatusResponse:
         return _build_container_start_status_response(existing)
 
     job = _new_container_start_status(name)
-    asyncio.create_task(_run_container_start(repo_path, name))
+    task = asyncio.create_task(_run_container_start(repo_path, name))
+    _container_start_tasks.add(task)
+    task.add_done_callback(_container_start_tasks.discard)
     return _build_container_start_status_response(job)
 
 

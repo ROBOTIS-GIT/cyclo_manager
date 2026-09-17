@@ -6,6 +6,7 @@ Next.js web interface for **cyclo_manager** (ROS 2 robot containers, s6 services
 
 - **Apps hub** (`/app`): Entry point; links to **Cyclo Manager** (dashboard) and **Cyclo Intelligence** (external UI on port 7080, `http://<host>:7080/`)
 - **Dashboard** (`/dashboard`): Host stats, Docker container list (start/stop/restart), logs, bashrc editing, version management (host git repos)
+  - System stats and the CPU process list refresh every second. The dashboard and CPU detail summary share the host agent's moving average of the latest three consecutive one-second CPU samples; during startup, the available samples are used. Process rows retain their short 0.2-second measurement window.
 - **System** (`/{container}/system`):
   - Follower bringup (`ai_worker_bringup`) with robot model **SG2 / BG2 / SH5 / BH5 / F1 / F2 / Mobile**
   - **Launch arguments** popup (gear icon): bool/string fields; **Init Position File** as dropdown (model default YAML, `pack_position.yaml`, or custom filename)

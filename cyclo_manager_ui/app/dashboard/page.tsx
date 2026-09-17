@@ -16,7 +16,7 @@
 
 "use client";
 
-import { useState, useCallback, useMemo } from "react";
+import { useState, useCallback, useMemo, useRef } from "react";
 import Convert from "ansi-to-html";
 import { usePolling } from "@/hooks/usePolling";
 import {
@@ -50,6 +50,7 @@ import type {
 import { useTheme } from "@/contexts/ThemeContext";
 
 const POLL_INTERVAL = 5000;
+const SYSTEM_STATS_POLL_INTERVAL_MS = 1000;
 
 // ─── page ────────────────────────────────────────────────────────────────────
 
@@ -58,6 +59,7 @@ export default function HomePage() {
   const [robotInfo, setRobotInfo] = useState<RobotInfoResponse | null>(null);
   const [robotInfoCheckState, setRobotInfoCheckState] = useState<"loading" | "error" | "done">("loading");
   const [systemStats, setSystemStats] = useState<SystemStatsResponse | null>(null);
+  const statsRequestInFlight = useRef(false);
   const [containers, setContainers] = useState<DockerContainerInfo[]>([]);
   const [showDockerImages, setShowDockerImages] = useState(false);
   const [showCpuUsage, setShowCpuUsage] = useState(false);
@@ -104,12 +106,26 @@ export default function HomePage() {
           setRobotInfo(null);
           setRobotInfoCheckState("error");
         }),
-      getSystemStats().then(setSystemStats).catch(() => {}),
       loadContainers(),
     ]);
   }, [loadContainers]);
 
   usePolling(loadAll, POLL_INTERVAL);
+
+  const loadSystemStats = useCallback(async (isActive: () => boolean) => {
+    if (statsRequestInFlight.current) return;
+    statsRequestInFlight.current = true;
+    try {
+      const response = await getSystemStats();
+      if (isActive()) setSystemStats(response);
+    } catch {
+      // Keep the last sample during a temporary connection failure.
+    } finally {
+      statsRequestInFlight.current = false;
+    }
+  }, []);
+
+  usePolling(loadSystemStats, SYSTEM_STATS_POLL_INTERVAL_MS);
 
   const handleAction = useCallback(async (name: string, action: "start" | "stop" | "restart") => {
     setActionLoading({ container: name, action });
@@ -202,7 +218,7 @@ export default function HomePage() {
         <DockerImagesModal onClose={() => setShowDockerImages(false)} />
       )}
       {showCpuUsage && (
-        <CpuUsageModal onClose={() => setShowCpuUsage(false)} />
+        <CpuUsageModal summary={systemStats} onClose={() => setShowCpuUsage(false)} />
       )}
       <div className="flex flex-col gap-6">
 
@@ -239,7 +255,7 @@ export default function HomePage() {
                   <button
                     type="button"
                     onClick={() => setShowCpuUsage(true)}
-                    title="Show CPU processes"
+                    title="CPU usage (3s average) — show processes"
                     aria-label="Show CPU processes"
                     className="rounded-md transition-opacity hover:opacity-80 focus:outline-none"
                     style={{
@@ -252,6 +268,7 @@ export default function HomePage() {
                   >
                     <CircleGauge
                       fill={systemStats.cpu_percent}
+                      display={`${systemStats.cpu_percent.toFixed(1)}%`}
                       label="CPU"
                       size={systemGaugeSize}
                     />

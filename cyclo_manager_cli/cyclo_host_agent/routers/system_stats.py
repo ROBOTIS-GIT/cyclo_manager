@@ -21,19 +21,28 @@
 import time
 from pathlib import Path
 
+from cyclo_host_agent.cpu_usage import CpuUsageSampler
 from cyclo_host_agent.models import (
     HostProcessesResponse,
     HostProcessInfo,
     HostSystemStatsResponse,
 )
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, HTTPException, Query
 import psutil
 
 router = APIRouter(prefix='/system', tags=['system'])
+cpu_sampler = CpuUsageSampler()
 
 PROCESS_SAMPLE_INTERVAL_SECONDS = 0.2
 PROCESS_DEFAULT_LIMIT = 80
 EXTRA_STORAGE_MOUNT_PATHS = ('/mnt/ssd', '/data')
+
+
+def _cpu_average() -> float:
+    value = cpu_sampler.average()
+    if value is None:
+        raise HTTPException(status_code=503, detail='CPU measurement is warming up')
+    return value
 
 
 def _temperature() -> float | None:
@@ -84,7 +93,8 @@ def _sample_processes(limit: int = PROCESS_DEFAULT_LIMIT) -> HostProcessesRespon
         except (psutil.NoSuchProcess, psutil.AccessDenied):
             continue
 
-    overall_cpu_percent = psutil.cpu_percent(interval=PROCESS_SAMPLE_INTERVAL_SECONDS)
+    # Process usage keeps its short measurement window; total CPU uses the shared average.
+    time.sleep(PROCESS_SAMPLE_INTERVAL_SECONDS)
     mem = psutil.virtual_memory()
 
     processes: list[HostProcessInfo] = []
@@ -111,7 +121,7 @@ def _sample_processes(limit: int = PROCESS_DEFAULT_LIMIT) -> HostProcessesRespon
 
     processes.sort(key=lambda item: item.cpu_percent, reverse=True)
     return HostProcessesResponse(
-        cpu_percent=round(float(overall_cpu_percent), 1),
+        cpu_percent=_cpu_average(),
         memory_used_mb=int(mem.used // (1024 * 1024)),
         memory_total_mb=int(mem.total // (1024 * 1024)),
         processes=processes[:max(1, min(limit, 500))],
@@ -119,9 +129,9 @@ def _sample_processes(limit: int = PROCESS_DEFAULT_LIMIT) -> HostProcessesRespon
 
 
 @router.get('/status', response_model=HostSystemStatsResponse)
-async def get_system_stats() -> HostSystemStatsResponse:
-    """Return host CPU, memory, disk, and uptime stats."""
-    cpu_percent = psutil.cpu_percent(interval=PROCESS_SAMPLE_INTERVAL_SECONDS)
+def get_system_stats() -> HostSystemStatsResponse:
+    """Return host stats with CPU averaged over the latest three one-second samples."""
+    cpu_percent = _cpu_average()
     mem = psutil.virtual_memory()
     disk = psutil.disk_usage('/')
     extra_storage_path, extra_storage_disk = _extra_storage_disk_usage()
@@ -149,7 +159,7 @@ async def get_system_stats() -> HostSystemStatsResponse:
 
 
 @router.get('/processes', response_model=HostProcessesResponse)
-async def get_system_processes(
+def get_system_processes(
     limit: int = Query(PROCESS_DEFAULT_LIMIT, ge=1, le=500),
 ) -> HostProcessesResponse:
     """Return host process CPU/memory usage sorted by CPU usage."""

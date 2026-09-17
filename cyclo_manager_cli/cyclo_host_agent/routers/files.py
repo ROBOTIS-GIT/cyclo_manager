@@ -18,6 +18,7 @@
 
 """Host file browser and editor endpoints."""
 
+import asyncio
 import os
 import shutil
 import subprocess
@@ -95,7 +96,8 @@ def _safe_filename(filename: str) -> str:
 
 def _is_binary(path: Path) -> bool:
     try:
-        return b'\x00' in path.read_bytes()[:8192]
+        with path.open('rb') as file:
+            return b'\x00' in file.read(8192)
     except OSError:
         return True
 
@@ -277,7 +279,7 @@ def _git_head_content(repo_root: Path, repo_path: str) -> str:
 
 
 @router.get('/tree', response_model=FileTreeResponse)
-async def list_directory(
+def list_directory(
     path: str = '',
     show_hidden: bool = Query(False),
 ) -> FileTreeResponse:
@@ -301,7 +303,7 @@ async def list_directory(
 
 
 @router.get('/search', response_model=FileSearchResponse)
-async def search_files(
+def search_files(
     query: str,
     path: str = '',
     show_hidden: bool = Query(False),
@@ -355,7 +357,7 @@ async def search_files(
 
 
 @router.get('/read', response_model=FileReadResponse)
-async def read_file(
+def read_file(
     path: str,
 ) -> FileReadResponse:
     """Read a UTF-8 text file under the configured file root."""
@@ -381,7 +383,7 @@ async def read_file(
 
 
 @router.get('/diff', response_model=FileDiffResponse)
-async def diff_file(
+def diff_file(
     path: str,
 ) -> FileDiffResponse:
     """Return original and current file content for a git diff view."""
@@ -412,7 +414,7 @@ async def diff_file(
 
 
 @router.post('/write', response_model=FileOperationResponse)
-async def write_file(req: FileWriteRequest) -> FileOperationResponse:
+def write_file(req: FileWriteRequest) -> FileOperationResponse:
     """Write a UTF-8 text file under the configured file root."""
     target, rel = _safe_path(req.path)
     if target.exists() and not target.is_file():
@@ -432,7 +434,7 @@ async def write_file(req: FileWriteRequest) -> FileOperationResponse:
 
 
 @router.post('/create', response_model=FileOperationResponse)
-async def create_path(req: FileCreateRequest) -> FileOperationResponse:
+def create_path(req: FileCreateRequest) -> FileOperationResponse:
     """Create a file or folder under the configured file root."""
     target, rel = _safe_nofollow_path(req.path)
     if target.exists() or target.is_symlink():
@@ -455,7 +457,7 @@ async def create_path(req: FileCreateRequest) -> FileOperationResponse:
 
 
 @router.post('/rename', response_model=FileOperationResponse)
-async def rename_path(req: FileRenameRequest) -> FileOperationResponse:
+def rename_path(req: FileRenameRequest) -> FileOperationResponse:
     """Rename a file or folder under the configured file root."""
     target, _ = _safe_nofollow_path(req.path)
     if not target.exists() and not target.is_symlink():
@@ -500,22 +502,25 @@ async def upload_file(
     temp_path = target_dir / f'.{safe_name}.{uuid.uuid4().hex}.uploading'
     size_bytes = 0
     try:
-        with temp_path.open('wb') as output:
+        output = await asyncio.to_thread(temp_path.open, 'wb')
+        try:
             async for chunk in request.stream():
                 size_bytes += len(chunk)
                 if size_bytes > MAX_UPLOAD_BYTES:
                     raise HTTPException(status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, detail='File is too large to upload')
-                output.write(chunk)
-        os.replace(temp_path, destination)
+                await asyncio.to_thread(output.write, chunk)
+        finally:
+            await asyncio.to_thread(output.close)
+        await asyncio.to_thread(os.replace, temp_path, destination)
     except HTTPException:
         try:
-            temp_path.unlink(missing_ok=True)
+            await asyncio.to_thread(temp_path.unlink, missing_ok=True)
         except OSError:
             pass
         raise
     except OSError as exc:
         try:
-            temp_path.unlink(missing_ok=True)
+            await asyncio.to_thread(temp_path.unlink, missing_ok=True)
         except OSError:
             pass
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(exc))
@@ -532,7 +537,7 @@ async def upload_file(
 
 
 @router.delete('', response_model=FileOperationResponse)
-async def delete_path(
+def delete_path(
     path: str,
     recursive: bool = Query(False),
 ) -> FileOperationResponse:
