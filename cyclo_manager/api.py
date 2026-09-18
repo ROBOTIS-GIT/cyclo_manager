@@ -34,6 +34,7 @@ from cyclo_manager.routers import (
     system,
     terminal,
     version,
+    websocket_jog,
     websocket_logs,
     websocket_ros2,
 )
@@ -105,6 +106,7 @@ app.include_router(terminal.router)
 app.include_router(ros2.router)
 app.include_router(websocket_logs.router)
 app.include_router(websocket_ros2.router)
+app.include_router(websocket_jog.router)
 app.include_router(host.router)
 
 

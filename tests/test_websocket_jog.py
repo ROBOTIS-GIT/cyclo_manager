@@ -1,0 +1,130 @@
+#!/usr/bin/env python3
+#
+# Copyright 2026 ROBOTIS CO., LTD.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+#
+# Author: Hyungyu Kim
+
+"""Exercise disconnect/error handling without ROS or a running manager."""
+
+import asyncio
+import importlib.util
+from pathlib import Path
+import sys
+from types import SimpleNamespace
+import unittest
+from unittest.mock import patch
+
+from fastapi import WebSocketDisconnect
+from test_jog import FakeBridge
+
+
+class FakeSocket:
+    def __init__(self, inputs):
+        self.inputs = iter(inputs)
+        self.output = []
+        self.closed = False
+
+    async def accept(self):
+        pass
+
+    async def receive_json(self):
+        value = next(self.inputs, 'disconnect')
+        if isinstance(value, tuple):
+            delay, value = value
+            await asyncio.sleep(delay)
+        if value == 'timeout':
+            await asyncio.sleep(1)
+        if value == 'disconnect':
+            raise WebSocketDisconnect()
+        return value
+
+    async def send_json(self, value):
+        self.output.append(value)
+
+    async def close(self, **kwargs):
+        self.closed = True
+
+
+class WebsocketJogTests(unittest.IsolatedAsyncioTestCase):
+    async def run_socket(self, inputs):
+        bridge = FakeBridge()
+        bridge.add_topic_subscription = lambda *args: True
+        bridge.prepare_jog_publishers = lambda *args: True
+        fake_state = SimpleNamespace(app_state=SimpleNamespace(
+            get_ros2_bridge_or_none=lambda: bridge))
+        path = Path(__file__).parents[1] / 'cyclo_manager/routers/websocket_jog.py'
+        spec = importlib.util.spec_from_file_location('isolated_jog_router', path)
+        module = importlib.util.module_from_spec(spec)
+        with patch.dict(sys.modules, {'cyclo_manager.state': fake_state}):
+            spec.loader.exec_module(module)
+        socket = FakeSocket(inputs)
+        await module.websocket_jog(socket, 'sg2')
+        return bridge, socket
+
+    async def test_disconnect_stops_base(self):
+        bridge, _ = await self.run_socket([{'kind': 'base', 'y': 0.1}, 'disconnect'])
+        self.assertGreater(bridge.published[0][2]['linear']['y'], 0)
+        self.assertEqual(bridge.published[-1][2]['linear']['y'], 0)
+
+    async def test_heartbeat_timeout_stops_and_closes(self):
+        bridge, socket = await self.run_socket([{'kind': 'base', 'x': 0.1}, 'timeout'])
+        self.assertEqual(bridge.published[-1][2]['linear']['x'], 0)
+        self.assertTrue(socket.closed)
+
+    async def test_read_only_session_survives_a_background_pause(self):
+        bridge, socket = await self.run_socket([
+            {'kind': 'idle'}, (0.6, {'kind': 'idle'}), 'disconnect'])
+        self.assertEqual(len(socket.output), 2)
+        self.assertFalse(any(item['error'] for item in socket.output))
+        self.assertEqual(bridge.published, [])
+
+    async def test_stopped_motion_survives_a_background_pause(self):
+        bridge, socket = await self.run_socket([
+            {'kind': 'base', 'x': 0.1}, {'kind': 'stop'},
+            (0.6, {'kind': 'idle'}), 'disconnect'])
+        self.assertEqual(len(socket.output), 3)
+        self.assertFalse(any(item['error'] for item in socket.output))
+        self.assertEqual(len(bridge.published), 2)
+        self.assertGreater(bridge.published[0][2]['linear']['x'], 0)
+        self.assertEqual(bridge.published[1][2]['linear']['x'], 0)
+
+    async def test_pending_joint_step_still_requires_heartbeat_after_idle(self):
+        bridge, socket = await self.run_socket([
+            {'kind': 'joint', 'joint': 'head_joint1', 'mode': 'step'},
+            {'kind': 'idle'}, (0.6, {'kind': 'idle'})])
+        self.assertEqual(len(socket.output), 2)
+        self.assertTrue(socket.closed)
+        self.assertEqual(bridge.published[-1][2]['points'][0]['positions'], [0.2])
+
+    async def test_invalid_input_stops_preceding_motion(self):
+        bridge, socket = await self.run_socket([
+            {'kind': 'base', 'x': 0.1}, {'kind': 'base', 'x': 2}])
+        self.assertEqual(bridge.published[-1][2]['linear']['x'], 0)
+        self.assertTrue(socket.closed)
+
+    async def test_unknown_joint_reports_error_and_closes(self):
+        bridge, socket = await self.run_socket([{'kind': 'joint', 'joint': 'unknown'}])
+        self.assertTrue(socket.output[-1]['error'])
+        self.assertTrue(socket.closed)
+        self.assertEqual(bridge.published, [])
+
+    async def test_read_only_connection_never_sends_motion(self):
+        bridge, socket = await self.run_socket([{'kind': 'idle'}, 'disconnect'])
+        self.assertEqual(bridge.published, [])
+        self.assertTrue(socket.output[0]['state']['feedback_fresh'])
+
+
+if __name__ == '__main__':
+    unittest.main()

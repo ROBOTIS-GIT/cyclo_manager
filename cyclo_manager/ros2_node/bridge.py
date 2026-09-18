@@ -61,6 +61,7 @@ class RequestKind:
     REMOVE_SUBSCRIPTION = 'remove_subscription'
     GET_PUBLISHER_QOS = 'get_publisher_qos'
     PUBLISH_TOPIC = 'publish_topic'
+    PREPARE_JOG = 'prepare_jog'
 
 
 RequestPayload: TypeAlias = tuple[Any, queue.Queue[Any]]
@@ -208,11 +209,12 @@ class Ros2Bridge:
         topic: str,
         linear_x: float,
         angular_z: float,
+        linear_y: float = 0.0,
     ) -> bool:
         if not self._is_running:
             return False
         data = {
-            'linear': {'x': linear_x, 'y': 0.0, 'z': 0.0},
+            'linear': {'x': linear_x, 'y': linear_y, 'z': 0.0},
             'angular': {'x': 0.0, 'y': 0.0, 'z': angular_z},
         }
         return (
@@ -222,6 +224,20 @@ class Ros2Bridge:
             )
             is True
         )
+
+    def publish_jog(self, topic: str, msg_type: str, data: dict[str, Any]) -> bool:
+        """Never execute a jog command that sat in the spin queue too long."""
+        if not self._is_running:
+            return False
+        return self._enqueue_request(
+            RequestKind.PUBLISH_TOPIC,
+            (topic, msg_type, data, time.monotonic() + 0.25),
+            timeout=0.5,
+        ) is True
+
+    def prepare_jog_publishers(self, topics: list[tuple[str, str]]) -> bool:
+        """Allow DDS discovery before the first single-step command, without moving."""
+        return self._enqueue_request(RequestKind.PREPARE_JOG, topics) is True
 
     # ------------------------------------------------------------------
     # Public API — read cache / topic metadata
@@ -345,10 +361,23 @@ class Ros2Bridge:
                             e,
                         )
                         result = get_default_qos_profile()
-                elif kind == RequestKind.PUBLISH_TOPIC:
-                    topic, msg_type, data = request_payload
+                elif kind == RequestKind.PREPARE_JOG:
                     try:
-                        result = self._handle_publish_topic(topic, msg_type, data)
+                        result = all(
+                            self._get_or_create_publisher(topic, msg_type) is not None
+                            for topic, msg_type in request_payload)
+                    except Exception as e:
+                        logger.warning('Jog publisher preparation failed: %s', e)
+                        result = False
+                elif kind == RequestKind.PUBLISH_TOPIC:
+                    topic, msg_type, data, *deadline = request_payload
+                    try:
+                        result = (
+                            self._handle_publish_topic(
+                                topic, msg_type, data, require_subscriber=bool(deadline))
+                            if not deadline or time.monotonic() < deadline[0]
+                            else False
+                        )
                     except Exception as e:
                         logger.warning(
                             'Publish request failed: topic=%s msg_type=%s error=%s',
@@ -440,11 +469,25 @@ class Ros2Bridge:
             return True
         return False
 
+    def _get_or_create_publisher(self, topic: str, msg_type: str):
+        pub_key = (topic, msg_type)
+        with self._lock:
+            pub = self._pubs.get(pub_key)
+        if pub is None and self._rclpy_node:
+            msg_class = get_message_class(msg_type)
+            if msg_class is None:
+                return None
+            pub = self._rclpy_node.create_publisher(msg_class, topic, 5)
+            with self._lock:
+                self._pubs[pub_key] = pub
+        return pub
+
     def _handle_publish_topic(
         self,
         topic: str,
         msg_type: str,
         data: dict[str, Any],
+        require_subscriber: bool = False,
     ) -> bool:
         if not self._rclpy_node:
             return False
@@ -453,17 +496,19 @@ class Ros2Bridge:
             logger.error('Unknown message type for publish: %s', msg_type)
             return False
 
-        pub_key = (topic, msg_type)
-        with self._lock:
-            pub = self._pubs.get(pub_key)
-        if pub is None:
-            pub = self._rclpy_node.create_publisher(msg_class, topic, 5)
-            with self._lock:
-                self._pubs[pub_key] = pub
+        pub = self._get_or_create_publisher(topic, msg_type)
+        if pub is None or (require_subscriber and pub.get_subscription_count() == 0):
+            logger.warning('No subscriber matched for jog topic: %s', topic)
+            return False
 
         try:
             msg = msg_class()
-            self._populate_message(msg, data)
+            if msg_type == 'trajectory_msgs/msg/JointTrajectory':
+                # Nested message arrays need actual JointTrajectoryPoint instances.
+                from rosidl_runtime_py.set_message import set_message_fields
+                set_message_fields(msg, data)
+            else:
+                self._populate_message(msg, data)
             pub.publish(msg)
             return True
         except Exception as e:

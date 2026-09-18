@@ -334,6 +334,7 @@ class ROS2TwistPublishRequest(BaseModel):
         description='Forward/backward velocity in m/s',
         examples=[0.3],
     )
+    linear_y: float = Field(0.0, description='Lateral velocity in m/s')
     angular_z: float = Field(
         0.0,
         description='Yaw angular velocity in rad/s',

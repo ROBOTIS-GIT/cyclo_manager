@@ -352,6 +352,7 @@ export interface ROS2TopicInfoResponse {
 
 export interface ROS2TwistPublishRequest {
   linear_x: number;
+  linear_y?: number;
   angular_z: number;
   topic?: string;
 }

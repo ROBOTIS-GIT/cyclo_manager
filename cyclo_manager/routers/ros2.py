@@ -52,7 +52,7 @@ def _require_bridge() -> Ros2Bridge:
 async def publish_cmd_vel(body: ROS2TwistPublishRequest):
     """Publish geometry_msgs/msg/Twist for web jog control."""
     bridge = _require_bridge()
-    ok = bridge.publish_twist(body.topic, body.linear_x, body.angular_z)
+    ok = bridge.publish_twist(body.topic, body.linear_x, body.angular_z, body.linear_y)
     if not ok:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
