@@ -20,7 +20,6 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import Convert from "ansi-to-html";
 import { usePolling } from "@/hooks/usePolling";
 import { controlDockerContainer, getDockerContainers, getDockerContainerLogs } from "@/lib/api";
-import { SIDEBAR_WIDTH_PX } from "@/lib/layout";
 import ContainerControlBox from "@/components/system/ContainerControlBox";
 import { useTheme } from "@/contexts/ThemeContext";
 
@@ -105,13 +104,8 @@ export default function NoVNCPage() {
 
   return (
     <div
-      className="flex flex-col overflow-hidden"
+      className="workspace-fullscreen flex flex-col overflow-hidden"
       style={{
-        position: "fixed",
-        left: SIDEBAR_WIDTH_PX,
-        top: 0,
-        right: 0,
-        bottom: 0,
         backgroundColor: "var(--vscode-editor-background)",
       }}
     >

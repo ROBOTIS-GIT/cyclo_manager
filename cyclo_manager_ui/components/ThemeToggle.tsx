@@ -21,10 +21,12 @@ import { useTheme } from "@/contexts/ThemeContext";
 export default function ThemeToggle({
   compact = false,
   rail = false,
+  buttonHeight,
 }: {
   compact?: boolean;
   /** Narrow ~120px sidebar: smallest labels and padding */
   rail?: boolean;
+  buttonHeight?: number;
 }) {
   const { theme, setTheme } = useTheme();
 
@@ -50,6 +52,8 @@ export default function ThemeToggle({
         onClick={() => setTheme("light")}
         className={segmentBase}
         style={{
+          minHeight: buttonHeight,
+          minWidth: buttonHeight == null ? undefined : 0,
           backgroundColor: theme === "light" ? "var(--vscode-list-activeSelectionBackground)" : "transparent",
           color: theme === "light" ? "var(--vscode-foreground)" : "var(--vscode-descriptionForeground)",
           borderRight: "1px solid var(--vscode-panel-border)",
@@ -64,6 +68,8 @@ export default function ThemeToggle({
         onClick={() => setTheme("dark")}
         className={segmentBase}
         style={{
+          minHeight: buttonHeight,
+          minWidth: buttonHeight == null ? undefined : 0,
           backgroundColor: theme === "dark" ? "var(--vscode-list-activeSelectionBackground)" : "transparent",
           color: theme === "dark" ? "var(--vscode-foreground)" : "var(--vscode-descriptionForeground)",
         }}

@@ -222,7 +222,7 @@ export default function HomePage() {
       )}
       <div className="flex flex-col gap-6">
 
-        <div className="grid gap-4 items-stretch" style={{ gridTemplateColumns: "1fr 2fr 1fr" }}>
+        <div className="grid grid-cols-1 xl:grid-cols-[1fr_2fr] gap-4 items-stretch">
 
           {/* Robot Information */}
           <section>
@@ -249,7 +249,7 @@ export default function HomePage() {
                 </div>
               ) : (
                 <div
-                  className="p-6 flex flex-nowrap justify-around overflow-hidden"
+                  className="p-4 grid grid-cols-2 sm:flex sm:flex-wrap justify-around"
                   style={{ gap: hasSsdStats ? 12 : 24 }}
                 >
                   <button
@@ -307,7 +307,7 @@ export default function HomePage() {
         </div>
 
         {/* ── Bottom row: 2 columns ── */}
-        <div className="grid gap-4 items-start" style={{ gridTemplateColumns: "1.5fr 1fr" }}>
+        <div className="grid grid-cols-1 xl:grid-cols-[1.5fr_1fr] gap-4 items-start">
 
         <section>
           <Card
@@ -317,12 +317,13 @@ export default function HomePage() {
                 onClick={() => setShowDockerImages(true)}
                 title="Docker images"
                 aria-label="Docker images"
+                className="docker-images-action"
                 style={{
                   display: "flex",
                   alignItems: "center",
                   justifyContent: "center",
-                  width: 30,
-                  height: 30,
+                  width: "var(--docker-images-size, 30px)",
+                  height: "var(--docker-images-size, 30px)",
                   padding: 0,
                   border: "none",
                   borderRadius: "50%",
@@ -393,7 +394,7 @@ export default function HomePage() {
           style={{ backgroundColor: "rgba(0,0,0,0.5)" }}
         >
           <div
-            className="rounded-lg border shadow-xl w-[42rem] h-[28rem] flex flex-col overflow-hidden"
+            className="rounded-lg border shadow-xl w-[min(42rem,calc(100vw-24px))] h-[min(28rem,calc(100dvh-32px))] flex flex-col overflow-hidden"
             style={{ backgroundColor: "var(--vscode-editor-background)", borderColor: "var(--vscode-panel-border)" }}
           >
             {/* header */}

@@ -21,11 +21,16 @@ import type { CSSProperties, ReactNode } from "react";
 import { createPortal } from "react-dom";
 
 const HELP_BTN_CLASS =
-  "inline-flex items-center justify-center shrink-0 rounded-full border leading-none font-semibold cursor-pointer select-none hover:opacity-80 focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--vscode-focusBorder)]";
+  "help-popover-trigger inline-flex items-center justify-center shrink-0 rounded-full border leading-none font-semibold cursor-pointer select-none hover:opacity-80 focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--vscode-focusBorder)]";
 
 const HELP_BTN_STYLE: CSSProperties = {
   width: "15px",
   height: "15px",
+  minWidth: "15px",
+  minHeight: "15px",
+  maxWidth: "15px",
+  maxHeight: "15px",
+  padding: 0,
   fontSize: "10px",
   lineHeight: 1,
   borderColor: "var(--vscode-panel-border)",

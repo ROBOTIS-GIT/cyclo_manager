@@ -18,7 +18,7 @@
 
 import { usePathname, useRouter } from "next/navigation";
 import Link from "next/link";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { SIDEBAR_WIDTH_PX } from "@/lib/layout";
 import { AppsHubButton } from "@/components/AppsHubLink";
 import ManagerIntelligenceShortcuts from "@/components/ManagerIntelligenceShortcuts";
@@ -32,6 +32,28 @@ export default function VSCodeLayout({
 }: {
   children: React.ReactNode;
 }) {
+  const menu = useRef<HTMLDialogElement>(null);
+  const [menuOpen, setMenuOpen] = useState(false);
+  const closeMenu = () => menu.current?.close();
+  const openMenu = () => {
+    window.dispatchEvent(new Event("cyclo:jog-stop"));
+    menu.current?.showModal();
+    setMenuOpen(true);
+  };
+  useEffect(() => {
+    const updateHeight = () => {
+      document.documentElement.style.setProperty("--app-height", `${window.visualViewport?.height ?? window.innerHeight}px`);
+      if (window.matchMedia("(min-width: 768px)").matches) menu.current?.close();
+    };
+    updateHeight();
+    window.addEventListener("resize", updateHeight);
+    window.visualViewport?.addEventListener("resize", updateHeight);
+    return () => {
+      window.removeEventListener("resize", updateHeight);
+      window.visualViewport?.removeEventListener("resize", updateHeight);
+      document.documentElement.style.removeProperty("--app-height");
+    };
+  }, []);
   const pathname = usePathname();
   const router = useRouter();
   const [navError, setNavError] = useState<string | null>(null);
@@ -54,6 +76,7 @@ export default function VSCodeLayout({
   ];
 
   async function handleSystemClick() {
+    closeMenu();
     setNavError(null);
     setSystemChoices([]);
     try {
@@ -88,6 +111,7 @@ export default function VSCodeLayout({
   }
 
   async function handleJogClick() {
+    closeMenu();
     setNavError(null);
     setSystemChoices([]);
     try {
@@ -103,39 +127,10 @@ export default function VSCodeLayout({
     }
   }
 
-  return (
-    <div style={{ height: "100vh", display: "flex", flexDirection: "column", overflow: "hidden" }}>
-      <div style={{ display: "flex", flex: 1, overflow: "hidden" }}>
-      {/* Sidebar */}
-      <div
-        className="flex flex-col"
-        style={{
-          backgroundColor: "var(--vscode-sidebar-background)",
-          borderRight: "1px solid var(--vscode-sidebar-border)",
-          width: `${SIDEBAR_WIDTH_PX}px`,
-          minWidth: `${SIDEBAR_WIDTH_PX}px`,
-        }}
-      >
-        {/* Sidebar Header */}
-        <div
-          className="px-1.5 py-2 border-b flex flex-col gap-2 items-center shrink-0"
-          style={{ borderColor: "var(--vscode-sidebar-border)" }}
-        >
-          <div className="w-full min-w-0">
-            <ThemeToggle rail />
-          </div>
-          <div
-            className="border-t pt-2 w-full -mx-1.5 px-1.5"
-            style={{ borderColor: "var(--vscode-sidebar-border)" }}
-          >
-            <div className="flex justify-center w-full items-center gap-1 flex-nowrap">
-              <AppsHubButton variant="onSidebar" compact />
-              <ManagerIntelligenceShortcuts variant="onSidebar" compact />
-            </div>
-          </div>
-        </div>
-
-        {/* Sidebar Navigation */}
+  const title = pathname?.match(/^\/[^/]+\/system\/?$/) ? "System"
+    : navItems.find(item => "href" in item && item.href === pathname)?.label
+      ?? (pathname === "/jog" ? "Jog" : "Cyclo Manager");
+  const navigation = (
         <nav
           className="flex-1 min-h-0 w-full flex flex-col items-center gap-1.5 py-2 px-1 overflow-y-auto"
           style={{ scrollbarGutter: "stable" }}
@@ -210,6 +205,7 @@ export default function VSCodeLayout({
               <Link
                 key={"href" in item ? item.href : item.label}
                 href={"href" in item ? item.href : "/"}
+                onClick={closeMenu}
                 className={`${sharedClass} no-underline`}
                 style={baseStyle}
                 onMouseEnter={(e) => {
@@ -225,14 +221,72 @@ export default function VSCodeLayout({
             );
           })}
         </nav>
+  );
+
+  return (
+    <div className="app-shell flex flex-col overflow-hidden">
+      <header className="mobile-header flex items-center gap-3 border-b px-3 md:hidden" style={{ background: "var(--vscode-sidebar-background)", borderColor: "var(--vscode-panel-border)" }}>
+        <button type="button" onClick={openMenu} aria-label="Open navigation" aria-controls="mobile-navigation" aria-expanded={menuOpen} className="h-11 w-11 rounded text-xl">☰</button>
+        <span className="font-semibold flex-1 truncate">{title}</span>
+        <span className="text-xs" style={{ color: "var(--vscode-descriptionForeground)" }}>Cyclo Manager</span>
+      </header>
+      <dialog ref={menu} id="mobile-navigation" aria-label="Navigation" className="mobile-navigation"
+        onClose={() => setMenuOpen(false)} onClick={event => { if (event.target === event.currentTarget) closeMenu(); }}>
+        <div className="h-full flex flex-col">
+          <div className="flex items-center justify-between gap-3 px-4 py-2 border-b" style={{ borderColor: "var(--vscode-panel-border)" }}>
+            <span className="font-semibold">Cyclo Manager</span>
+            <button type="button" onClick={closeMenu} aria-label="Close navigation" className="h-11 w-11 rounded text-xl">×</button>
+          </div>
+          <div className="mobile-menu-tools flex items-center justify-between gap-3 px-4 py-3 border-b shrink-0" style={{ borderColor: "var(--vscode-panel-border)" }}>
+            <div className="w-[108px] shrink-0"><ThemeToggle rail buttonHeight={24} /></div>
+            <div className="flex items-center gap-1" onClick={event => { if ((event.target as HTMLElement).closest("a")) closeMenu(); }}>
+              <AppsHubButton variant="onSidebar" compact />
+              <ManagerIntelligenceShortcuts variant="onSidebar" compact />
+            </div>
+          </div>
+          {navigation}
+        </div>
+      </dialog>
+      <div style={{ display: "flex", flex: 1, overflow: "hidden" }}>
+      {/* Sidebar */}
+      <div
+        className="hidden md:flex flex-col shrink-0"
+        style={{
+          backgroundColor: "var(--vscode-sidebar-background)",
+          borderRight: "1px solid var(--vscode-sidebar-border)",
+          width: `${SIDEBAR_WIDTH_PX}px`,
+          minWidth: `${SIDEBAR_WIDTH_PX}px`,
+        }}
+      >
+        {/* Sidebar Header */}
+        <div
+          className="px-1.5 py-2 border-b flex flex-col gap-2 items-center shrink-0"
+          style={{ borderColor: "var(--vscode-sidebar-border)" }}
+        >
+          <div className="w-full min-w-0">
+            <ThemeToggle rail />
+          </div>
+          <div
+            className="border-t pt-2 w-full -mx-1.5 px-1.5"
+            style={{ borderColor: "var(--vscode-sidebar-border)" }}
+          >
+            <div className="flex justify-center w-full items-center gap-1 flex-nowrap">
+              <AppsHubButton variant="onSidebar" compact />
+              <ManagerIntelligenceShortcuts variant="onSidebar" compact />
+            </div>
+          </div>
+        </div>
+
+        {/* Sidebar Navigation */}
+        {navigation}
       </div>
 
       {/* Main Content Area */}
       <main
-        className="flex-1 flex flex-col overflow-hidden"
+        className="flex-1 min-w-0 flex flex-col overflow-hidden"
         style={{ backgroundColor: "var(--vscode-editor-background)" }}
       >
-        <div className="flex-1 min-h-0 overflow-auto p-6">
+        <div className="app-content flex-1 min-h-0 min-w-0 overflow-auto p-3 md:p-6">
           {children}
         </div>
       </main>

@@ -458,11 +458,10 @@ export default function SystemPage() {
 
   return (
     <div
-      className="relative flex flex-col overflow-hidden"
-      style={{ height: "calc(100vh - 120px)", minHeight: "400px" }}
+      className="system-page relative flex flex-col"
     >
       <div
-        className="flex flex-wrap items-stretch gap-0 border-b py-2"
+        className="system-services grid grid-cols-1 sm:grid-cols-2 xl:flex xl:flex-wrap items-stretch gap-2 xl:gap-0 border-b py-2"
         style={{
           backgroundColor: "var(--vscode-editor-background)",
           borderColor: "var(--vscode-panel-border)",
@@ -568,7 +567,7 @@ export default function SystemPage() {
           }}
         />
 
-        <div className="flex-1 min-w-[8px]" style={{ flexBasis: 0 }} aria-hidden />
+        <div className="hidden xl:block flex-1 min-w-[8px]" style={{ flexBasis: 0 }} aria-hidden />
 
         {(robotService.error || leaderService.error) && (
           <div className="flex gap-3 w-full mt-2">
@@ -602,8 +601,8 @@ export default function SystemPage() {
           serialPorts={serialPorts}
         />
       </div>
-      <div className="flex gap-4 items-stretch mt-4 flex-1 min-h-0">
-        <div className="flex-none flex flex-col gap-4" style={{ width: "500px" }}>
+      <div className="flex flex-col lg:flex-row gap-4 items-stretch mt-4 flex-1 min-h-0">
+        <div className="w-full lg:w-[500px] max-w-full flex-none flex flex-col gap-4">
           <Robot3DViewer />
           <div
             className="rounded border overflow-hidden"
@@ -667,22 +666,22 @@ export default function SystemPage() {
           </div>
         </div>
         {showLogs && !showLeaderLogs && (
-          <div style={PANEL_STYLES}>
+          <div className="system-log-panel" style={PANEL_STYLES}>
             <FixedLogPanel container={container} service={activeSystemProfile.robotServiceName} onClose={() => setShowLogs(false)} />
           </div>
         )}
         {activeSystemProfile.leaderServiceName && showLeaderLogs && !showLogs && (
-          <div style={PANEL_STYLES}>
+          <div className="system-log-panel" style={PANEL_STYLES}>
             <FixedLogPanel container={container} service={activeSystemProfile.leaderServiceName} onClose={() => setShowLeaderLogs(false)} />
           </div>
         )}
         {showCycloIntelligenceLogs && (
-          <div style={PANEL_STYLES}>
+          <div className="system-log-panel" style={PANEL_STYLES}>
             <FixedLogPanel container={CYCLO_INTELLIGENCE_CONTAINER} service={CYCLO_INTELLIGENCE_SERVICE} onClose={() => setShowCycloIntelligenceLogs(false)} />
           </div>
         )}
         {showZenohDaemonLogs && (
-          <div style={PANEL_STYLES}>
+          <div className="system-log-panel" style={PANEL_STYLES}>
             <div className="flex flex-col h-full rounded border overflow-hidden" style={{ backgroundColor: "var(--vscode-sidebar-background)", borderColor: "var(--vscode-panel-border)" }}>
               <div className="flex items-center justify-between px-3 py-2 border-b shrink-0" style={{ borderColor: "var(--vscode-panel-border)" }}>
                 <span className="text-sm font-medium" style={{ color: "var(--vscode-foreground)" }}>Zenoh Daemon — Log</span>

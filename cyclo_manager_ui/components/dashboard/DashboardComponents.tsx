@@ -353,11 +353,11 @@ const iconBtn: CSSProperties = {
   display: "flex",
   alignItems: "center",
   justifyContent: "center",
-  width: 30,
-  height: 30,
+  width: "var(--container-control-size, 30px)",
+  height: "var(--container-control-size, 30px)",
   padding: 0,
   border: "none",
-  borderRadius: "50%",
+  borderRadius: "var(--container-control-radius, 50%)",
   cursor: "pointer",
   backgroundColor: "var(--vscode-button-secondaryBackground)",
   color: "var(--vscode-button-secondaryForeground)",
@@ -377,7 +377,7 @@ function IconButton({
   children: ReactNode;
 }) {
   return (
-    <button onClick={onClick} disabled={disabled} title={title} style={disabled ? iconBtnDisabled : iconBtn}>
+    <button type="button" className="container-icon-button" onClick={onClick} disabled={disabled} title={title} aria-label={title} style={disabled ? iconBtnDisabled : iconBtn}>
       {children}
     </button>
   );
@@ -404,22 +404,22 @@ export function ContainerRow({
 
   return (
     <div
-      className="flex items-center gap-3 px-4 py-3"
+      className="container-status-row grid grid-cols-[minmax(0,1fr)_auto] md:flex items-center gap-3 px-3 md:px-4 py-3"
       style={bordered ? { borderTop: "1px solid var(--vscode-panel-border)" } : undefined}
     >
       <div className="flex-1 min-w-0">
-        <div className="text-base font-medium truncate" style={{ color: "var(--vscode-foreground)" }}>
+        <div className="text-sm md:text-base font-semibold md:font-medium truncate" title={container.name} style={{ color: "var(--vscode-foreground)" }}>
           {container.name}
         </div>
-        <div className="text-sm truncate" style={{ color: "var(--vscode-descriptionForeground)" }}>
+        <div className="text-xs md:text-sm mt-1 md:mt-0 truncate" title={container.image} style={{ color: "var(--vscode-descriptionForeground)" }}>
           {container.image}
         </div>
       </div>
-      <div className="w-24 flex justify-start shrink-0">
+      <div className="md:w-24 flex justify-start shrink-0 whitespace-nowrap">
         <StatusBadge status={container.status} />
       </div>
-      <div className="flex items-center gap-1.5 shrink-0">
-        <div className="flex items-center gap-1.5" style={{ width: 100 }}>
+      <div className="container-actions col-span-2 flex items-center justify-between md:justify-start gap-2 md:gap-1.5 shrink-0 border-t md:border-t-0 pt-3 md:pt-0" style={{ borderColor: "var(--vscode-panel-border)" }}>
+        <div className="grid grid-cols-[repeat(3,32px)] gap-1 shrink-0 md:flex md:items-center md:gap-1.5 md:shrink" style={{ width: "var(--container-controls-width, 100px)" }}>
           {running ? (
             <>
               <IconButton onClick={() => onAction("stop")} disabled={busy} title={busyAction === "stop" ? "Stopping..." : "Stop"}>
@@ -441,7 +441,7 @@ export function ContainerRow({
                   <polygon points="2,1 11,6 2,11" />
                 </svg>
               </IconButton>
-              <span style={{ width: 30 }} />
+              <span aria-hidden="true" style={{ width: "var(--container-control-size, 30px)" }} />
             </>
           )}
           <IconButton onClick={onOpenLog} title="Log">
@@ -453,19 +453,21 @@ export function ContainerRow({
           </IconButton>
         </div>
 
-        <div className="mx-1.5 h-4 w-px" style={{ backgroundColor: "var(--vscode-panel-border)" }} />
+        <div className="hidden md:block mx-1.5 h-4 w-px" style={{ backgroundColor: "var(--vscode-panel-border)" }} />
 
-        <Link
-          href={running ? `/terminal?container=${encodeURIComponent(container.name)}` : "#"}
-          style={btnStyle(false, !running)}
-          className="no-underline text-xs"
-          onClick={!running ? (e) => e.preventDefault() : undefined}
-        >
-          Terminal
-        </Link>
-        <button onClick={onOpenBashrc} disabled={!running} style={btnStyle(false, !running)}>
-          bashrc
-        </button>
+        <div className="flex items-center gap-1 md:contents">
+          <Link
+            href={running ? `/terminal?container=${encodeURIComponent(container.name)}` : "#"}
+            style={{ ...btnStyle(false, !running), padding: "var(--container-text-padding, 4px 12px)", fontSize: "var(--container-text-font, 13px)" }}
+            className="container-text-button no-underline text-xs flex items-center justify-center md:block whitespace-nowrap"
+            onClick={!running ? (e) => e.preventDefault() : undefined}
+          >
+            Terminal
+          </Link>
+          <button type="button" className="container-text-button whitespace-nowrap" onClick={onOpenBashrc} disabled={!running} style={{ ...btnStyle(false, !running), padding: "var(--container-text-padding, 4px 12px)", fontSize: "var(--container-text-font, 13px)" }}>
+            bashrc
+          </button>
+        </div>
       </div>
     </div>
   );

@@ -14,7 +14,7 @@
 //
 // Author: Hyungyu Kim
 
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import Script from "next/script";
 import "./globals.css";
 import ConditionalLayout from "@/components/ConditionalLayout";
@@ -28,6 +28,12 @@ export const metadata: Metadata = {
   },
 };
 
+export const viewport: Viewport = {
+  width: "device-width",
+  initialScale: 1,
+  viewportFit: "cover",
+};
+
 export default function RootLayout({
   children,
 }: Readonly<{
@@ -35,7 +41,7 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en" suppressHydrationWarning>
-      <body className="antialiased" style={{ height: "100vh", margin: 0, padding: 0 }}>
+      <body className="antialiased" style={{ height: "100dvh", margin: 0, padding: 0 }}>
         <Script id="theme-init" strategy="beforeInteractive">
           {`(function() {
             try {

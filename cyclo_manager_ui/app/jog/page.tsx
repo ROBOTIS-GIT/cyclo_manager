@@ -95,6 +95,7 @@ export default function JogPage() {
   const [linearSpeed, setLinearSpeed] = useState(0.1);
   const [angularSpeed, setAngularSpeed] = useState(0.2);
   const [baseMode, setBaseMode] = useState<"joystick" | "keyboard">("joystick");
+  const [mobileSection, setMobileSection] = useState<"base" | "joints">("base");
   const basePanel = useRef<HTMLDivElement>(null);
   const [jointResolution, setJointResolution] = useState<JogResolution>("normal");
   const [group, setGroup] = useState("body");
@@ -156,6 +157,7 @@ export default function JogPage() {
       if (editable(event.target)) return;
       if (event.key === " ") { event.preventDefault(); keys.clear(); stopAll(); return; }
       const key = event.key.toLowerCase();
+      if (mobileSection !== "base" && window.matchMedia("(max-width: 767px)").matches) return;
       if (baseMode !== "keyboard" || !baseEnabled || !["w", "a", "s", "d", "q", "e", "arrowup", "arrowdown", "arrowleft", "arrowright"].includes(key)) return;
       event.preventDefault(); if (event.repeat) return;
       keys.add(key); publishKeys();
@@ -170,7 +172,7 @@ export default function JogPage() {
       if (keys.size) stopMotion();
       window.removeEventListener("keydown", down); window.removeEventListener("keyup", up); window.removeEventListener("blur", clear);
     };
-  }, [baseMode, baseEnabled, linearSpeed, angularSpeed, command, stopMotion, stopAll]);
+  }, [mobileSection, baseMode, baseEnabled, linearSpeed, angularSpeed, command, stopMotion, stopAll]);
 
   const joints = jog.state?.joints ?? [];
   const tabs = [
@@ -188,7 +190,7 @@ export default function JogPage() {
   const bringupLabel = checking ? "Checking…" : robotError ? "Unavailable" : running ? "Running" : "Stopped";
   const controlsDisabled = checking || !running;
 
-  return <div className="h-full overflow-auto" style={{ color: "var(--vscode-foreground)", background: "var(--vscode-editor-background)" }}>
+  return <div className="jog-page h-full overflow-auto" style={{ color: "var(--vscode-foreground)", background: "var(--vscode-editor-background)" }}>
     <header className="sticky top-0 z-10 flex flex-wrap items-center justify-between gap-3 px-5 py-3 border-b" style={surface}>
       <div><h1 className="text-lg font-semibold">Jog <span className="text-sm font-normal ml-2" style={secondary}>{robot.toUpperCase()}</span></h1>
         <div className="flex items-center gap-2 text-xs mt-1" style={secondary}>
@@ -200,7 +202,7 @@ export default function JogPage() {
           Robot bringup: {bringupLabel}
         </div>
       </div>
-      <div className="flex flex-wrap items-center gap-3">
+      <div className="jog-actions flex flex-wrap items-center gap-3" style={surface}>
         {!jog.connected && <button type="button" className={btn} style={button} onClick={jog.reconnect}>Reconnect</button>}
         <label className="text-sm flex gap-2 items-center"><input type="checkbox" checked={enabled} disabled={!jog.connected || controlsDisabled} onChange={event => { setActiveJoint(null); jog.setEnabled(event.target.checked); }} />Enable jog</label>
         <button type="button" className={`${btn} font-semibold`} style={danger} onClick={stopAll}>■ Stop jog</button>
@@ -208,10 +210,16 @@ export default function JogPage() {
     </header>
     {error && <div role="alert" className="m-4 p-3 border rounded text-sm" style={danger}>{error}</div>}
     {!running && !checking && <div className="mx-5 mt-4 text-sm" style={secondary}>Start the robot from System to use Jog.</div>}
+    <div role="tablist" aria-label="Jog section" className="grid grid-cols-2 gap-2 p-2 md:hidden">
+      {(["base", "joints"] as const).map(section => <button type="button" role="tab" key={section}
+        aria-selected={mobileSection === section} disabled={controlsDisabled} className={btn}
+        style={mobileSection === section ? { ...button, background: "var(--vscode-button-background)", color: "var(--vscode-button-foreground)" } : button}
+        onClick={() => { stopMotion(); setMobileSection(section); }}>{section === "base" ? "Base" : "Joints"}</button>)}
+    </div>
     <fieldset aria-label="Jog controls" disabled={controlsDisabled} inert={controlsDisabled}
       className="grid grid-cols-1 lg:grid-cols-[minmax(260px,0.85fr)_minmax(300px,1.15fr)] gap-4 p-2 md:p-5 min-w-0 border-0"
       style={{ opacity: controlsDisabled ? 0.45 : 1 }}>
-      <section className="p-4 md:p-5 rounded-lg border min-w-0" style={surface}>
+      <section className={`${mobileSection === "base" ? "" : "hidden md:block"} p-4 md:p-5 rounded-lg border min-w-0`} style={surface}>
         <div className="flex justify-between items-start gap-2 mb-5"><h2 className="font-semibold">Mobile base</h2>{jog.state && !jog.state.base_supported && <span className="text-xs" style={secondary}>Not supported</span>}</div>
         <div role="tablist" aria-label="Base input mode" className="flex gap-2 mb-4">
           {(["joystick", "keyboard"] as const).map(mode => <button key={mode} type="button" role="tab"
@@ -252,7 +260,7 @@ export default function JogPage() {
         </div>
       </section>
       <fieldset aria-label="Joint jog controls" disabled={!jointSupported} inert={!jointSupported}
-        className="@container p-4 md:p-5 rounded-lg border min-w-0" style={{ ...surface, opacity: jointSupported ? 1 : 0.45 }}>
+        className={`${mobileSection === "joints" ? "" : "hidden md:block"} @container p-4 md:p-5 rounded-lg border min-w-0`} style={{ ...surface, opacity: jointSupported ? 1 : 0.45 }}>
         <div className="flex justify-between items-start gap-2 mb-4">
           <div><h2 className="font-semibold">Joint jog</h2>{!jointSupported && <p className="text-xs mt-1" style={secondary}>Mobile bringup supports base jog only.</p>}</div>
           <span className="flex items-center gap-2 text-xs" style={secondary}>

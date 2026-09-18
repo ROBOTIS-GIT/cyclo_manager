@@ -210,3 +210,100 @@ pre {
 pre:hover {
   scrollbar-color: var(--vscode-scrollbarSlider-hoverBackground) transparent;
 }
+
+/* Responsive workspace — Author: Hyungyu Kim */
+.app-shell {
+  --workspace-left: 0px;
+  --workspace-top: calc(56px + env(safe-area-inset-top, 0px));
+  height: var(--app-height, 100dvh);
+  color: var(--vscode-foreground);
+}
+.mobile-header {
+  min-height: var(--workspace-top);
+  padding-top: env(safe-area-inset-top, 0px);
+  flex-shrink: 0;
+}
+.mobile-navigation {
+  position: fixed;
+  inset: 0 auto 0 0;
+  margin: 0;
+  width: min(300px, 88vw);
+  height: var(--app-height, 100dvh);
+  max-height: 100dvh;
+  padding: env(safe-area-inset-top, 0px) 0 env(safe-area-inset-bottom, 0px);
+  border: 0;
+  background: var(--vscode-sidebar-background);
+  color: var(--vscode-foreground);
+}
+.mobile-navigation::backdrop { background: rgb(0 0 0 / 45%); }
+.mobile-navigation nav > :is(a, button) {
+  aspect-ratio: auto;
+  min-height: 48px;
+  flex-direction: row;
+  justify-content: flex-start;
+  gap: 16px;
+  padding: 8px 16px;
+}
+.mobile-navigation nav > :is(a, button) > span:last-child { font-size: 14px; }
+.workspace-fullscreen {
+  position: fixed;
+  left: var(--workspace-left);
+  top: var(--workspace-top);
+  right: 0;
+  height: calc(var(--app-height, 100dvh) - var(--workspace-top));
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+}
+.system-page { min-height: 100%; }
+@media (min-width: 768px) {
+  .app-shell { --workspace-left: 120px; --workspace-top: 0px; }
+}
+@media (min-width: 1024px) {
+  .system-page { height: 100%; min-height: 400px; overflow: hidden; }
+}
+@media (max-width: 767px) {
+  .app-content { padding-bottom: max(12px, env(safe-area-inset-bottom, 0px)); }
+  .app-shell button { min-height: 44px; min-width: 44px; }
+  .app-shell .docker-images-action {
+    --docker-images-size: 28px;
+    min-height: 28px;
+    min-width: 28px;
+    flex-shrink: 0;
+  }
+  .container-status-row {
+    --container-control-size: 32px;
+    --container-control-radius: 6px;
+    --container-controls-width: 104px;
+  }
+  .app-shell .container-icon-button { min-height: 32px; min-width: 32px; }
+  .app-shell .container-text-button {
+    --container-text-padding: 4px 6px;
+    --container-text-font: 12px;
+    height: 32px;
+    min-height: 32px;
+    min-width: 0;
+    line-height: 16px;
+    flex-shrink: 0;
+  }
+  .app-shell select { min-height: 44px; max-width: 100%; }
+  .app-shell input:not([type="checkbox"]):not([type="radio"]):not([type="range"]),
+  .app-shell select, .app-shell textarea { font-size: 16px; }
+  .jog-page { padding-bottom: calc(88px + env(safe-area-inset-bottom, 0px)); }
+  .jog-actions {
+    position: fixed;
+    inset: auto 0 0;
+    z-index: 30;
+    justify-content: space-between;
+    padding: 10px 16px calc(10px + env(safe-area-inset-bottom, 0px));
+    border-top: 1px solid var(--vscode-panel-border);
+  }
+  .jog-actions label { min-height: 44px; }
+}
+@media (max-width: 1023px) {
+  .system-log-panel {
+    position: fixed;
+    inset: calc(var(--workspace-top) + 12px) 12px max(12px, env(safe-area-inset-bottom, 0px));
+    z-index: 40;
+    background: var(--vscode-editor-background);
+    box-shadow: 0 12px 48px rgb(0 0 0 / 40%);
+  }
+}

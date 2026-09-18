@@ -202,6 +202,7 @@ export function useJogConnection(robot: string, running: boolean) {
     };
     const cancel = () => stop();
     window.addEventListener("blur", blur);
+    window.addEventListener("cyclo:jog-stop", blur);
     window.addEventListener("pagehide", blur);
     window.addEventListener("pointerup", release);
     window.addEventListener("pointercancel", cancel);
@@ -214,6 +215,7 @@ export function useJogConnection(robot: string, running: boolean) {
       pumpRef.current = () => {};
       clearInterval(timer);
       window.removeEventListener("blur", blur);
+      window.removeEventListener("cyclo:jog-stop", blur);
       window.removeEventListener("pagehide", blur);
       window.removeEventListener("pointerup", release);
       window.removeEventListener("pointercancel", cancel);

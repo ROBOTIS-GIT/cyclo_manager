@@ -223,8 +223,10 @@ function ToolbarButton({
       title={title}
       disabled={disabled}
       onClick={onClick}
-      className="h-8 px-3 rounded border text-xs font-semibold disabled:cursor-not-allowed"
+      className="h-8 px-1.5 md:px-3 rounded border text-xs font-semibold whitespace-nowrap disabled:cursor-not-allowed"
       style={{
+        minHeight: 32,
+        minWidth: 0,
         color: primary ? "var(--vscode-button-foreground)" : "var(--vscode-foreground)",
         backgroundColor: primary ? "var(--vscode-button-background)" : "var(--vscode-button-secondaryBackground)",
         borderColor: "var(--vscode-panel-border)",
@@ -673,9 +675,9 @@ export default function FilesPage() {
           </div>
         </div>
       )}
-      <div className="flex items-center justify-end gap-4 pb-3">
-        <div className="flex items-center gap-2 shrink-0">
-          <label className="h-8 flex items-center gap-2 px-2 text-xs" style={{ color: "var(--vscode-foreground)" }}>
+      <div className="flex flex-wrap items-center justify-end gap-2 pb-3 shrink-0">
+        <div className="flex items-center gap-1 md:gap-2 w-full md:w-auto">
+          <label className="h-8 flex items-center gap-1 md:gap-2 md:px-2 text-[11px] md:text-xs whitespace-nowrap shrink-0" style={{ color: "var(--vscode-foreground)" }}>
             <input
               type="checkbox"
               checked={showHidden}
@@ -688,13 +690,15 @@ export default function FilesPage() {
             />
             <span>Show hidden</span>
           </label>
-          <ToolbarButton onClick={() => createItem("file")} disabled={busy || uploading}>New File</ToolbarButton>
-          <ToolbarButton onClick={() => createItem("directory")} disabled={busy || uploading}>New Folder</ToolbarButton>
-          <ToolbarButton onClick={() => loadDirectory(currentPath, showHidden, false)} disabled={loading || uploading}>Refresh</ToolbarButton>
-          {editorOpen && viewMode === "edit" && (
-            <ToolbarButton onClick={saveFile} disabled={!dirty || readonly || busy || uploading} primary>Save</ToolbarButton>
-          )}
+          <div className="flex items-center justify-end gap-1 md:gap-2 flex-1 md:flex-none">
+            <ToolbarButton onClick={() => createItem("file")} disabled={busy || uploading}>New File</ToolbarButton>
+            <ToolbarButton onClick={() => createItem("directory")} disabled={busy || uploading}>New Folder</ToolbarButton>
+            <ToolbarButton onClick={() => loadDirectory(currentPath, showHidden, false)} disabled={loading || uploading}>Refresh</ToolbarButton>
+          </div>
         </div>
+        {editorOpen && viewMode === "edit" && (
+          <ToolbarButton onClick={saveFile} disabled={!dirty || readonly || busy || uploading} primary>Save</ToolbarButton>
+        )}
       </div>
 
       {(error || message) && (
@@ -711,11 +715,11 @@ export default function FilesPage() {
       )}
 
       <div
-        className={`flex-1 min-h-0 grid ${editorOpen ? "grid-cols-[320px_minmax(0,1fr)]" : "grid-cols-[minmax(0,1fr)]"} border overflow-hidden`}
+        className={`flex-1 min-h-0 grid ${editorOpen ? "grid-cols-1 md:grid-cols-[280px_minmax(0,1fr)] lg:grid-cols-[320px_minmax(0,1fr)]" : "grid-cols-[minmax(0,1fr)]"} border overflow-hidden`}
         style={{ borderColor: "var(--vscode-panel-border)" }}
       >
         <aside
-          className={`min-w-0 min-h-0 flex flex-col ${editorOpen ? "border-r" : ""}`}
+          className={`min-w-0 min-h-0 flex-col ${editorOpen ? "hidden md:flex md:border-r" : "flex"}`}
           style={{ backgroundColor: "var(--vscode-sidebar-background)", borderColor: "var(--vscode-panel-border)" }}
         >
           <div className="px-3 py-2 border-b flex items-center gap-1 overflow-x-auto" style={{ borderColor: "var(--vscode-panel-border)" }}>
@@ -822,9 +826,10 @@ export default function FilesPage() {
                     type="button"
                     onClick={() => {
                       setSelectedEntryPath(entry.path);
+                      if (window.matchMedia("(max-width: 767px), (pointer: coarse)").matches) void openEntry(entry);
                     }}
                     onDoubleClick={() => {
-                      void openEntry(entry);
+                      if (!window.matchMedia("(max-width: 767px), (pointer: coarse)").matches) void openEntry(entry);
                     }}
                     className="min-w-0 px-3 py-2 text-left"
                     style={{ color: active ? "var(--vscode-foreground)" : "var(--vscode-foreground)", background: "transparent", border: "none" }}
@@ -887,16 +892,16 @@ export default function FilesPage() {
 
         {editorOpen && (
           <section className="min-w-0 min-h-0 flex flex-col" style={{ backgroundColor: "var(--vscode-editor-background)" }}>
-            <div className="h-10 px-4 border-b flex items-center justify-between gap-3" style={{ borderColor: "var(--vscode-panel-border)" }}>
+            <div className="min-h-11 px-3 py-2 border-b flex flex-wrap items-center justify-between gap-2 shrink-0" style={{ borderColor: "var(--vscode-panel-border)" }}>
               <div className="min-w-0">
                 <div className="text-sm font-semibold truncate" style={{ color: "var(--vscode-foreground)" }}>
                   {selectedPath} {dirty ? "*" : ""}
                 </div>
               </div>
-              <div className="flex items-center gap-3 text-xs shrink-0" style={{ color: "var(--vscode-descriptionForeground)" }}>
+              <div className="flex flex-wrap items-center gap-2 text-xs" style={{ color: "var(--vscode-descriptionForeground)" }}>
                 <span>{fileLanguage(selectedPath)}</span>
                 {fileSize != null && <span>{formatBytes(fileSize)}</span>}
-                {fileModified != null && <span>{formatTime(fileModified)}</span>}
+                {fileModified != null && <span className="hidden lg:inline">{formatTime(fileModified)}</span>}
                 {readonly && <span style={{ color: "var(--vscode-warningForeground)" }}>Read only</span>}
                 {viewMode === "edit" && (
                   <button
@@ -944,7 +949,7 @@ export default function FilesPage() {
                     border: "1px solid var(--vscode-panel-border)",
                   }}
                 >
-                  Close
+                  <span className="md:hidden">← Files</span><span className="hidden md:inline">Close</span>
                 </button>
               </div>
             </div>
@@ -958,7 +963,13 @@ export default function FilesPage() {
                   tabSize: 2,
                 }}
               >
-                <div className="min-w-[900px]">
+                <div className="md:hidden" aria-label="Unified diff">
+                  {diffRows.map((row, index) => <div key={index}>
+                    {row.kind !== "same" && row.leftLine != null && <div className="grid grid-cols-[3rem_minmax(0,1fr)]" style={{ background: diffCellBackground(row.kind, "left") }}><span className="px-1 text-right select-none">−{row.leftLine}</span><pre className="px-2 whitespace-pre-wrap break-all">{row.leftText}</pre></div>}
+                    {row.rightLine != null && <div className="grid grid-cols-[3rem_minmax(0,1fr)]" style={{ background: diffCellBackground(row.kind, "right") }}><span className="px-1 text-right select-none">{row.kind === "same" ? "" : "+"}{row.rightLine}</span><pre className="px-2 whitespace-pre-wrap break-all">{row.rightText}</pre></div>}
+                  </div>)}
+                </div>
+                <div className="hidden md:block min-w-[900px]">
                   <div
                     className="sticky top-0 z-10 grid grid-cols-[4rem_minmax(0,1fr)_4rem_minmax(0,1fr)] border-b"
                     style={{

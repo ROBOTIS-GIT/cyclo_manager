@@ -32,6 +32,7 @@ interface Props {
 export function XTerminal({ wsUrl, isActive }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   const fitRef = useRef<{ fit: () => void } | null>(null);
+  const termRef = useRef<{ focus: () => void } | null>(null);
 
   useEffect(() => {
     if (!containerRef.current) return;
@@ -54,6 +55,7 @@ export function XTerminal({ wsUrl, isActive }: Props) {
       const fit = new FitAddon();
       term.loadAddon(fit);
       term.open(containerRef.current);
+      termRef.current = term;
       fit.fit();
       fitRef.current = fit;
 
@@ -84,7 +86,9 @@ export function XTerminal({ wsUrl, isActive }: Props) {
         sendTerminalJson(wsUrl, { type: "resize", cols, rows });
       });
 
-      const observer = new ResizeObserver(() => { if (!disposed) fit.fit(); });
+      const observer = new ResizeObserver(() => {
+        if (!disposed && containerRef.current?.clientWidth && containerRef.current?.clientHeight) fit.fit();
+      });
       observer.observe(containerRef.current!);
 
       cleanupFn = () => {
@@ -92,6 +96,7 @@ export function XTerminal({ wsUrl, isActive }: Props) {
         unsubscribe();
         term.dispose();
         fitRef.current = null;
+        termRef.current = null;
       };
 
       if (disposed) {
@@ -113,7 +118,6 @@ export function XTerminal({ wsUrl, isActive }: Props) {
 
   return (
     <div
-      ref={containerRef}
       style={{
         position: "absolute",
         inset: 0,
@@ -122,6 +126,13 @@ export function XTerminal({ wsUrl, isActive }: Props) {
         visibility: isActive ? "visible" : "hidden",
         pointerEvents: isActive ? "auto" : "none",
       }}
-    />
+    >
+      <div ref={containerRef} className="absolute inset-x-0 top-0 bottom-14 md:bottom-0 overflow-hidden" />
+      {isActive && <div className="absolute inset-x-0 bottom-0 h-14 flex items-center gap-1 overflow-x-auto border-t md:hidden" style={{ background: "var(--vscode-sidebar-background)", borderColor: "var(--vscode-panel-border)" }}>
+        {[["Esc", "\u001b"], ["Tab", "\t"], ["Ctrl+C", "\u0003"], ["↑", "\u001b[A"], ["↓", "\u001b[B"], ["←", "\u001b[D"], ["→", "\u001b[C"]].map(([label, data]) => <button key={label} type="button" className="shrink-0 rounded px-2 text-xs"
+          aria-label={`Terminal ${label}`} onPointerDown={event => event.preventDefault()}
+          onClick={() => { sendTerminalText(wsUrl, data); termRef.current?.focus(); }}>{label}</button>)}
+      </div>}
+    </div>
   );
 }

@@ -173,11 +173,11 @@ interface HeaderProps {
 function Header({ topic, msgType, lastUpdateTime, onClose }: HeaderProps) {
   return (
     <div style={HEADER_STYLES}>
-      <div style={{ display: "flex", alignItems: "center", gap: "8px", flex: 1, minWidth: 0 }}>
-        <span style={TEXT_STYLES.topic} title={topic}>
+      <div className="flex flex-col items-start gap-1 md:flex-row md:items-center md:gap-2 flex-1 min-w-0">
+        <span className="max-w-full" style={TEXT_STYLES.topic} title={topic}>
           {topic}
         </span>
-        <span style={TEXT_STYLES.msgType}>({msgType})</span>
+        <span className="break-all" style={TEXT_STYLES.msgType}>({msgType})</span>
         {lastUpdateTime && (
           <span style={TEXT_STYLES.timestamp}>
             Last updated: {lastUpdateTime.toLocaleTimeString()}

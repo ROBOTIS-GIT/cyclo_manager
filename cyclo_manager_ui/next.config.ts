@@ -17,7 +17,8 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
-  /* config options here */
+  // Keep the development badge from covering mobile jog and terminal controls.
+  devIndicators: false,
 };
 
 export default nextConfig;
