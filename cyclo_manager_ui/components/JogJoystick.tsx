@@ -19,6 +19,9 @@
 import { useRef, useState } from "react";
 import type { PointerEvent } from "react";
 
+const JOYSTICK_DEADZONE = 0.12;
+const THUMB_CLEARANCE_PX = 32;
+
 export default function JogJoystick({ disabled, onMove, onStop }: {
   disabled: boolean;
   onMove: (forward: number, left: number) => void;
@@ -28,13 +31,14 @@ export default function JogJoystick({ disabled, onMove, onStop }: {
   const [position, setPosition] = useState({ x: 0, y: 0 });
   const update = (event: PointerEvent<HTMLDivElement>) => {
     const box = event.currentTarget.getBoundingClientRect();
-    const radius = box.width / 2 - 32;
+    const radius = box.width / 2 - THUMB_CLEARANCE_PX;
     let x = (event.clientX - box.left - box.width / 2) / radius;
     let y = (event.clientY - box.top - box.height / 2) / radius;
     const length = Math.hypot(x, y);
     if (length > 1) { x /= length; y /= length; }
     const magnitude = Math.hypot(x, y);
-    const scaled = magnitude <= 0.12 ? 0 : (magnitude - 0.12) / 0.88;
+    const scaled = magnitude <= JOYSTICK_DEADZONE ? 0
+      : (magnitude - JOYSTICK_DEADZONE) / (1 - JOYSTICK_DEADZONE);
     setPosition({ x: x * radius, y: y * radius });
     onMove(magnitude ? -y / magnitude * scaled : 0, magnitude ? -x / magnitude * scaled : 0);
   };

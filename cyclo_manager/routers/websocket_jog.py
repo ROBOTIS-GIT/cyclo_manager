@@ -25,6 +25,7 @@ from cyclo_manager.jog import JogInput, JogSession
 from cyclo_manager.state import app_state
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 from pydantic import ValidationError
+from starlette.websockets import WebSocketState
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -96,8 +97,12 @@ async def websocket_jog(websocket: WebSocket, robot_type: str):
             await asyncio.to_thread(session.stop)
         except Exception:
             logger.exception(
-                'Could not send final jog stop; bounded trajectories and base timeout apply')
+                'Could not send final jog stop; last joint targets remain; base timeout applies')
         try:
-            await websocket.close()
+            # A peer can leave before the opening handshake finishes. Once
+            # disconnected, the legacy transport must not be closed again.
+            if (websocket.client_state != WebSocketState.DISCONNECTED
+                    and websocket.application_state != WebSocketState.DISCONNECTED):
+                await websocket.close()
         except (RuntimeError, WebSocketDisconnect):
             pass

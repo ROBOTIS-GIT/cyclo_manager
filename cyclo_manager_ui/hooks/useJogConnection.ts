@@ -17,29 +17,13 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import {
+  COMMAND_MIN_INTERVAL_MS, FEEDBACK_TIMEOUT_MS, JOG_POLL_INTERVAL_MS, JOINT_HOLD_DELAY_MS,
+} from "@/lib/jog";
+import type { JogCommand, JogResolution, JogState } from "@/lib/jog";
 import { getWebSocketBaseUrl } from "@/lib/websocketUtils";
 
-export type JogResolution = "normal" | "fine" | "coarse";
-
-export type JogCommand =
-  | { kind: "idle" | "stop" }
-  | { kind: "base"; x: number; y: number; yaw: number }
-  | { kind: "joint"; joint: string; direction: -1 | 1; mode: "hold" | "step"; resolution: JogResolution };
-
-export type JogJoint = {
-  name: string; group: string; topic: string; unit: "m" | "rad";
-  lower: number; upper: number; speed: number;
-  position: number | null; target: number | null; available: boolean;
-};
-export type JogState = {
-  robot_type: string; base_supported: boolean; feedback_fresh: boolean;
-  feedback_age: number | null; description_available: boolean;
-  base: [number, number, number]; joints: JogJoint[]; wheels: Record<string, number>;
-};
-
-const JOINT_HOLD_DELAY_MS = 350;
-
-export function useJogConnection(robot: string, running: boolean) {
+export function useJogConnection(robot: string | null, running: boolean) {
   const [state, setState] = useState<JogState | null>(null);
   const [connected, setConnected] = useState(false);
   const [enabled, setEnabledState] = useState(false);
@@ -107,13 +91,15 @@ export function useJogConnection(robot: string, running: boolean) {
   }, [connected, running, stop]);
 
   useEffect(() => {
+    // Hydration must read the saved robot before opening any connection.
+    if (robot === null) return;
     let disposed = false;
     let inFlight = false;
     let lastReply = performance.now();
     let lastSend = -Infinity;
     let hidden = document.hidden;
     let pending: JogCommand | null = null;
-    const ws = new WebSocket(`${getWebSocketBaseUrl()}/ws/jog/${robot}`);
+    let ws: WebSocket | null = null;
     const disarm = () => {
       cancelJointPress();
       enabledRef.current = false;
@@ -123,10 +109,10 @@ export function useJogConnection(robot: string, running: boolean) {
       setState(null);
     };
     const pump = () => {
-      if (disposed || inFlight || ws.readyState !== WebSocket.OPEN) return;
+      if (disposed || inFlight || ws?.readyState !== WebSocket.OPEN) return;
       // Flush a stop on tab exit, then let the stopped session stay idle.
       if (hidden && desired.current.kind !== "stop") return;
-      if (desired.current.kind !== "stop" && performance.now() - lastSend < 90) return;
+      if (desired.current.kind !== "stop" && performance.now() - lastSend < COMMAND_MIN_INTERVAL_MS) return;
       // One unacknowledged message: motion never builds up in a browser queue.
       pending = desired.current;
       inFlight = true;
@@ -134,55 +120,62 @@ export function useJogConnection(robot: string, running: boolean) {
       ws.send(JSON.stringify(pending));
     };
     pumpRef.current = pump;
-    ws.onopen = () => {
+    // Strict Mode immediately cleans up its first effect pass. Defer only
+    // connection creation so that pass can cancel before opening a socket.
+    const connectTimer = setTimeout(() => {
       if (disposed) return;
-      disarm();
-      setError(null);
-      lastReply = performance.now();
-      pump();
-    };
-    ws.onmessage = event => {
-      if (disposed) return;
-      try {
-        const message = JSON.parse(event.data) as { state?: JogState; error?: string };
-        inFlight = false;
-        lastReply = performance.now();
-        if (message.error) {
-          setError(message.error);
-          disarm();
-          ws.close();
-          return;
-        }
-        if (message.state) { setState(message.state); setConnected(true); }
-        const sent = pending;
-        if (sent === desired.current && (sent?.kind === "stop" || (sent?.kind === "joint" && sent.mode === "step"))) {
-          desired.current = { kind: "idle" };
-        } else if (sent !== desired.current) {
-          // A release/stop that arrived during the request is sent immediately.
-          pump();
-        }
-      } catch {
-        setError("Invalid Jog feedback. Reconnect to continue.");
+      const socket = new WebSocket(`${getWebSocketBaseUrl()}/ws/jog/${robot}`);
+      ws = socket;
+      socket.onopen = () => {
+        if (disposed) return;
         disarm();
-        ws.close();
-      }
-    };
-    ws.onerror = () => {
-      if (!disposed) { setError("Jog connection failed."); disarm(); }
-    };
-    ws.onclose = () => {
-      if (!disposed) { disarm(); setError(previous => previous ?? "Jog disconnected. Reconnect to continue."); }
-    };
+        setError(null);
+        lastReply = performance.now();
+        pump();
+      };
+      socket.onmessage = event => {
+        if (disposed) return;
+        try {
+          const message = JSON.parse(event.data) as { state?: JogState; error?: string };
+          inFlight = false;
+          lastReply = performance.now();
+          if (message.error) {
+            setError(message.error);
+            disarm();
+            socket.close();
+            return;
+          }
+          if (message.state) { setState(message.state); setConnected(true); }
+          const sent = pending;
+          if (sent === desired.current && (sent?.kind === "stop" || (sent?.kind === "joint" && sent.mode === "step"))) {
+            desired.current = { kind: "idle" };
+          } else if (sent !== desired.current) {
+            // A release/stop that arrived during the request is sent immediately.
+            pump();
+          }
+        } catch {
+          setError("Invalid Jog feedback. Reconnect to continue.");
+          disarm();
+          socket.close();
+        }
+      };
+      socket.onerror = () => {
+        if (!disposed) { setError("Jog connection failed."); disarm(); }
+      };
+      socket.onclose = () => {
+        if (!disposed) { disarm(); setError(previous => previous ?? "Jog disconnected. Reconnect to continue."); }
+      };
+    }, 0);
     const timer = setInterval(() => {
       if (hidden) return;
-      if (ws.readyState === WebSocket.OPEN && performance.now() - lastReply > 700) {
+      if (ws?.readyState === WebSocket.OPEN && performance.now() - lastReply > FEEDBACK_TIMEOUT_MS) {
         setError("Jog feedback timed out. Reconnect to continue.");
         disarm();
         ws.close();
         return;
       }
       pump();
-    }, 100);
+    }, JOG_POLL_INTERVAL_MS);
     const blur = () => stop(true);
     const visibility = () => {
       hidden = document.hidden;
@@ -213,6 +206,7 @@ export function useJogConnection(robot: string, running: boolean) {
       enabledRef.current = false;
       desired.current = { kind: "idle" };
       pumpRef.current = () => {};
+      clearTimeout(connectTimer);
       clearInterval(timer);
       window.removeEventListener("blur", blur);
       window.removeEventListener("cyclo:jog-stop", blur);
@@ -221,8 +215,8 @@ export function useJogConnection(robot: string, running: boolean) {
       window.removeEventListener("pointercancel", cancel);
       document.removeEventListener("visibilitychange", visibility);
       // Ordered after any outstanding command; the server also stops on close.
-      if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ kind: "stop" }));
-      ws.close();
+      if (ws?.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ kind: "stop" }));
+      ws?.close();
     };
   }, [robot, attempt, stop, cancelJointPress, releaseJoint]);
 

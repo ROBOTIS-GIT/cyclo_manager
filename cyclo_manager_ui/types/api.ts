@@ -349,10 +349,3 @@ export interface ROS2TopicInfoResponse {
   topic: string;
   info: string;
 }
-
-export interface ROS2TwistPublishRequest {
-  linear_x: number;
-  linear_y?: number;
-  angular_z: number;
-  topic?: string;
-}

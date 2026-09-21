@@ -53,7 +53,6 @@ import type {
   ROS2TopicInfoResponse,
   ROS2TopicsListResponse,
   ROS2TopicDataResponse,
-  ROS2TwistPublishRequest,
   SystemStatsResponse,
   SystemProcessesResponse,
   RobotInfoResponse,
@@ -344,20 +343,6 @@ export async function ros2Unsubscribe(topic: string): Promise<void> {
   await request<void>({
     method: "POST",
     url: `/ros2/topics/${encodeURIComponent(topic)}/unsubscribe`,
-  });
-}
-
-export async function publishCmdVel(
-  twist: ROS2TwistPublishRequest
-): Promise<void> {
-  await request<void>({
-    method: "POST",
-    url: "/ros2/cmd_vel",
-    data: {
-      topic: twist.topic ?? "/cmd_vel",
-      linear_x: twist.linear_x,
-      angular_z: twist.angular_z,
-    },
   });
 }
 

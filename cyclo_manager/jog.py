@@ -19,8 +19,9 @@
 """Small, feedback-relative jog commands. The leader must not run concurrently.
 
 This module deliberately has no leader arbitration or robot ownership logic.
-Each trajectory ends at zero velocity; its duration respects the nominal joint
-speed. No absolute pose commands are accepted. Runtime URDF limits are required.
+Commands contain one immediate position target bounded by measured feedback.
+No absolute pose commands are accepted. Runtime URDF limits are required;
+actual motion speed is controlled by the robot, not a manager trajectory duration.
 """
 
 from dataclasses import asdict, dataclass
@@ -33,8 +34,17 @@ import xml.etree.ElementTree as ET
 from pydantic import BaseModel, ConfigDict, Field
 
 FEEDBACK_MAX_AGE = 0.5
-TRAJECTORY_SECONDS = 0.25
 BASE_MODELS = {'sg2', 'sh5', 'f2', 'mobile'}
+BASE_LINEAR_MAX = 0.3  # m/s
+BASE_ANGULAR_MAX = 0.6  # rad/s
+BASE_LINEAR_ACCELERATION = 0.3  # m/s²
+BASE_ANGULAR_ACCELERATION = 0.6  # rad/s²
+BASE_TICK_MIN = 0.01  # seconds
+BASE_TICK_MAX = 0.1  # seconds
+JOINT_INCREMENTS = {  # millimetres, degrees
+    'fine': (1, 0.1), 'normal': (10, 1), 'coarse': (15, 3), 'large': (20, 5),
+}
+POSITION_TOLERANCE = {'m': 0.0001, 'rad': math.radians(0.01)}
 
 
 class JogInput(BaseModel):
@@ -42,13 +52,13 @@ class JogInput(BaseModel):
 
     model_config = ConfigDict(extra='forbid', allow_inf_nan=False)
     kind: Literal['idle', 'stop', 'base', 'joint'] = 'idle'
-    x: float = Field(0, ge=-0.3, le=0.3)
-    y: float = Field(0, ge=-0.3, le=0.3)
-    yaw: float = Field(0, ge=-0.6, le=0.6)
+    x: float = Field(0, ge=-BASE_LINEAR_MAX, le=BASE_LINEAR_MAX)
+    y: float = Field(0, ge=-BASE_LINEAR_MAX, le=BASE_LINEAR_MAX)
+    yaw: float = Field(0, ge=-BASE_ANGULAR_MAX, le=BASE_ANGULAR_MAX)
     joint: str = Field('', max_length=100)
     direction: Literal[-1, 1] = 1
     mode: Literal['hold', 'step'] = 'hold'
-    resolution: Literal['normal', 'fine', 'coarse'] = 'normal'
+    resolution: Literal['normal', 'fine', 'coarse', 'large'] = 'normal'
 
 
 @dataclass(frozen=True)
@@ -61,7 +71,6 @@ class JogJoint:
     unit: str
     lower: float
     upper: float
-    speed: float
 
 
 def joint_group(name: str) -> tuple[str, str] | None:
@@ -105,8 +114,7 @@ def parse_joints(description: str) -> list[JogJoint]:
                 or lower >= upper or velocity <= 0):
             continue
         linear = joint.attrib['type'] == 'prismatic'
-        result.append(JogJoint(name, *group, 'm' if linear else 'rad', lower, upper,
-                               min(velocity, 0.01 if linear else 0.15)))
+        result.append(JogJoint(name, *group, 'm' if linear else 'rad', lower, upper))
     return result
 
 
@@ -124,8 +132,9 @@ class JogSession:
         self.base = [0.0, 0.0, 0.0]
         self.last_tick = time.monotonic()
         self.last_joint_sample: float | None = None
-        self.step_until = 0.0
         self.active_increment: tuple[str, int, str] | None = None
+        self.held_gripper: tuple[str, str, float] | None = None
+        self.holding = False
 
     def setup(self):
         """Prepare topic connections without sending motion."""
@@ -198,21 +207,42 @@ class JogSession:
             'angular': dict(x=0.0, y=0.0, z=values[2]),
         })
 
-    def trajectory(self, joint: JogJoint, target: float, duration=TRAJECTORY_SECONDS):
-        """Send a bounded single-joint trajectory ending at zero velocity."""
-        nanoseconds = round(duration * 1e9)
-        # All supported controllers allow partial joints; lift has only one joint.
+    def trajectory(self, joint: JogJoint, target: float):
+        """Send one immediate position target, without timed interpolation."""
+        names = [joint.name]
+        positions = [target]
+        if self.held_gripper and self.held_gripper[0] == joint.name:
+            _, gripper, position = self.held_gripper
+            names.append(gripper)
+            positions.append(position)
         self.publish(joint.topic, 'trajectory_msgs/msg/JointTrajectory', {
-            'joint_names': [joint.name],
+            'joint_names': names,
             'points': [{
-                'positions': [target], 'velocities': [0.0],
-                'time_from_start': {
-                    'sec': nanoseconds // 1_000_000_000,
-                    'nanosec': nanoseconds % 1_000_000_000,
-                },
+                'positions': positions,
+                'time_from_start': {'sec': 0, 'nanosec': 0},
             }],
         })
-        self.targets[joint.name] = target
+        self.targets.update(zip(names, positions))
+
+    def retain_gripper(self, joint: JogJoint, positions: dict[str, float], mode: str):
+        """Latch measured gripper position once per arm press, not per update."""
+        if not joint.name.startswith('arm_'):
+            self.held_gripper = None
+            return
+        gripper = next((j for j in self.joints if j.topic == joint.topic
+                        and j.name.startswith('gripper_')), None)
+        if gripper is None:  # Hand-equipped models have a separate controller.
+            self.held_gripper = None
+            return
+        if (mode == 'hold' and self.held_gripper
+                and self.held_gripper[:2] == (joint.name, gripper.name)):
+            position = self.held_gripper[2]
+        else:
+            position = positions.get(gripper.name)
+        if position is None or not gripper.lower <= position <= gripper.upper:
+            raise ValueError(
+                'Gripper position is unavailable or outside URDF limits. Jog stopped.')
+        self.held_gripper = (joint.name, gripper.name, position)
 
     def stop(self):
         """Stop this session's motion without reusing stale joint positions."""
@@ -226,8 +256,8 @@ class JogSession:
         if self.active_joint:
             positions, age, _ = self.feedback()
             joint = next((j for j in self.joints if j.name == self.active_joint), None)
-            # Never send an old pose to stop. The last bounded trajectory ends
-            # with zero velocity even when no fresh feedback remains.
+            # Never send an old pose to stop. Without fresh feedback, leave
+            # the last bounded position target in place.
             if joint and age is not None and age <= FEEDBACK_MAX_AGE and joint.name in positions:
                 try:
                     position = positions[joint.name]
@@ -237,58 +267,68 @@ class JogSession:
                     errors.append(str(exc))
             if not errors:
                 self.active_joint = None
-        self.step_until = 0.0
         self.active_increment = None
         self.last_joint_sample = None
         if errors:
             raise ValueError('; '.join(errors))
+        self.held_gripper = None
+        self.holding = False
 
     def _target_reached(self, joint: JogJoint, position: float) -> bool:
         """Check measured completion without replacing the controller's goal."""
-        tolerance = 0.0001 if joint.unit == 'm' else math.radians(0.01)
         target = self.targets.get(joint.name)
-        return target is not None and abs(position - target) <= tolerance
+        return target is not None and abs(position - target) <= POSITION_TOLERANCE[joint.unit]
 
     def apply(self, command: JogInput):
         """Apply one validated input, using measured position for joint goals."""
         now = time.monotonic()
-        dt = min(max(now - self.last_tick, 0.01), 0.1)
+        dt = min(max(now - self.last_tick, BASE_TICK_MIN), BASE_TICK_MAX)
         self.last_tick = now
         if command.kind == 'stop':
             self.stop()
-            return
-        if command.kind == 'idle':
-            if any(self.base):
-                self.stop()
-            elif self.active_joint and now >= self.step_until:
-                # A single step remains the controller's goal even if tracking
-                # lags behind its nominal duration. Retain stop/timeout handling
-                # until fresh feedback confirms completion; do not publish here.
-                positions, age, _ = self.feedback()
-                joint = next((j for j in self.joints if j.name == self.active_joint), None)
-                if (joint and age is not None and age <= FEEDBACK_MAX_AGE
-                        and joint.name in positions
-                        and self._target_reached(joint, positions[joint.name])):
-                    self.active_joint = None
-                    self.active_increment = None
-                    self.step_until = 0.0
-                    self.last_joint_sample = None
-            return
-        if command.kind == 'base':
-            if self.robot_type not in BASE_MODELS:
-                raise ValueError('This robot does not support swerve jog.')
-            if self.active_joint:
-                self.stop()
-            desired = [command.x, command.y, command.yaw]
-            norm = math.hypot(*desired[:2])
-            if norm > 0.3:
-                desired[:2] = [v * 0.3 / norm for v in desired[:2]]
-            # Slew limits for normal joystick changes. Explicit stop sends zero.
-            values = [prev + max(-limit * dt, min(limit * dt, value - prev))
-                      for prev, value, limit in zip(self.base, desired, [0.3, 0.3, 0.6])]
-            self.base = values  # Track attempted motion so failures also trigger stop.
-            self.publish_base(values)
-            return
+        elif command.kind == 'idle':
+            self._handle_idle()
+        elif command.kind == 'base':
+            self._apply_base(command, dt)
+        else:
+            self._apply_joint(command)
+
+    def _handle_idle(self):
+        """Finish a measured step or stop released continuous movement."""
+        if any(self.base) or self.holding:
+            self.stop()
+        elif self.active_joint:
+            # A single step remains the controller's goal even if tracking
+            # lags. Retain stop/timeout handling
+            # until fresh feedback confirms completion; do not publish here.
+            positions, age, _ = self.feedback()
+            joint = next((j for j in self.joints if j.name == self.active_joint), None)
+            if (joint and age is not None and age <= FEEDBACK_MAX_AGE
+                    and joint.name in positions
+                    and self._target_reached(joint, positions[joint.name])):
+                self.active_joint = None
+                self.active_increment = None
+                self.last_joint_sample = None
+
+    def _apply_base(self, command: JogInput, dt: float):
+        """Apply bounded base velocity with the existing slew limit."""
+        if self.robot_type not in BASE_MODELS:
+            raise ValueError('This robot does not support swerve jog.')
+        if self.active_joint:
+            self.stop()
+        desired = [command.x, command.y, command.yaw]
+        norm = math.hypot(*desired[:2])
+        if norm > BASE_LINEAR_MAX:
+            desired[:2] = [v * BASE_LINEAR_MAX / norm for v in desired[:2]]
+        # Slew limits for normal joystick changes. Explicit stop sends zero.
+        accelerations = [BASE_LINEAR_ACCELERATION] * 2 + [BASE_ANGULAR_ACCELERATION]
+        values = [prev + max(-limit * dt, min(limit * dt, value - prev))
+                  for prev, value, limit in zip(self.base, desired, accelerations)]
+        self.base = values  # Track attempted motion so failures also trigger stop.
+        self.publish_base(values)
+
+    def _apply_joint(self, command: JogInput):
+        """Publish a selected-size offset from fresh measured joint position."""
         if self.robot_type == 'mobile':
             raise ValueError('Mobile bringup supports base jog only.')
         if any(self.base) or (self.active_joint and self.active_joint != command.joint):
@@ -306,19 +346,19 @@ class JogSession:
             return  # Do not repeatedly command from the same feedback sample.
         self.last_joint_sample = sample
         increment = (joint.name, command.direction, command.resolution)
-        if self.active_increment == increment:
-            # Heartbeats refresh intent, not the trajectory. Replacing a long
-            # lift move every 100 ms prevents distinct selected-size steps.
+        if command.mode == 'step' and self.active_increment == increment:
+            # A tap completes its full increment. Holds instead replace the
+            # target on each fresh feedback sample, even before arrival.
             reached = self._target_reached(joint, current)
-            if now < self.step_until or not reached:
+            if not reached:
                 return
-        delta = 0.01 if joint.unit == 'm' else math.radians(1)
-        delta *= {'fine': 0.1, 'normal': 1, 'coarse': 2}[command.resolution]
+        self.retain_gripper(joint, positions, command.mode)
+        millimetres, degrees = JOINT_INCREMENTS[command.resolution]
+        delta = millimetres / 1000 if joint.unit == 'm' else math.radians(degrees)
         target = max(joint.lower, min(joint.upper, current + command.direction * delta))
-        # Preserve the requested increment instead of clipping it to a speed
-        # budget. A zero-end-velocity cubic has nominal peak speed 1.5*d/T.
-        duration = max(TRAJECTORY_SECONDS, 1.5 * abs(target - current) / joint.speed)
-        self.step_until = now + duration
+        # Recompute from measured position, never by accumulating prior goals.
+        # Track attempted motion before publishing so a failed send also stops.
         self.active_increment = increment
         self.active_joint = joint.name
-        self.trajectory(joint, target, duration)
+        self.holding = command.mode == 'hold'
+        self.trajectory(joint, target)

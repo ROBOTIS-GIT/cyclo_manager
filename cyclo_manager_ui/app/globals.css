@@ -287,14 +287,9 @@ pre:hover {
   .app-shell select { min-height: 44px; max-width: 100%; }
   .app-shell input:not([type="checkbox"]):not([type="radio"]):not([type="range"]),
   .app-shell select, .app-shell textarea { font-size: 16px; }
-  .jog-page { padding-bottom: calc(88px + env(safe-area-inset-bottom, 0px)); }
   .jog-actions {
-    position: fixed;
-    inset: auto 0 0;
-    z-index: 30;
-    justify-content: space-between;
-    padding: 10px 16px calc(10px + env(safe-area-inset-bottom, 0px));
-    border-top: 1px solid var(--vscode-panel-border);
+    width: 100%;
+    justify-content: flex-end;
   }
   .jog-actions label { min-height: 44px; }
 }

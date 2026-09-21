@@ -27,6 +27,7 @@ import unittest
 from unittest.mock import patch
 
 from fastapi import WebSocketDisconnect
+from starlette.websockets import WebSocketState
 from test_jog import FakeBridge
 
 
@@ -35,9 +36,13 @@ class FakeSocket:
         self.inputs = iter(inputs)
         self.output = []
         self.closed = False
+        self.client_state = WebSocketState.CONNECTING
+        self.application_state = WebSocketState.CONNECTING
+        self.close_calls = 0
 
     async def accept(self):
-        pass
+        self.client_state = WebSocketState.CONNECTED
+        self.application_state = WebSocketState.CONNECTED
 
     async def receive_json(self):
         value = next(self.inputs, 'disconnect')
@@ -47,6 +52,8 @@ class FakeSocket:
         if value == 'timeout':
             await asyncio.sleep(1)
         if value == 'disconnect':
+            self.client_state = WebSocketState.DISCONNECTED
+            self.closed = True
             raise WebSocketDisconnect()
         return value
 
@@ -54,6 +61,11 @@ class FakeSocket:
         self.output.append(value)
 
     async def close(self, **kwargs):
+        self.close_calls += 1
+        if (self.client_state == WebSocketState.DISCONNECTED
+                or self.application_state == WebSocketState.DISCONNECTED):
+            raise AssertionError('Must not close an already disconnected socket')
+        self.application_state = WebSocketState.DISCONNECTED
         self.closed = True
 
 
@@ -74,13 +86,37 @@ class WebsocketJogTests(unittest.IsolatedAsyncioTestCase):
         return bridge, socket
 
     async def test_disconnect_stops_base(self):
-        bridge, _ = await self.run_socket([{'kind': 'base', 'y': 0.1}, 'disconnect'])
+        bridge, socket = await self.run_socket([{'kind': 'base', 'y': 0.1}, 'disconnect'])
         self.assertGreater(bridge.published[0][2]['linear']['y'], 0)
         self.assertEqual(bridge.published[-1][2]['linear']['y'], 0)
+        self.assertEqual(socket.close_calls, 0)
+
+    async def test_disconnect_before_first_input_does_not_close_again(self):
+        bridge, socket = await self.run_socket(['disconnect'])
+        self.assertEqual(socket.close_calls, 0)
+        self.assertEqual(bridge.published, [])
 
     async def test_heartbeat_timeout_stops_and_closes(self):
         bridge, socket = await self.run_socket([{'kind': 'base', 'x': 0.1}, 'timeout'])
         self.assertEqual(bridge.published[-1][2]['linear']['x'], 0)
+        self.assertTrue(socket.closed)
+        self.assertEqual(socket.close_calls, 1)
+
+    async def test_joint_hold_timeout_stops_at_measured_position(self):
+        bridge, socket = await self.run_socket([
+            {'kind': 'joint', 'joint': 'head_joint1', 'mode': 'hold'}, 'timeout'])
+        self.assertGreater(bridge.published[0][2]['points'][-1]['positions'][0], 0.2)
+        self.assertEqual(bridge.published[-1][2]['points'][-1]['positions'], [0.2])
+        self.assertTrue(socket.closed)
+
+    async def test_joint_hold_disconnect_holds_measured_position(self):
+        bridge, socket = await self.run_socket([
+            {'kind': 'joint', 'joint': 'head_joint1', 'mode': 'hold'}, 'disconnect'])
+        self.assertGreater(bridge.published[0][2]['points'][-1]['positions'][0], 0.2)
+        point = bridge.published[-1][2]['points'][-1]
+        self.assertEqual(point['positions'], [0.2])
+        self.assertEqual(point['time_from_start'], {'sec': 0, 'nanosec': 0})
+        self.assertNotIn('velocities', point)
         self.assertTrue(socket.closed)
 
     async def test_read_only_session_survives_a_background_pause(self):
@@ -106,7 +142,7 @@ class WebsocketJogTests(unittest.IsolatedAsyncioTestCase):
             {'kind': 'idle'}, (0.6, {'kind': 'idle'})])
         self.assertEqual(len(socket.output), 2)
         self.assertTrue(socket.closed)
-        self.assertEqual(bridge.published[-1][2]['points'][0]['positions'], [0.2])
+        self.assertEqual(bridge.published[-1][2]['points'][-1]['positions'], [0.2])
 
     async def test_invalid_input_stops_preceding_motion(self):
         bridge, socket = await self.run_socket([
