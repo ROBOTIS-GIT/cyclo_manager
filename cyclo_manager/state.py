@@ -45,6 +45,7 @@ class AppState:
         self._host_agent_client: Optional[HostAgentClient] = None
         self._ros2_bridge: Optional[Ros2Bridge] = None
         self._terminal_session_manager: Optional[TerminalSessionManager] = None
+        self.record_play = None
 
     def set_terminal_session_manager(self, manager: TerminalSessionManager) -> None:
         self._terminal_session_manager = manager

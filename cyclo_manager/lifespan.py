@@ -18,7 +18,8 @@
 
 """Lifespan management for FastAPI app."""
 
-from contextlib import asynccontextmanager
+import asyncio
+from contextlib import asynccontextmanager, suppress
 import logging
 import os
 
@@ -26,6 +27,7 @@ from cyclo_manager.agent_client import AgentClientPool
 from cyclo_manager.config import load_config
 from cyclo_manager.docker_client import DockerClient
 from cyclo_manager.host_agent_client import HostAgentClient
+from cyclo_manager.record_play.service import RecordPlayService
 from cyclo_manager.ros2_node import Ros2Bridge
 from cyclo_manager.state import app_state
 from cyclo_manager.terminal_session_manager import TerminalSessionManager
@@ -86,12 +88,30 @@ async def lifespan(app: FastAPI):
         except Exception as e:
             logger.warning('ROS2 bridge initialization failed: %s', e)
 
+        if app_state.get_ros2_bridge_or_none():
+            try:
+                app_state.record_play = RecordPlayService(
+                    app_state.get_ros2_bridge_or_none(),
+                    os.getenv('RECORDINGS_DIR', '/cyclo_manager_ros_bags'))
+            except Exception:
+                logger.exception('Record & Play storage initialization failed')
+
         logger.info('cyclo_manager initialized successfully')
     except Exception as e:
         logger.error('Failed to initialize cyclo_manager: %s', e)
         raise
 
-    yield
+    from cyclo_manager.routers.record_play import monitor_bringup
+    recording_monitor = asyncio.create_task(monitor_bringup())
+    try:
+        yield
+    finally:
+        recording_monitor.cancel()
+        with suppress(asyncio.CancelledError):
+            await recording_monitor
+        if app_state.record_play:
+            await asyncio.to_thread(app_state.record_play.close)
+            app_state.record_play = None
 
     # Shutdown
     logger.info('Shutting down cyclo_manager...')

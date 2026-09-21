@@ -72,6 +72,7 @@ export default function VSCodeLayout({
     { href: "/terminal", label: "Terminal", icon: "🖥️", isTerminal: true },
     { href: "/novnc", label: "noVNC", icon: "📺" },
     { label: "Jog", icon: "🎮", isJog: true },
+    { href: "/record-play", label: "Record & Play", icon: "⏺" },
     { href: "/files", label: "Files", icon: "📁" },
   ];
 

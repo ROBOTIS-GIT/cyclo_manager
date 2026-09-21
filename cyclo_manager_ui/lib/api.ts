@@ -117,7 +117,7 @@ function handleError(error: unknown): never {
   throw error;
 }
 
-async function request<T>(config: AxiosRequestConfig): Promise<T> {
+export async function request<T>(config: AxiosRequestConfig): Promise<T> {
   try {
     const response = await apiClient.request<T>(config);
     return response.data;

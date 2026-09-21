@@ -21,18 +21,22 @@
 import importlib.util
 from pathlib import Path
 import sys
+import tempfile
 import threading
 import time
 from types import SimpleNamespace
 import unittest
 from unittest.mock import MagicMock, patch
 
+from cyclo_manager.motion_guard import motion_lock
+from cyclo_manager.record_play.service import RecordPlayService
 from cyclo_manager.subscriptions import SubscriptionOwner
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from ws_helpers import receive_data
 from test_jog import FakeBridge
 from test_jog_bridge import load_bridge_module
+from test_record_play import MemoryStore, TOPIC, trajectory
 
 
 class SubscriptionTests(unittest.TestCase):
@@ -48,14 +52,18 @@ class SubscriptionTests(unittest.TestCase):
         self.feed = False
         self.published = []
         self.bridge.prepare_jog_publishers = lambda _: True
+        self.bridge.jog_publishers_ready = lambda _: True
         self.bridge.publish_jog = self.publish
         self.done = threading.Event()
         self.spin = threading.Thread(target=self.spin_loop)
         self.spin.start()
+        self.tmp = tempfile.TemporaryDirectory()
+        self.store = MemoryStore(self.tmp.name)
+        self.manager = RecordPlayService(self.bridge, self.tmp.name, self.store)
         self.fake_state = SimpleNamespace(
-            get_ros2_bridge_or_none=lambda: self.bridge)
+            get_ros2_bridge_or_none=lambda: self.bridge, record_play=self.manager)
         self.app = FastAPI()
-        for name in ('websocket_ros2', 'websocket_jog', 'ros2'):
+        for name in ('websocket_ros2', 'websocket_jog', 'record_play', 'ros2'):
             path = Path(__file__).parents[1] / f'cyclo_manager/routers/{name}.py'
             spec = importlib.util.spec_from_file_location(f'isolated_{name}', path)
             router = importlib.util.module_from_spec(spec)
@@ -69,9 +77,11 @@ class SubscriptionTests(unittest.TestCase):
         self.client = TestClient(self.app)
 
     def tearDown(self):
+        self.manager.close()
         self.client.close()
         self.done.set()
         self.spin.join(timeout=2)
+        self.tmp.cleanup()
 
     def spin_loop(self):
         while not self.done.wait(.002):
@@ -298,6 +308,32 @@ class SubscriptionTests(unittest.TestCase):
                              405)
         self.assertFalse(self.bridge._subs)
 
+    def test_catalog_viewer_closes_while_background_playback_keeps_feedback(self):
+        self.feed = True
+        recording_id, _ = self.store.create()
+        self.store.messages[recording_id] = [
+            (TOPIC, trajectory(.2), 1000000000), (TOPIC, trajectory(.3), 3000000000)]
+        self.store.save(recording_id, {
+            'id': recording_id, 'robot': 'f2', 'duration': 2,
+            'groups': ['head'], 'topics': [TOPIC], 'messages': 2})
+        with self.client.websocket_connect('/record-play/watch/f2'):
+            self.wait(lambda: TOPIC in self.bridge._subs)
+            with self.client.websocket_connect('/ws/ros2/topics//joint_states') as viewer:
+                receive_data(viewer)
+                self.manager.set_bringup(True)
+                self.manager.motion(recording_id, 'f2', 'browser')
+                self.wait(lambda: bool(self.published))
+                self.assertEqual(len(self.users()), 3)
+            self.wait(lambda: len(self.users()) == 2)
+        self.wait(lambda: len(self.users()) == 1)
+        self.assertTrue(self.manager.status()['active'])
+        self.assertIsNone(self.manager.status()['error'])
+        self.manager.stop()
+        self.assertEqual(self.manager.status()['phase'], 'idle')
+        self.assertIsNone(self.manager.status()['error'])
+        self.wait(lambda: not self.users())
+        self.assertFalse(self.bridge._subs)
+
     def test_jog_and_viewer_release_only_their_own_feedback(self):
         self.feed = True
         with self.client.websocket_connect('/ws/jog/f2') as jog:
@@ -329,6 +365,30 @@ class SubscriptionTests(unittest.TestCase):
             self.assertIsNone(receive_data(jog)['error'])
         self.wait(lambda: not self.bridge._subs)
         self.assertEqual(len(holds), 2)
+        self.assertFalse(motion_lock.locked())
+
+    def test_recording_keeps_input_subscription_after_catalog_closes(self):
+        self.feed = True
+        with self.client.websocket_connect('/record-play/watch/f2'):
+            self.wait(lambda: TOPIC in self.bridge._subs)
+            self.manager.record('recording', 'f2', ['head'], 'browser')
+            self.wait(lambda: TOPIC in self.bridge._message_listeners)
+            self.assertEqual(len(self.users(TOPIC)), 2)
+        self.wait(lambda: len(self.users(TOPIC)) == 1)
+        for listener in tuple(self.bridge._message_listeners[TOPIC]):
+            listener(TOPIC, trajectory(.2), time.time_ns())
+        self.manager.stop()
+        self.assertEqual(self.manager.status()['phase'], 'idle')
+        self.assertEqual(self.store.list()[0]['messages'], 1)
+        self.wait(lambda: not self.bridge._subs)
+        self.assertFalse(self.bridge._message_listeners)
+
+    def test_catalog_only_observer_releases_every_subscription_when_closed(self):
+        self.feed = True
+        with self.client.websocket_connect('/record-play/watch/f2'):
+            self.wait(lambda: TOPIC in self.bridge._subs)
+        self.wait(lambda: not self.bridge._subs)
+        self.assertFalse(self.bridge._msg_cache)
 
 
 if __name__ == '__main__':

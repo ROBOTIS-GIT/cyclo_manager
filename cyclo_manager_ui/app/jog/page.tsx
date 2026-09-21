@@ -31,22 +31,7 @@ import {
 import type { JogJoint, JogResolution } from "@/lib/jog";
 import { getDockerContainers, getServiceStatus } from "@/lib/api";
 
-const ROBOTS = ["sg2", "bg2", "sh5", "bh5", "f1", "f2", "mobile"];
-
-function storedRobot() {
-  if (typeof window === "undefined") return "sg2";
-  const value = localStorage.getItem("robot_type_ai_worker") ?? "sg2";
-  return ROBOTS.includes(value) ? value : "sg2";
-}
-
-function subscribeRobot(refresh: () => void) {
-  window.addEventListener("focus", refresh);
-  window.addEventListener("storage", refresh);
-  return () => {
-    window.removeEventListener("focus", refresh);
-    window.removeEventListener("storage", refresh);
-  };
-}
+import { storedRobot, subscribeRobot } from "@/lib/robotSelection";
 
 export default function JogPage() {
   const robot = useSyncExternalStore(subscribeRobot, storedRobot, () => null);

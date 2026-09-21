@@ -29,6 +29,7 @@ from cyclo_manager.routers import (
     docker,
     host,
     root,
+    record_play,
     ros2,
     ros2_observation,
     services,
@@ -97,6 +98,7 @@ app.add_middleware(
 
 # Include routers
 app.include_router(root.router)
+app.include_router(record_play.router)
 app.include_router(system.router)
 app.include_router(containers.router)
 app.include_router(container.router)

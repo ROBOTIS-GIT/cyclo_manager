@@ -21,8 +21,10 @@ services:
       - ${CYCLO_MANAGER_CONFIG_FILE}:/app/config.yml # For hot-reload on config changes
       - /var/run/docker.sock:/var/run/docker.sock # For Docker API access
       - /:/host_root:ro # For host disk usage and OS info
+      - ${HOME}/cyclo_manager_ros_bags:/cyclo_manager_ros_bags
     environment:
       - CONFIG_FILE=/app/config.yml
+      - RECORDINGS_DIR=/cyclo_manager_ros_bags
       - HOST_HOSTNAME=${HOSTNAME}
 
   ui:

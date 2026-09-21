@@ -30,8 +30,10 @@ services:
       - /app/cyclo_manager/__pycache__
       # Mount host root for disk usage and OS info
       - /:/host_root:ro
+      - ${HOME}/cyclo_manager_ros_bags:/cyclo_manager_ros_bags
     environment:
       - CONFIG_FILE=/app/config.yml
+      - RECORDINGS_DIR=/cyclo_manager_ros_bags
       - PYTHONUNBUFFERED=1
       - HOST_HOSTNAME=${HOSTNAME}
     # Note: uvicorn --reload will automatically restart on code changes

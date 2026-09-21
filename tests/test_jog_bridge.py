@@ -84,6 +84,22 @@ class JogBridgeTests(unittest.TestCase):
         self.bridge._handle_publish_topic.assert_called_once_with(
             '/cmd_vel', 'geometry_msgs/msg/Twist', {}, require_subscriber=False)
 
+    def test_recorder_observes_every_message_without_replacing_cache(self):
+        self.bridge._rclpy_node = MagicMock()
+        listener = MagicMock()
+        self.bridge.add_message_listener('/trajectory', listener)
+        with patch.object(self.module, 'get_message_class', return_value=SimpleNamespace):
+            with patch.object(self.module, 'parse_qos_profile', return_value=MagicMock()):
+                self.bridge._handle_acquire_subscription(
+                    '/trajectory', 'trajectory_msgs/msg/JointTrajectory', 'recorder', {})
+        callback = self.bridge._rclpy_node.create_subscription.call_args.args[2]
+        first, second = object(), object()
+        callback(first)
+        callback(second)
+        self.assertEqual(listener.call_count, 2)
+        self.assertIs(listener.call_args_list[0].args[1], first)
+        self.assertIs(self.bridge._msg_cache['/trajectory']['raw_message'], second)
+
     def test_unsupported_subscription_type_has_terminal_error(self):
         self.bridge._rclpy_node = MagicMock()
         with patch.object(self.module, 'get_message_class', return_value=None):
@@ -132,6 +148,19 @@ class JogBridgeTests(unittest.TestCase):
         self.bridge._process_request()
         self.assertFalse(response.get_nowait())
         self.bridge._create_sub.assert_not_called()
+
+    def test_own_recording_subscription_does_not_count_as_a_controller(self):
+        node = self.bridge._rclpy_node = MagicMock()
+        node.get_name.return_value = 'cyclo_manager'
+        node.get_namespace.return_value = '/'
+        own = SimpleNamespace(node_name='cyclo_manager', node_namespace='/')
+        follower = SimpleNamespace(node_name='arm_controller', node_namespace='/follower')
+        publisher = MagicMock()
+        publisher.get_subscription_count.return_value = 1
+        node.get_subscriptions_info_by_topic.return_value = [own]
+        self.assertFalse(self.bridge._has_external_subscriber('/trajectory', publisher))
+        node.get_subscriptions_info_by_topic.return_value = [own, follower]
+        self.assertTrue(self.bridge._has_external_subscriber('/trajectory', publisher))
 
     def test_destroyed_subscription_callback_cannot_overwrite_replacement_cache(self):
         node = self.bridge._rclpy_node = MagicMock()

@@ -23,6 +23,7 @@ import logging
 
 from anyio import CancelScope, to_thread
 from cyclo_manager.jog import JogInput, JogSession
+from cyclo_manager.motion_guard import motion_lock
 from cyclo_manager.routers.websocket_utils import release_subscription_owner
 from cyclo_manager.state import app_state
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
@@ -46,6 +47,7 @@ async def websocket_jog(websocket: WebSocket, robot_type: str):
         return
     session = JogSession(bridge, robot_type)
     watchdog_armed = False
+    owns_motion = False
     try:
         await asyncio.to_thread(session.setup)
         while True:
@@ -65,6 +67,10 @@ async def websocket_jog(websocket: WebSocket, robot_type: str):
                 break
             error = None
             try:
+                if command.kind in ('base', 'joint') and not owns_motion:
+                    if not motion_lock.acquire(blocking=False):
+                        raise ValueError('Another manager motion is active. Stop it before Jog.')
+                    owns_motion = True
                 await asyncio.to_thread(session.apply, command)
             except ValueError as exc:
                 error = str(exc)
@@ -72,6 +78,9 @@ async def websocket_jog(websocket: WebSocket, robot_type: str):
                     await asyncio.to_thread(session.stop)
                 except ValueError:
                     logger.warning('Jog stop could not reach the controller')
+            if owns_motion and not any(session.base) and session.active_joint is None:
+                motion_lock.release()
+                owns_motion = False
             if command.kind == 'stop':
                 watchdog_armed = False
             elif command.kind in ('base', 'joint'):
@@ -104,6 +113,8 @@ async def websocket_jog(websocket: WebSocket, robot_type: str):
                     'base timeout applies')
             finally:
                 await release_subscription_owner(session.subscriptions)
+                if owns_motion:
+                    motion_lock.release()
         try:
             # A peer can leave before the opening handshake finishes. Once
             # disconnected, the legacy transport must not be closed again.

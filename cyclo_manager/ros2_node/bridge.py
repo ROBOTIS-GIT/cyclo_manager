@@ -63,6 +63,7 @@ class RequestKind:
     RELEASE_SUBSCRIPTIONS = 'release_subscriptions'
     PUBLISH_TOPIC = 'publish_topic'
     PREPARE_JOG = 'prepare_jog'
+    CHECK_JOG = 'check_jog'
 
 
 RequestPayload: TypeAlias = tuple[Any, queue.Queue[Any]]
@@ -112,6 +113,7 @@ class Ros2Bridge:
         self._pubs: dict[tuple[str, str], Publisher] = {}
         self._msg_cache: dict[str, TopicCacheEntry] = {}
         self._discovered_topics: dict[str, list[str]] = {}
+        self._message_listeners: dict[str, set] = {}
         self._subscription_users: dict[str, set[str]] = {}
         self._subscription_types: dict[str, str] = {}
 
@@ -178,6 +180,19 @@ class Ros2Bridge:
             return False
         return self._enqueue_request(RequestKind.RELEASE_SUBSCRIPTIONS, owner_id) is True
 
+    def add_message_listener(self, topic: str, callback) -> None:
+        """Observe every received message; callbacks must not block the ROS thread."""
+        with self._lock:
+            self._message_listeners.setdefault(topic, set()).add(callback)
+
+    def remove_message_listener(self, topic: str, callback) -> None:
+        """Detach a recorder without removing another consumer's subscription."""
+        with self._lock:
+            listeners = self._message_listeners.get(topic, set())
+            listeners.discard(callback)
+            if not listeners:
+                self._message_listeners.pop(topic, None)
+
     # ------------------------------------------------------------------
     # Public API — publish
     # ------------------------------------------------------------------
@@ -216,6 +231,10 @@ class Ros2Bridge:
     def prepare_jog_publishers(self, topics: list[tuple[str, str]]) -> bool:
         """Allow DDS discovery before the first single-step command, without moving."""
         return self._enqueue_request(RequestKind.PREPARE_JOG, topics) is True
+
+    def jog_publishers_ready(self, topics: list[tuple[str, str]]) -> bool:
+        """Check all destination subscribers before starting multi-controller motion."""
+        return self._enqueue_request(RequestKind.CHECK_JOG, topics, timeout=0.5) is True
 
     # ------------------------------------------------------------------
     # Public API — read cache / topic metadata
@@ -338,11 +357,14 @@ class Ros2Bridge:
                     except Exception as e:
                         logger.warning('Subscription release failed: %s', e)
                         result = False
-                elif kind == RequestKind.PREPARE_JOG:
+                elif kind in (RequestKind.PREPARE_JOG, RequestKind.CHECK_JOG):
                     try:
-                        result = all(
-                            self._get_or_create_publisher(topic, msg_type) is not None
-                            for topic, msg_type in request_payload)
+                        publishers = [self._get_or_create_publisher(topic, msg_type)
+                                      for topic, msg_type in request_payload]
+                        result = all(pub is not None and (
+                            kind == RequestKind.PREPARE_JOG
+                            or self._has_external_subscriber(topic, pub))
+                            for (topic, _), pub in zip(request_payload, publishers))
                     except Exception as e:
                         logger.warning('Jog publisher preparation failed: %s', e)
                         result = False
@@ -493,7 +515,7 @@ class Ros2Bridge:
             return False
 
         pub = self._get_or_create_publisher(topic, msg_type)
-        if pub is None or (require_subscriber and pub.get_subscription_count() == 0):
+        if pub is None or (require_subscriber and not self._has_external_subscriber(topic, pub)):
             logger.warning('No subscriber matched for jog topic: %s', topic)
             return False
 
@@ -516,6 +538,14 @@ class Ros2Bridge:
             )
             return False
 
+    def _has_external_subscriber(self, topic, publisher):
+        """Do not count this bridge's recorder/cache subscription as a motion receiver."""
+        if not self._rclpy_node or publisher.get_subscription_count() == 0:
+            return False
+        own = (self._rclpy_node.get_name(), self._rclpy_node.get_namespace())
+        return any((endpoint.node_name, endpoint.node_namespace) != own
+                   for endpoint in self._rclpy_node.get_subscriptions_info_by_topic(topic))
+
     # ------------------------------------------------------------------
     # Spin thread — rclpy helpers
     # ------------------------------------------------------------------
@@ -537,10 +567,17 @@ class Ros2Bridge:
                 f'Unsupported message type: {msg_type}.', 'invalid_message_type', False)
 
         def callback(msg: Any) -> None:
+            timestamp = time.time_ns()
             with self._lock:
                 if self._subs.get(topic) is not subscription:
                     return
-                self._msg_cache[topic] = {'raw_message': msg, 'received_at': time.time()}
+                self._msg_cache[topic] = {'raw_message': msg, 'received_at': timestamp / 1e9}
+                listeners = tuple(self._message_listeners.get(topic, ()))
+            for listener in listeners:
+                try:
+                    listener(topic, msg, timestamp)
+                except Exception:
+                    logger.exception('Message listener failed for %s', topic)
 
         profile = qos_profile or {}
         qos = parse_qos_profile(profile)
@@ -603,6 +640,7 @@ class Ros2Bridge:
         self._msg_cache.clear()
         self._discovered_topics.clear()
         self._topics_transient_local.clear()
+        self._message_listeners.clear()
         self._subscription_users.clear()
         self._subscription_types.clear()
 
