@@ -17,9 +17,10 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
+import ObserverConnectionNotice from "@/components/ObserverConnectionNotice";
 import { useROS2TopicWebSocket } from "@/hooks/useROS2TopicWebSocket";
 import type { ROS2TopicDataResponse } from "@/types/api";
-import { ros2Unsubscribe, getROS2TopicInfo } from "@/lib/api";
+import { getROS2TopicInfo } from "@/lib/api";
 
 const PANEL_STYLES: React.CSSProperties = {
   display: "flex",
@@ -57,14 +58,6 @@ const SCROLLABLE_CONTENT_STYLES: React.CSSProperties = {
   position: "relative",
   overflow: "auto",
   padding: "12px",
-} as const;
-
-const ERROR_STYLES: React.CSSProperties = {
-  padding: "8px 12px",
-  backgroundColor: "rgba(244, 135, 113, 0.1)",
-  color: "var(--vscode-errorForeground)",
-  fontSize: "12px",
-  flexShrink: 0,
 } as const;
 
 const ERROR_BANNER_STYLES: React.CSSProperties = {
@@ -236,17 +229,7 @@ function TabBar({ activeTab, onTabChange }: TabBarProps) {
   );
 }
 
-interface ErrorMessageProps {
-  message: string;
-}
 
-function ErrorMessage({ message }: ErrorMessageProps) {
-  return (
-    <div style={ERROR_STYLES}>
-      {message}
-    </div>
-  );
-}
 
 interface TopicContentProps {
   topicData: ROS2TopicDataResponse | null;
@@ -355,34 +338,20 @@ export default function TopicViewerPanel({
   msgType,
   onClose,
 }: TopicViewerPanelProps) {
-  const [error, setError] = useState<string | null>(null);
   const [lastUpdateTime, setLastUpdateTime] = useState<Date | null>(null);
   const [activeTab, setActiveTab] = useState<TabId>("data");
 
-  const { topicData, status } = useROS2TopicWebSocket(topic, {
-    onError: (err: Error) => setError(err.message),
+  const { topicData, status, connection, reconnect } = useROS2TopicWebSocket(topic, {
+    msgType,
+    onMessage: () => setLastUpdateTime(new Date()),
   });
-
-  // Unsubscribe on unmount
-  useEffect(() => {
-    return () => {
-      ros2Unsubscribe(topic).catch(() => {});
-    };
-  }, [topic]);
-
-  // Update last update time when data changes
-  useEffect(() => {
-    if (topicData) {
-      setLastUpdateTime(new Date());
-    }
-  }, [topicData]);
 
   return (
     <div style={PANEL_STYLES}>
       <Header topic={topic} msgType={msgType} lastUpdateTime={lastUpdateTime} onClose={onClose} />
       <TabBar activeTab={activeTab} onTabChange={setActiveTab} />
       <div style={CONTENT_STYLES}>
-        {error && <ErrorMessage message={error} />}
+        <ObserverConnectionNotice connection={connection} reconnect={reconnect} />
         <div style={SCROLLABLE_CONTENT_STYLES}>
           {activeTab === "data" ? (
             <TopicContent topicData={topicData} status={status} />

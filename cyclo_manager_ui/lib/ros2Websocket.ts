@@ -17,7 +17,7 @@
 import {
   getWebSocketBaseUrl,
   isRecord,
-  parseJsonMessage,
+  parseWebSocketMessage,
   setupWebSocketHandlers,
   stringifyMessageData,
   type WebSocketLifecycleOptions,
@@ -35,6 +35,8 @@ export type ROS2WebSocketMessage = WebSocketErrorMessage | {
 };
 
 export type ROS2TopicWebSocketOptions = WebSocketLifecycleOptions & {
+  msgType?: string;
+  metadataOnly?: boolean;
   onMessage?: (data: ROS2TopicDataResponse) => void;
 };
 
@@ -69,7 +71,7 @@ function parseROS2TopicMessage(
   options: ROS2TopicWebSocketOptions
 ): void {
   try {
-    const message = parseJsonMessage(event.data);
+    const message = parseWebSocketMessage(event);
 
     if (message.type === "data") {
       options.onMessage?.(toROS2TopicDataResponse(message.data));
@@ -86,7 +88,10 @@ export function createROS2TopicWebSocket(
   options: ROS2TopicWebSocketOptions = {}
 ): WebSocket {
   const baseUrl = getWebSocketBaseUrl();
-  const wsUrl = `${baseUrl}/ws/ros2/topics/${encodeURIComponent(topic)}`;
+  const query = new URLSearchParams();
+  if (options.msgType) query.set("msg_type", options.msgType);
+  if (options.metadataOnly) query.set("metadata_only", "true");
+  const wsUrl = `${baseUrl}/ws/ros2/topics/${encodeURIComponent(topic)}?${query}`;
 
   const ws = new WebSocket(wsUrl);
 

@@ -72,7 +72,6 @@ class FakeSocket:
 class WebsocketJogTests(unittest.IsolatedAsyncioTestCase):
     async def run_socket(self, inputs):
         bridge = FakeBridge()
-        bridge.add_topic_subscription = lambda *args: True
         bridge.prepare_jog_publishers = lambda *args: True
         fake_state = SimpleNamespace(app_state=SimpleNamespace(
             get_ros2_bridge_or_none=lambda: bridge))

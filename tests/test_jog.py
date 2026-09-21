@@ -49,10 +49,22 @@ URDF = '''<robot name="fixture">
 
 class FakeBridge:
     def __init__(self):
+        self.subscription_users = {}
         self.published = []
         self.fail = False
         self.cache = {'/robot_description': {'data': {'data': URDF}, 'received_at': time.time()}}
         self.feedback()
+
+    def acquire_subscription(self, topic, msg_type, owner_id, qos=None):
+        self.subscription_users.setdefault(topic, set()).add(owner_id)
+        return True
+
+    def release_subscriptions(self, owner_id):
+        for topic in list(self.subscription_users):
+            self.subscription_users[topic].discard(owner_id)
+            if not self.subscription_users[topic]:
+                del self.subscription_users[topic]
+        return True
 
     def feedback(self, position=0.2, age=0):
         self.cache['/joint_states'] = {'data': {

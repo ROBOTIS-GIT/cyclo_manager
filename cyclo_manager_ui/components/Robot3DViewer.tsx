@@ -16,13 +16,13 @@
 
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef } from "react";
 import { useROS2TopicWebSocket } from "@/hooks/useROS2TopicWebSocket";
+import ObserverConnectionNotice from "@/components/ObserverConnectionNotice";
+import { useRobotDescription } from "@/hooks/useRobotDescription";
 import { useTheme } from "@/contexts/ThemeContext";
 import * as THREE from "three";
-// @ts-ignore
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
-// @ts-ignore
 import URDFLoader from "urdf-loader";
 
 // -----------------------------------------------------------------------------
@@ -66,6 +66,7 @@ interface Robot3DViewerProps {
   robotDescriptionTopic?: string;
   jointStatesTopic?: string;
   className?: string;
+  reloadKey?: string | number;
 }
 
 // -----------------------------------------------------------------------------
@@ -165,6 +166,7 @@ export default function Robot3DViewer({
   robotDescriptionTopic = "/robot_description",
   jointStatesTopic = "/joint_states",
   className = "",
+  reloadKey = 0,
 }: Robot3DViewerProps) {
   const { theme } = useTheme();
   const containerRef = useRef<HTMLDivElement>(null);
@@ -176,23 +178,12 @@ export default function Robot3DViewer({
   const groundMeshRef = useRef<THREE.Mesh | null>(null);
   const gridHelperRef = useRef<THREE.GridHelper | null>(null);
   const robotRef = useRef<URDFRobotRef>(null);
-  const [robotDescription, setRobotDescription] = useState<string | null>(null);
-
-  const { topicData: robotDescriptionData } = useROS2TopicWebSocket(robotDescriptionTopic);
-  const { topicData: jointStatesData } = useROS2TopicWebSocket(jointStatesTopic);
-
-  // Parse robot description from topic data
-  useEffect(() => {
-    if (!robotDescriptionData?.available) return;
-    try {
-      const str = extractRobotDescriptionString(robotDescriptionData.data);
-      if (str?.length) {
-        setRobotDescription((prev) => (prev === str ? prev : str));
-      }
-    } catch {
-      // Ignore parse errors
-    }
-  }, [robotDescriptionData]);
+  const description = useRobotDescription(robotDescriptionTopic, reloadKey);
+  const robotDescription = extractRobotDescriptionString(description.data);
+  const { topicData: jointStatesData, connection, reconnect } = useROS2TopicWebSocket(jointStatesTopic, {
+    msgType: "sensor_msgs/msg/JointState",
+  });
+  const jointValuesRef = useRef<Record<string, number | number[]>>({});
 
   // Apply joint_states to robot for 3D visualization
   useEffect(() => {
@@ -201,6 +192,7 @@ export default function Robot3DViewer({
       const payload = jointStatesData.data ?? jointStatesData;
       const values = parseJointStateToValues(payload);
       if (values && Object.keys(values).length > 0) {
+        jointValuesRef.current = values;
         if (robotRef.current) robotRef.current.setJointValues(values);
       }
     } catch {
@@ -349,10 +341,11 @@ export default function Robot3DViewer({
     const renderer = rendererRef.current;
     const controls = controlsRef.current;
 
-    if (!robotDescription || !scene || !camera || !renderer || !controls) return;
+    if (!scene || !camera || !renderer || !controls) return;
 
     robotRef.current = null;
     removeUrdfRobotsFromScene(scene);
+    if (!robotDescription) return;
 
     try {
       const manager = new THREE.LoadingManager();
@@ -379,6 +372,7 @@ export default function Robot3DViewer({
       robot.userData.isUrdfRobot = true;
       robotRef.current = robot as unknown as NonNullable<URDFRobotRef>;
       robot.rotation.x = ROBOT_ROTATION_X;
+      robotRef.current?.setJointValues(jointValuesRef.current);
 
       scene.add(robot);
     } catch (error) {
@@ -388,7 +382,7 @@ export default function Robot3DViewer({
 
   return (
     <div
-      className={`flex-1 min-w-0 min-h-0 border rounded overflow-hidden ${className}`}
+      className={`relative flex-1 min-w-0 min-h-0 border rounded overflow-hidden ${className}`}
       style={{
         maxWidth: "500px",
         maxHeight: "400px",
@@ -396,6 +390,10 @@ export default function Robot3DViewer({
         borderColor: "var(--vscode-panel-border)",
       }}
     >
+      {(description.loading || description.error) && <div className="absolute left-3 right-3 top-3 z-10 rounded border p-2 text-xs" style={{ background: "var(--vscode-sidebar-background)", borderColor: "var(--vscode-panel-border)" }}>
+        {description.loading ? "Loading robot model…" : <><span role="alert">{description.error}</span><button type="button" className="ml-2 underline" onClick={description.retry}>Retry</button></>}
+      </div>}
+      {connection.error && <div className="absolute bottom-3 left-3 right-3 z-10"><ObserverConnectionNotice connection={connection} reconnect={reconnect} /></div>}
       <div ref={containerRef} style={{ width: "100%", height: "100%" }} />
     </div>
   );

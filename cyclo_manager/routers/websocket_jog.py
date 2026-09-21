@@ -21,7 +21,9 @@
 import asyncio
 import logging
 
+from anyio import CancelScope, to_thread
 from cyclo_manager.jog import JogInput, JogSession
+from cyclo_manager.routers.websocket_utils import release_subscription_owner
 from cyclo_manager.state import app_state
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 from pydantic import ValidationError
@@ -93,11 +95,15 @@ async def websocket_jog(websocket: WebSocket, robot_type: str):
         except Exception:
             pass
     finally:
-        try:
-            await asyncio.to_thread(session.stop)
-        except Exception:
-            logger.exception(
-                'Could not send final jog stop; last joint targets remain; base timeout applies')
+        with CancelScope(shield=True):
+            try:
+                await to_thread.run_sync(session.stop)
+            except Exception:
+                logger.exception(
+                    'Could not send final jog stop; last joint targets remain; '
+                    'base timeout applies')
+            finally:
+                await release_subscription_owner(session.subscriptions)
         try:
             # A peer can leave before the opening handshake finishes. Once
             # disconnected, the legacy transport must not be closed again.

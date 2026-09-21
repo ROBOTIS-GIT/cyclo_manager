@@ -11,8 +11,8 @@ Next.js web interface for **cyclo_manager** (ROS 2 robot containers, s6 services
   - Follower bringup (`ai_worker_bringup`) with robot model **SG2 / BG2 / SH5 / BH5 / F1 / F2 / Mobile**
   - **Launch arguments** popup (gear icon): bool/string fields; **Init Position File** as dropdown (model default YAML, `pack_position.yaml`, or custom filename)
   - Leader bringup (`avatar_bringup`), **Cyclo Intelligence** (`cyclo_intelligence`), Zenoh daemon
-  - Live service logs and **3D URDF viewer** (`/robot_description`, `/joint_states` via WebSocket)
-  - **Robot Status** panel: bringup state, left/right battery percentage (WebSocket on `/ai_worker/battery/{left,right}/state`), and head/wrist camera activity (`GET /ros2/topics/{topic}/available` polling)
+  - Live service logs and **3D URDF viewer**: one-shot HTTP URDF lookup with a temporary transient-local subscription (5 s timeout); `/joint_states` via WebSocket. The reusable viewer owns both lifecycles. `reloadKey` reloads the model on robot/bringup process changes; failed lookups offer Retry.
+  - **Robot Status** panel: one `/ws/ros2/system-status` connection sends battery percentages and camera publisher presence every 2 s. Only battery topics are subscribed automatically. Camera **Check frame** briefly subscribes for a new frame (3 s timeout), returns metadata only, then releases its owner. Publisher presence is not proof of frame delivery; check results include the last check time.
 - **Topics** (`/topics`): Discover topics (`GET /ros2/topics`) and stream message JSON via WebSocket (`/ws/ros2/topics/{topic}`); optional **Info** tab (`GET /ros2/topics/{topic}/info`)
 - **Terminal** (`/terminal`, optional `?container={name}`): Multi-tab xterm.js shells into running containers, process list with kill; links from Dashboard when a container is running
 - **Files** (`/files`): Browse and edit UTF-8 text files on the robot host under the host agent file root (create, rename, delete; hidden files optional)
@@ -85,7 +85,10 @@ The UI calls the cyclo_manager **REST API** and **WebSockets**:
 | Use | Endpoint |
 |-----|----------|
 | Service logs | `WebSocket /ws/{container}/services/{service}/logs` |
-| ROS topic data | `WebSocket /ws/ros2/topics/{topic}` — on connect the API resolves the message type, subscribes if needed, then polls its cache and pushes JSON when data changes |
+| ROS topic data | `WebSocket /ws/ros2/topics/{topic}` — each connection acquires a subscription owner, receives `ready` after registration, then receives cached JSON when data changes; disconnect releases only its owner |
+| Robot description | `GET /ros2/robot-description?topic=/robot_description` — temporary subscription, released on completion, timeout or disconnect |
+| System telemetry | `WebSocket /ws/ros2/system-status?battery=...&camera=...` — repeated query parameters, battery subscriptions only; camera graph inspection |
+| Camera frame check | `POST /ros2/camera/check` with `{ "topic": "..." }` — waits for a newly received compressed frame; does not serialize image data |
 | Container terminal | `WebSocket /terminal/{name}/ws?session_id=...` |
 | Host files | `GET /host/files/tree`, `GET /host/files/read`, `POST /host/files/write`, etc. |
 
@@ -107,3 +110,15 @@ Configuration for default launch args lives in **`config/launchArgs.ts`** (edite
 | `/novnc` | noVNC |
 
 For the full stack and API, see the repository **[README.md](../README.md)**.
+
+### Observer recovery
+
+Topic and System status observers receive a `ready` frame after subscriptions
+are registered, even before any ROS messages arrive. Only this acknowledgement
+resets reconnect backoff and clears the last error; transport open does not.
+Temporary failures retry at approximately 1, 2, 4, 8, 16, then at most 30 seconds
+with jitter. Structured errors carry `code` and `retryable`; invalid topics/types
+and type conflicts stop automatic retries (close 1008), while temporary bridge
+or subscription failures retry (close 1013). Connection state and the last error
+are displayed separately. Reconnect triggers an immediate attempt; errors remain
+until readiness is acknowledged. Unmount cancels retries and closes the socket.

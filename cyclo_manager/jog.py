@@ -31,6 +31,7 @@ import time
 from typing import Literal
 import xml.etree.ElementTree as ET
 
+from cyclo_manager.subscriptions import subscribe_joint_feedback, SubscriptionOwner
 from pydantic import BaseModel, ConfigDict, Field
 
 FEEDBACK_MAX_AGE = 0.5
@@ -124,6 +125,7 @@ class JogSession:
     def __init__(self, bridge, robot_type: str):
         """Initialize an idle session without publishing any commands."""
         self.bridge = bridge
+        self.subscriptions = SubscriptionOwner(bridge)
         self.robot_type = robot_type
         self.description = None
         self.joints: list[JogJoint] = []
@@ -146,14 +148,7 @@ class JogSession:
                 topics.append((group[1], 'trajectory_msgs/msg/JointTrajectory'))
         if not self.bridge.prepare_jog_publishers(topics):
             raise ValueError('Cannot prepare ROS jog publishers')
-        for topic, msg_type, qos in [
-            ('/joint_states', 'sensor_msgs/msg/JointState',
-             {'reliability': 'best_effort', 'durability': 'volatile', 'depth': 1}),
-            ('/robot_description', 'std_msgs/msg/String',
-             {'reliability': 'reliable', 'durability': 'transient_local', 'depth': 1}),
-        ]:
-            if not self.bridge.add_topic_subscription(topic, msg_type, qos):
-                raise ValueError(f'Cannot subscribe to {topic}')
+        subscribe_joint_feedback(self.subscriptions)
 
     def feedback(self):
         """Read finite positions, sample age and runtime joint limits."""

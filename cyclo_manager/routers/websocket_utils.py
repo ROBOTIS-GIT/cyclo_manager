@@ -18,8 +18,10 @@
 
 """Shared WebSocket send and close helpers."""
 
+import asyncio
 import logging
 
+from anyio import CancelScope, to_thread
 from fastapi import WebSocket, WebSocketDisconnect
 from websockets.exceptions import ConnectionClosedError, ConnectionClosedOK
 
@@ -104,5 +106,45 @@ async def _close_websocket_ignoring_error(websocket: WebSocket) -> None:
     """
     try:
         await websocket.close()
+    except Exception:
+        pass
+
+
+async def run_until_disconnect(websocket, stream):
+    """Stop a stream on disconnect even when no topic data changes or arrives."""
+    async def receive():
+        while True:
+            message = await websocket.receive()
+            if message['type'] == 'websocket.disconnect':
+                return
+
+    tasks = [asyncio.create_task(receive()), asyncio.create_task(stream)]
+    try:
+        done, _ = await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)
+        for task in done:
+            task.result()
+    finally:
+        for task in tasks:
+            task.cancel()
+        await asyncio.gather(*tasks, return_exceptions=True)
+
+
+async def release_subscription_owner(owner):
+    """Finish cleanup even when the ASGI connection's cancellation scope is closed."""
+    with CancelScope(shield=True):
+        await to_thread.run_sync(owner.close)
+
+
+async def send_subscription_ready(websocket):
+    """Acknowledge subscription setup, even when no topic messages have arrived."""
+    await websocket.send_json({'type': 'ready'})
+
+
+async def close_observer_error(websocket, message, code, retryable):
+    """Send machine-readable recovery policy before closing the observer."""
+    try:
+        await websocket.send_json({
+            'type': 'error', 'data': message, 'code': code, 'retryable': retryable})
+        await websocket.close(code=1013 if retryable else 1008)
     except Exception:
         pass

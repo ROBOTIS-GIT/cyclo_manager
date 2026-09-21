@@ -42,6 +42,7 @@ from cyclo_manager.ros2_node.qos import (
     parse_qos_profile,
     resolve_qos_from_publisher_info,
 )
+from cyclo_manager.subscriptions import SubscriptionError
 import rclpy
 from rclpy.executors import SingleThreadedExecutor
 from rclpy.node import Node
@@ -56,10 +57,10 @@ RCLPY_NODE_NAME = 'cyclo_manager'
 class RequestKind:
     """Request types for spin thread queue."""
 
+    INSPECT_PUBLISHERS = 'inspect_publishers'
     RUN_DISCOVERY = 'run_discovery'
-    ADD_SUBSCRIPTION = 'add_subscription'
-    REMOVE_SUBSCRIPTION = 'remove_subscription'
-    GET_PUBLISHER_QOS = 'get_publisher_qos'
+    ACQUIRE_SUBSCRIPTION = 'acquire_subscription'
+    RELEASE_SUBSCRIPTIONS = 'release_subscriptions'
     PUBLISH_TOPIC = 'publish_topic'
     PREPARE_JOG = 'prepare_jog'
 
@@ -87,7 +88,7 @@ class Ros2Bridge:
     Bridge between cyclo_manager API and ROS2 topics.
 
     Wraps an rclpy Node on a background spin thread. Subscriptions are added
-    and removed on demand via add/remove_topic_subscription. Node operations
+    and removed according to their registered subscription owners. Node operations
     go through _request_queue and are processed on the spin thread.
 
     Method layout:
@@ -111,6 +112,8 @@ class Ros2Bridge:
         self._pubs: dict[tuple[str, str], Publisher] = {}
         self._msg_cache: dict[str, TopicCacheEntry] = {}
         self._discovered_topics: dict[str, list[str]] = {}
+        self._subscription_users: dict[str, set[str]] = {}
+        self._subscription_types: dict[str, str] = {}
 
         self._request_queue: queue.Queue[RequestOp] = queue.Queue()
 
@@ -157,48 +160,23 @@ class Ros2Bridge:
     # Public API — subscribe / unsubscribe
     # ------------------------------------------------------------------
 
-    def add_topic_subscription(
-        self,
-        topic: str,
-        msg_type: str,
-        qos_profile: Optional[dict] = None,
-    ) -> bool:
-        with self._lock:
-            if topic in self._subs:
-                return True
-        return (
-            self._enqueue_request(
-                RequestKind.ADD_SUBSCRIPTION,
-                (topic, msg_type, qos_profile or {}),
-            )
-            is True
-        )
-
-    def remove_topic_subscription(self, topic: str) -> bool:
-        return (
-            self._enqueue_request(
-                RequestKind.REMOVE_SUBSCRIPTION,
-                topic,
-            )
-            is True
-        )
-
-    def is_topic_transient_local_subscription(self, topic: str) -> bool:
-        """Return whether this topic is subscribed with TRANSIENT_LOCAL durability."""
-        with self._lock:
-            return topic in self._topics_transient_local
-
-    def get_qos_profile_for_topic(self, topic: str) -> dict[str, Any]:
-        """Use a known QoS preset when available; otherwise probe publishers via rclpy."""
-        preset = KNOWN_TOPIC_QOS_PRESETS.get(topic)
-        if preset is not None:
-            return dict(preset)
+    def acquire_subscription(self, topic, msg_type, owner_id, qos_profile=None) -> bool:
+        """Register one consumer; all consumers of a topic share one ROS subscription."""
         if not self._is_running:
-            return get_default_qos_profile()
-        result = self._enqueue_request(RequestKind.GET_PUBLISHER_QOS, topic)
-        if result is None:
-            return get_default_qos_profile()
-        return result
+            return False
+        result = self._enqueue_request(
+            RequestKind.ACQUIRE_SUBSCRIPTION,
+            (topic, msg_type, owner_id, qos_profile, time.monotonic() + 5.0),
+        )
+        if isinstance(result, SubscriptionError):
+            raise result
+        return result is True
+
+    def release_subscriptions(self, owner_id) -> bool:
+        """Release only this consumer, including acquires already queued by it."""
+        if not self._is_running:
+            return False
+        return self._enqueue_request(RequestKind.RELEASE_SUBSCRIPTIONS, owner_id) is True
 
     # ------------------------------------------------------------------
     # Public API — publish
@@ -282,6 +260,17 @@ class Ros2Bridge:
     # Public API — discovery
     # ------------------------------------------------------------------
 
+    def inspect_publishers(self, topics: list[str]) -> dict[str, bool] | None:
+        """Inspect graph endpoints without subscribing to their message streams."""
+        if not self._is_running:
+            return None
+        return self._enqueue_request(RequestKind.INSPECT_PUBLISHERS, topics, timeout=2.0)
+
+    def get_topic_received_at(self, topic: str) -> float | None:
+        """Read the last receipt time without converting a potentially large message."""
+        with self._lock:
+            return self._msg_cache.get(topic, {}).get('received_at')
+
     def run_discovery(self, timeout: float = 2.0) -> bool:
         """Run topic discovery on the spin thread and wait until finished."""
         return (
@@ -324,43 +313,31 @@ class Ros2Bridge:
             while True:
                 kind, payload = self._request_queue.get_nowait()
                 request_payload, response_queue = payload
-                if kind == RequestKind.RUN_DISCOVERY:
+                if kind == RequestKind.INSPECT_PUBLISHERS:
+                    try:
+                        result = {topic: self._rclpy_node.count_publishers(topic) > 0
+                                  for topic in request_payload}
+                    except Exception:
+                        logger.exception('Publisher inspection failed')
+                        result = None
+                elif kind == RequestKind.RUN_DISCOVERY:
                     result = self._handle_run_discovery()
-                elif kind == RequestKind.ADD_SUBSCRIPTION:
-                    topic, msg_type, qos_profile = request_payload
+                elif kind == RequestKind.ACQUIRE_SUBSCRIPTION:
+                    topic, msg_type, owner_id, qos_profile, deadline = request_payload
                     try:
-                        result = self._handle_add_subscription(
-                            topic, msg_type, qos_profile
-                        )
+                        result = time.monotonic() < deadline and self._handle_acquire_subscription(
+                            topic, msg_type, owner_id, qos_profile)
+                    except SubscriptionError as exc:
+                        result = exc
                     except Exception as e:
-                        logger.warning(
-                            'Subscribe request failed: topic=%s error=%s',
-                            topic,
-                            e,
-                        )
+                        logger.warning('Subscribe request failed: topic=%s error=%s', topic, e)
                         result = False
-                elif kind == RequestKind.REMOVE_SUBSCRIPTION:
-                    topic = request_payload
+                elif kind == RequestKind.RELEASE_SUBSCRIPTIONS:
                     try:
-                        result = self._handle_remove_subscription(topic)
+                        result = self._handle_release_subscriptions(request_payload)
                     except Exception as e:
-                        logger.warning(
-                            'Unsubscribe request failed: topic=%s error=%s',
-                            topic,
-                            e,
-                        )
+                        logger.warning('Subscription release failed: %s', e)
                         result = False
-                elif kind == RequestKind.GET_PUBLISHER_QOS:
-                    topic = request_payload
-                    try:
-                        result = self._handle_get_publisher_qos(topic)
-                    except Exception as e:
-                        logger.warning(
-                            'Publisher QoS request failed: topic=%s error=%s',
-                            topic,
-                            e,
-                        )
-                        result = get_default_qos_profile()
                 elif kind == RequestKind.PREPARE_JOG:
                     try:
                         result = all(
@@ -423,23 +400,38 @@ class Ros2Bridge:
             logger.warning('Discovery failed: %s', e)
             return False
 
-    def _handle_add_subscription(self, topic: str, msg_type: str, qos_profile: dict) -> bool:
+    def _handle_acquire_subscription(self, topic, msg_type, owner_id, qos_profile=None) -> bool:
         with self._lock:
             if topic in self._subs:
+                if self._subscription_types[topic] != msg_type:
+                    raise SubscriptionError(
+                        f'Conflicting message type for {topic}.', 'type_conflict', False)
+                self._subscription_users[topic].add(owner_id)
                 return True
-        profile = dict(qos_profile or {})
+        # Resolve QoS in the ROS thread, without nesting requests onto its own queue.
+        profile = dict(KNOWN_TOPIC_QOS_PRESETS.get(topic) or qos_profile
+                       or self._handle_get_publisher_qos(topic))
         sub = self._create_sub(topic, msg_type, profile)
         if not sub:
             return False
         with self._lock:
             self._subs[topic] = sub
+            self._subscription_users[topic] = {owner_id}
+            self._subscription_types[topic] = msg_type
             if profile.get('durability') == 'transient_local':
                 self._topics_transient_local.add(topic)
-        logger.info(
-            'ROS2 subscribe: topic=%s msg_type=%s',
-            topic,
-            msg_type,
-        )
+        logger.info('ROS2 subscribe: topic=%s msg_type=%s', topic, msg_type)
+        return True
+
+    def _handle_release_subscriptions(self, owner_id) -> bool:
+        with self._lock:
+            empty = []
+            for topic, users in self._subscription_users.items():
+                users.discard(owner_id)
+                if not users:
+                    empty.append(topic)
+        for topic in empty:
+            self._handle_remove_subscription(topic)
         return True
 
     def _handle_get_publisher_qos(self, topic: str) -> dict[str, Any]:
@@ -458,7 +450,11 @@ class Ros2Bridge:
 
     def _handle_remove_subscription(self, topic: str) -> bool:
         with self._lock:
+            if self._subscription_users.get(topic):
+                return False
             sub = self._subs.pop(topic, None)
+            self._subscription_users.pop(topic, None)
+            self._subscription_types.pop(topic, None)
             self._topics_transient_local.discard(topic)
             self._msg_cache.pop(topic, None)
         if sub is None:
@@ -532,18 +528,24 @@ class Ros2Bridge:
     ) -> Optional[Subscription]:
         if not self._rclpy_node:
             return None
-        msg_class = get_message_class(msg_type)
+        try:
+            msg_class = get_message_class(msg_type)
+        except (ValueError, ImportError, AttributeError):
+            msg_class = None
         if msg_class is None:
-            logger.error('Unknown message type: %s', msg_type)
-            return None
+            raise SubscriptionError(
+                f'Unsupported message type: {msg_type}.', 'invalid_message_type', False)
 
         def callback(msg: Any) -> None:
             with self._lock:
+                if self._subs.get(topic) is not subscription:
+                    return
                 self._msg_cache[topic] = {'raw_message': msg, 'received_at': time.time()}
 
         profile = qos_profile or {}
         qos = parse_qos_profile(profile)
-        return self._rclpy_node.create_subscription(msg_class, topic, callback, qos)
+        subscription = self._rclpy_node.create_subscription(msg_class, topic, callback, qos)
+        return subscription
 
     def _populate_message(self, msg: Any, values: dict[str, Any]) -> None:
         for key, value in values.items():
@@ -560,7 +562,8 @@ class Ros2Bridge:
     def _resolve_topic_msg_type_locked(self, topic: str) -> str:
         """Resolve message type for topic. Requires caller to hold self._lock."""
         return (
-            KNOWN_TOPIC_TYPES.get(topic)
+            self._subscription_types.get(topic)
+            or KNOWN_TOPIC_TYPES.get(topic)
             or (self._discovered_topics.get(topic) or [''])[0]
         )
 
@@ -600,6 +603,8 @@ class Ros2Bridge:
         self._msg_cache.clear()
         self._discovered_topics.clear()
         self._topics_transient_local.clear()
+        self._subscription_users.clear()
+        self._subscription_types.clear()
 
     def _remove_all_subscriptions(self) -> None:
         if not self._rclpy_node:

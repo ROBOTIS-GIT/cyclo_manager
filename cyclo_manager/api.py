@@ -30,6 +30,7 @@ from cyclo_manager.routers import (
     host,
     root,
     ros2,
+    ros2_observation,
     services,
     system,
     terminal,
@@ -103,6 +104,7 @@ app.include_router(services.router)
 app.include_router(version.router)
 app.include_router(docker.router)
 app.include_router(terminal.router)
+app.include_router(ros2_observation.router)
 app.include_router(ros2.router)
 app.include_router(websocket_logs.router)
 app.include_router(websocket_ros2.router)

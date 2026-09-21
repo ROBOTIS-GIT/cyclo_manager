@@ -37,11 +37,6 @@ export type SystemTopic = {
   topic: string;
 };
 
-export type SystemControlTopic = {
-  topic: string;
-  msgType: string;
-};
-
 export type SystemRobotOption = LaunchArgSelectOption & {
   config: LaunchArgsConfig;
   robotType?: RobotType;

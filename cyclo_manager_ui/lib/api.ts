@@ -52,7 +52,6 @@ import type {
   RobotType,
   ROS2TopicInfoResponse,
   ROS2TopicsListResponse,
-  ROS2TopicDataResponse,
   SystemStatsResponse,
   SystemProcessesResponse,
   RobotInfoResponse,
@@ -313,15 +312,20 @@ export async function getUpdateStatus(): Promise<UpdateStatusResponse> {
 
 // ROS2 Topic Management
 
-export async function getROS2Topics(): Promise<ROS2TopicsListResponse> {
-  return request<ROS2TopicsListResponse>({ method: "GET", url: "/ros2/topics" });
+export async function getRobotDescription(topic: string, signal: AbortSignal) {
+  return request<{ topic: string; data: unknown }>({
+    method: "GET", url: "/ros2/robot-description", params: { topic }, signal,
+  });
 }
 
-export async function getROS2TopicData(topic: string): Promise<ROS2TopicDataResponse> {
-  return request<ROS2TopicDataResponse>({
-    method: "GET",
-    url: `/ros2/topics/${encodeURIComponent(topic)}`,
+export async function checkCameraFrame(topic: string, signal: AbortSignal) {
+  return request<{ topic: string; received: boolean; checked_at: number }>({
+    method: "POST", url: "/ros2/camera/check", data: { topic }, signal,
   });
+}
+
+export async function getROS2Topics(): Promise<ROS2TopicsListResponse> {
+  return request<ROS2TopicsListResponse>({ method: "GET", url: "/ros2/topics" });
 }
 
 export async function getROS2TopicInfo(topic: string): Promise<ROS2TopicInfoResponse> {
@@ -329,32 +333,6 @@ export async function getROS2TopicInfo(topic: string): Promise<ROS2TopicInfoResp
     method: "GET",
     url: `/ros2/topics/${encodeURIComponent(topic)}/info`,
   });
-}
-
-export async function ros2Subscribe(topic: string, msgType?: string): Promise<void> {
-  await request<void>({
-    method: "POST",
-    url: `/ros2/topics/${encodeURIComponent(topic)}/subscribe`,
-    data: msgType ? { msg_type: msgType } : {},
-  });
-}
-
-export async function ros2Unsubscribe(topic: string): Promise<void> {
-  await request<void>({
-    method: "POST",
-    url: `/ros2/topics/${encodeURIComponent(topic)}/unsubscribe`,
-  });
-}
-
-export async function getROS2TopicAvailability(topic: string): Promise<boolean> {
-  try {
-    const response = await apiClient.get<{ topic: string; available: boolean }>(
-      `/ros2/topics/${encodeURIComponent(topic)}/available`
-    );
-    return response.data.available;
-  } catch {
-    return false;
-  }
 }
 
 export async function getSystemStats(): Promise<SystemStatsResponse> {

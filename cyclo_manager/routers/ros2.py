@@ -23,7 +23,6 @@ import os
 import subprocess
 
 from cyclo_manager.models import (
-    ROS2SubscribeRequest,
     ROS2TopicDataResponse,
     ROS2TopicsListResponse,
     ROS2TopicStatus,
@@ -31,7 +30,7 @@ from cyclo_manager.models import (
 )
 from cyclo_manager.ros2_node import Ros2Bridge
 from cyclo_manager.state import app_state
-from fastapi import APIRouter, Body, HTTPException, status
+from fastapi import APIRouter, HTTPException, status
 
 logger = logging.getLogger(__name__)
 
@@ -124,12 +123,9 @@ async def get_ros2_topic_available(topic: str) -> dict:
 
 @router.get('/topics/{topic:path}', response_model=ROS2TopicDataResponse)
 async def get_ros2_topic_data(topic: str) -> ROS2TopicDataResponse:
-    """Get the latest data from a specific ROS2 topic. On-demand subscription if needed."""
+    """Read the shared cache without creating a subscription."""
     bridge = _require_bridge()
     msg_type = bridge.get_topic_msg_type(topic)
-    if msg_type and not bridge.is_topic_receiving(topic):
-        qos_profile = bridge.get_qos_profile_for_topic(topic)
-        bridge.add_topic_subscription(topic, msg_type, qos_profile=qos_profile)
     cached_data = bridge.get_topic_data(topic)
     available = cached_data is not None
     data = cached_data.get('data') if cached_data else None
@@ -137,34 +133,3 @@ async def get_ros2_topic_data(topic: str) -> ROS2TopicDataResponse:
         topic=topic, msg_type=msg_type or '',
         data=data, available=available, domain_id=bridge.domain_id,
     )
-
-
-@router.post('/topics/{topic:path}/subscribe')
-async def ros2_topic_subscribe(
-    topic: str,
-    body: ROS2SubscribeRequest | None = Body(default=None),
-):
-    """Subscribe to a ROS2 topic. Optionally pass {"msg_type": "..."} in body."""
-    bridge = _require_bridge()
-    msg_type = (body or ROS2SubscribeRequest()).msg_type
-    if not msg_type:
-        msg_type = bridge.get_topic_msg_type(topic)
-    if not msg_type:
-        bridge.run_discovery()
-        msg_type = bridge.get_topic_msg_type(topic)
-    if not msg_type:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Unknown msg_type for topic '{topic}'. Provide msg_type in request body.",
-        )
-    qos_profile = bridge.get_qos_profile_for_topic(topic)
-    ok = bridge.add_topic_subscription(topic, msg_type, qos_profile=qos_profile)
-    return {'ok': ok}
-
-
-@router.post('/topics/{topic:path}/unsubscribe')
-async def ros2_topic_unsubscribe(topic: str):
-    """Unsubscribe from a ROS2 topic."""
-    bridge = _require_bridge()
-    ok = bridge.remove_topic_subscription(topic)
-    return {'ok': ok}

@@ -149,11 +149,11 @@ Interactive docs: `http://<host>:8081/docs`
 | Terminal | `WebSocket /terminal/{name}/ws` | PTY bash; optional `session_id` query param |
 | | `DELETE /terminal/{name}/{session_id}` | Kill session |
 | ROS 2 | `GET /ros2/topics` | Run discovery; list topics with availability |
-| | `GET /ros2/topics/{topic}` | Latest cached message (JSON); on-demand subscribe if needed |
+| | `GET /ros2/topics/{topic}` | Latest cached message (JSON); read-only |
 | | `GET /ros2/topics/{topic}/available` | Cheap liveness check (no JSON conversion of payload) |
 | | `GET /ros2/topics/{topic}/info` | `ros2 topic info -v` output |
-| | `POST /ros2/topics/{topic}/subscribe` | Subscribe; optional `{"msg_type": "..."}` body |
-| | `POST /ros2/topics/{topic}/unsubscribe` | Remove subscription |
+| | `GET /ros2/robot-description` | One-shot URDF; optional `topic` (default `/robot_description`); transient-local subscription released after receipt or 5 s timeout |
+| | `POST /ros2/camera/check` | Body `{ "topic": "..." }`; wait up to 3 s for a new compressed frame, return receipt metadata only, then release subscription |
 | | `POST /ros2/cmd_vel` | Publish Twist (`linear_x`, `angular_z`; optional `topic`) |
 | Host | `GET /host/repos`, `GET /host/repos/updates` | Managed host git repos |
 | | `GET /host/repos/{name}/branch`, `GET /host/repos/{name}/status` | Branch check and local-change status |
@@ -171,10 +171,15 @@ Interactive docs: `http://<host>:8081/docs`
 | Version | `GET /version` | Installed vs PyPI `cyclo-manager`; optional `?check_latest=false` |
 | WebSocket | `/ws/{container}/services/{service}/logs` | Live s6 logs (agent NDJSON stream → browser) |
 | | `/ws/ros2/topics/{topic}` | Live topic data (see below) |
+| | `/ws/ros2/system-status` | Repeated `battery` and `camera` query parameters; battery percentages and camera publisher presence every 2 s; no camera image subscriptions |
 
 **Service logs:** Live logs are streamed over WebSocket (not polled). Opening a new browser session re-tails recent lines from the agent, then follows new output. Download returns the current `/var/log/{service}/current` file with ANSI codes removed.
 
-**ROS 2 WebSocket behavior:** On connect, the API resolves the topic message type (known types, discovery, or existing subscription), calls `add_topic_subscription` if needed, then polls the in-memory cache and pushes `{topic, msg_type, data, available}` when data changes (throttled). The Topics UI uses this path without a prior REST subscribe. Disconnecting the WebSocket does not unsubscribe; use `POST /ros2/topics/{topic}/unsubscribe` or page cleanup.
+**ROS 2 WebSocket behavior:** Each connection registers a unique subscription owner after resolving the topic message type (known types, discovery, or existing subscription). Connections share one ROS subscription and cache per topic. The API pushes `{topic, msg_type, data, available}` when data changes (throttled); `metadata_only=true` sends availability without payloads. Disconnecting releases only that connection's ownership. The ROS subscription and cache are removed when the last owner leaves. `GET /ros2/topics/{topic}` only reads the cache; the former REST subscribe/unsubscribe endpoints have been removed.
+
+**Observer recovery:** Topic and System status sockets send `ready` after successful subscription setup, even without ROS data. Only `ready` clears the last error and resets backoff. Structured errors include `code` and `retryable`: invalid requests/types and type conflicts stop automatic retries (close 1008); temporary failures retry (close 1013). Retries use jittered 1, 2, 4, 8, 16, then at most 30-second delays. UI observers retain the error and offer Reconnect; leaving the page cancels retries.
+
+**HTTP observations:** Invalid topics and subscription type conflicts return **400**; temporary subscription or bridge failures return **503**. A robot-description timeout returns **504**. A camera timeout returns **200** with `received: false` and `checked_at`; it is a completed check, not a transport error. Temporary owners are released on completion, failure, timeout or disconnect. Camera publisher presence does not prove that frames are being delivered.
 
 Docker routes return **503** if `docker.sock` is unavailable. ROS routes require a running **rclpy** node and matching **`ROS_DOMAIN_ID`**.
 

@@ -27,16 +27,17 @@ from cyclo_manager.models import ROS2TopicDataResponse
 from cyclo_manager.routers.websocket_utils import (
     _close_websocket_ignoring_error,
     _send_websocket_data,
-    _send_websocket_error,
+    release_subscription_owner,
+    run_until_disconnect, close_observer_error, send_subscription_ready,
 )
 from cyclo_manager.state import app_state
-from fastapi import APIRouter, HTTPException, WebSocket, WebSocketDisconnect
+from cyclo_manager.subscriptions import SubscriptionError, SubscriptionOwner, validate_topic
+from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
-ROS2_TOPIC_POLL_INTERVAL = 0.5  # seconds
 ROS2_TOPIC_MAX_SEND_RATE = 10.0  # Hz (10 messages per second max)
 
 
@@ -140,84 +141,64 @@ async def _poll_and_send_single_topic_data(
 
 
 @router.websocket('/ws/ros2/topics/{topic:path}')
-async def websocket_ros2_topic_data(websocket: WebSocket, topic: str):
-    """Stream single ROS2 topic data in real-time over a WebSocket connection."""
+async def websocket_ros2_topic_data(
+    websocket: WebSocket, topic: str, msg_type: str | None = None, metadata_only: bool = False,
+):
+    """Share a topic subscription for exactly the lifetime of this connection."""
     await websocket.accept()
-    logger.info(f'WebSocket connection established for ros2/{topic}')
+    bridge = app_state.get_ros2_bridge_or_none()
+    if bridge is None:
+        await close_observer_error(
+            websocket, 'No ROS2 bridge available.', 'bridge_unavailable', True)
+        return
+    subscriptions = SubscriptionOwner(bridge)
+
+    async def stream():
+        validate_topic(topic)
+        resolved = msg_type or bridge.get_topic_msg_type(topic)
+        if not resolved:
+            response = ROS2TopicDataResponse(
+                topic=topic, msg_type='', data=None,
+                available=False, domain_id=bridge.domain_id)
+            if not await _send_websocket_data(websocket, response.model_dump()):
+                return
+        while not resolved:
+            await asyncio.to_thread(bridge.run_discovery)
+            resolved = bridge.get_topic_msg_type(topic)
+            if not resolved:
+                await asyncio.sleep(1)
+        await asyncio.to_thread(subscriptions.subscribe, topic, resolved)
+        await send_subscription_ready(websocket)
+        last_send_time, last_hash = 0.0, None
+        last_available = None
+        while True:
+            if metadata_only:
+                available = bridge.is_topic_receiving(topic)
+                if available != last_available:
+                    response = ROS2TopicDataResponse(
+                        topic=topic, msg_type=resolved, data=None,
+                        available=available, domain_id=bridge.domain_id)
+                    if not await _send_websocket_data(websocket, response.model_dump()):
+                        return
+                    last_available = available
+            else:
+                alive, last_send_time, last_hash = await _poll_and_send_single_topic_data(
+                    websocket, bridge, topic, last_send_time, last_hash,
+                    1.0 / ROS2_TOPIC_MAX_SEND_RATE)
+                if not alive:
+                    return
+            await asyncio.sleep(1.0 / ROS2_TOPIC_MAX_SEND_RATE)
 
     try:
-        bridge = app_state.get_ros2_bridge_or_none()
-        if bridge is None:
-            await _send_websocket_error(websocket, 'No ROS2 bridge available.')
-            await _close_websocket_ignoring_error(websocket)
-            return
-
-        msg_type = bridge.get_topic_msg_type(topic)
-        if msg_type:
-            qos_profile = bridge.get_qos_profile_for_topic(topic)
-            bridge.add_topic_subscription(topic, msg_type, qos_profile=qos_profile)
-            if bridge.is_topic_transient_local_subscription(topic):
-                for _ in range(5):
-                    await asyncio.sleep(0.1)
-                    if bridge.is_topic_receiving(topic):
-                        break
-
-        last_send_time: float = 0.0
-        last_sent_data_hash: Optional[int] = None
-        min_interval = 1.0 / ROS2_TOPIC_MAX_SEND_RATE
-
-        try:
-            cached_data = bridge.get_topic_data(topic)
-            available = cached_data is not None
-
-            if cached_data:
-                data = cached_data.get('data')
-                data_hash = hash(str(data)) if data is not None else None
-                msg_type = _get_topic_msg_type(bridge, topic)
-                response = ROS2TopicDataResponse(
-                    topic=topic, msg_type=msg_type,
-                    data=data, available=available, domain_id=bridge.domain_id,
-                )
-                if await _send_websocket_data(websocket, response.model_dump()):
-                    last_send_time = time.time()
-                    last_sent_data_hash = data_hash
-            elif not available:
-                msg_type = _get_topic_msg_type(bridge, topic)
-                response = ROS2TopicDataResponse(
-                    topic=topic, msg_type=msg_type,
-                    data=None, available=False, domain_id=bridge.domain_id,
-                )
-                if await _send_websocket_data(websocket, response.model_dump()):
-                    last_send_time = time.time()
-                    last_sent_data_hash = -1
-
-            while True:
-                await asyncio.sleep(min(ROS2_TOPIC_POLL_INTERVAL, min_interval))
-
-                connection_alive, new_last_send_time, new_last_sent_data_hash = (
-                    await _poll_and_send_single_topic_data(
-                        websocket, bridge, topic,
-                        last_send_time, last_sent_data_hash, min_interval
-                    )
-                )
-
-                if not connection_alive:
-                    logger.info(f'WebSocket disconnected for ros2/{topic}')
-                    return
-
-                last_send_time = new_last_send_time
-                last_sent_data_hash = new_last_sent_data_hash
-
-        except WebSocketDisconnect:
-            logger.info(f'WebSocket disconnected for ros2/{topic}')
-        except Exception as e:
-            logger.error(f'Error in WebSocket loop for ros2/{topic}: {e}')
-
-    except HTTPException as e:
-        await _send_websocket_error(websocket, e.detail or 'Unknown error')
-        await _close_websocket_ignoring_error(websocket)
+        await run_until_disconnect(websocket, stream())
     except WebSocketDisconnect:
-        logger.info(f'WebSocket disconnected for ros2/{topic}')
-    except Exception as e:
-        logger.error(f'WebSocket error for ros2/{topic}: {e}', exc_info=True)
+        pass
+    except SubscriptionError as exc:
+        await close_observer_error(websocket, str(exc), exc.code, exc.retryable)
+    except Exception:
+        logger.exception('WebSocket topic stream failed: %s', topic)
+        await close_observer_error(
+            websocket, 'Topic subscription failed.', 'subscription_unavailable', True)
+    finally:
+        await release_subscription_owner(subscriptions)
         await _close_websocket_ignoring_error(websocket)

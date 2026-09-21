@@ -16,6 +16,9 @@
 
 "use client";
 
+import ObserverConnectionNotice from "@/components/ObserverConnectionNotice";
+import { useSystemTelemetry } from "@/hooks/useSystemTelemetry";
+import CameraStatusRow from "@/components/system/CameraStatusRow";
 import { useEffect, useState, useCallback, useMemo } from "react";
 import type { CSSProperties } from "react";
 import { useParams } from "next/navigation";
@@ -27,11 +30,7 @@ import {
   controlDockerContainer,
   getDockerContainerLogs,
   getDockerContainers,
-  getROS2TopicAvailability,
-  getROS2TopicData,
   getSerialPorts,
-  ros2Subscribe,
-  ros2Unsubscribe,
 } from "@/lib/api";
 import type { SerialPortInfo } from "@/types/api";
 import {
@@ -39,7 +38,7 @@ import {
   mergeWithDefaults,
   type LaunchArgsConfig,
 } from "@/config/launchArgs";
-import { getSystemProfile, type SystemControlTopic, type SystemProfile, type SystemRobotOption } from "@/config/systemProfiles";
+import { getSystemProfile, type SystemProfile, type SystemRobotOption } from "@/config/systemProfiles";
 import LaunchArgsSettingPopup from "@/components/LaunchArgsSettingPopup";
 import FixedLogPanel from "@/components/FixedLogPanel";
 import Robot3DViewer from "@/components/Robot3DViewer";
@@ -49,18 +48,6 @@ import { useTheme } from "@/contexts/ThemeContext";
 import type { RobotType } from "@/types/api";
 
 const STATUS_POLL_INTERVAL = 2000;
-const ROBOT_DESCRIPTION_TOPIC = "/robot_description";
-const JOINT_STATES_TOPIC = "/joint_states";
-
-function parseBatteryPercentage(topicData: unknown): number | null {
-  if (!topicData || typeof topicData !== "object") return null;
-  const d = topicData as Record<string, unknown>;
-  const payload = (d.data ?? d) as Record<string, unknown>;
-  const pct = payload.percentage;
-  if (typeof pct !== "number") return null;
-  return Math.round(pct * 100);
-}
-
 const PANEL_STYLES = {
   flex: 1,
   minWidth: 0,
@@ -218,24 +205,6 @@ export default function SystemPage() {
   const cameraTopics =
     activeSystemProfile.cameraTopicsByRobotType?.[robotType as RobotType] ??
     activeSystemProfile.cameraTopics;
-  const controlTopics = useMemo<SystemControlTopic[]>(
-    () => {
-      if (!systemProfile) return [];
-      return [
-        { topic: JOINT_STATES_TOPIC, msgType: "sensor_msgs/msg/JointState" },
-        { topic: ROBOT_DESCRIPTION_TOPIC, msgType: "std_msgs/msg/String" },
-        ...batteryTopics.map(({ topic }) => ({
-          topic,
-          msgType: "sensor_msgs/msg/BatteryState",
-        })),
-        ...cameraTopics.map(({ topic }) => ({
-          topic,
-          msgType: "sensor_msgs/msg/CompressedImage",
-        })),
-      ];
-    },
-    [batteryTopics, cameraTopics, systemProfile]
-  );
   const [robotBringupArgs, setRobotBringupArgs] = useState<Record<string, string>>(
     () => getStoredBringupArgs(robotConfig, container)
   );
@@ -251,39 +220,11 @@ export default function SystemPage() {
   const cycloIntelligenceContainerRunning =
     cycloIntelligenceContainerStatus?.toLowerCase() === "running";
 
-  const [batteryPercentage, setBatteryPercentage] = useState<Record<string, number | null>>({});
-  const [cameraAvailability, setCameraAvailability] = useState<Record<string, boolean>>({});
-
-  useEffect(() => {
-    let cancelled = false;
-    let timeoutId: ReturnType<typeof setTimeout>;
-    const pollStatus = async () => {
-      const [batteryEntries, cameraEntries] = await Promise.all([
-        Promise.all(
-          batteryTopics.map(async ({ topic }) => {
-            try {
-              return [topic, parseBatteryPercentage(await getROS2TopicData(topic))] as const;
-            } catch {
-              return [topic, null] as const;
-            }
-          })
-        ),
-        Promise.all(
-          cameraTopics.map(async ({ topic }) => [topic, await getROS2TopicAvailability(topic)] as const)
-        ),
-      ]);
-      if (!cancelled) {
-        setBatteryPercentage(Object.fromEntries(batteryEntries));
-        setCameraAvailability(Object.fromEntries(cameraEntries));
-        timeoutId = setTimeout(pollStatus, STATUS_POLL_INTERVAL);
-      }
-    };
-    pollStatus();
-    return () => {
-      cancelled = true;
-      clearTimeout(timeoutId);
-    };
-  }, [batteryTopics, cameraTopics]);
+  const { batteries: batteryPercentage, cameras: cameraPublishers, connection: statusConnection, reconnect: reconnectStatus } = useSystemTelemetry(
+    batteryTopics.map(item => item.topic), cameraTopics.map(item => item.topic),
+    Boolean(container && systemProfile),
+  );
+  const viewerReloadKey = `${container}:${robotType}:${robotService.status?.is_up}:${robotService.status?.pid}`;
 
   usePolling(cycloIntelligenceService.loadStatus, STATUS_POLL_INTERVAL, {
     enabled: Boolean(container && systemProfile),
@@ -323,18 +264,6 @@ export default function SystemPage() {
     enabled: Boolean(container && systemProfile),
     resetKey: `${container}:external-service-containers`,
   });
-
-  useEffect(() => {
-    if (!container || !systemProfile) return;
-    for (const { topic, msgType } of controlTopics) {
-      ros2Subscribe(topic, msgType).catch(() => {});
-    }
-    return () => {
-      for (const { topic } of controlTopics) {
-        ros2Unsubscribe(topic).catch(() => {});
-      }
-    };
-  }, [container, controlTopics, systemProfile]);
 
   const handleZenohDaemonBringup = useCallback(async () => {
     const isRunning = zenohDaemonContainer?.status?.toLowerCase() === "running";
@@ -603,7 +532,7 @@ export default function SystemPage() {
       </div>
       <div className="flex flex-col lg:flex-row gap-4 items-stretch mt-4 flex-1 min-h-0">
         <div className="w-full lg:w-[500px] max-w-full flex-none flex flex-col gap-4">
-          <Robot3DViewer />
+          <Robot3DViewer reloadKey={viewerReloadKey} />
           <div
             className="rounded border overflow-hidden"
             style={{
@@ -618,6 +547,7 @@ export default function SystemPage() {
               Robot Status
             </div>
             <div className="px-5 pb-3">
+              <ObserverConnectionNotice connection={statusConnection} reconnect={reconnectStatus} />
               {[
                 {
                   label: "Bringup",
@@ -630,14 +560,6 @@ export default function SystemPage() {
                     label,
                     value: pct !== null ? `${pct}%` : null,
                     ok: pct !== null ? pct > 20 : null,
-                  };
-                }),
-                ...cameraTopics.map(({ label, topic }) => {
-                  const available = cameraAvailability[topic] ?? null;
-                  return {
-                    label,
-                    value: available ? "Active" : null,
-                    ok: available,
                   };
                 }),
               ].map(({ label, value, ok }) => (
@@ -662,6 +584,9 @@ export default function SystemPage() {
                   </span>
                 </div>
               ))}
+              {cameraTopics.map(({ label, topic }) => <CameraStatusRow
+                key={`${viewerReloadKey}:${topic}`} label={label} topic={topic}
+                publisher={cameraPublishers[topic] ?? null} />)}
             </div>
           </div>
         </div>

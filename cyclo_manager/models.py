@@ -318,14 +318,6 @@ class ROS2TopicsListResponse(BaseModel):
     topics: list[ROS2TopicStatus] = Field(..., description='List of topic statuses')
 
 
-class ROS2SubscribeRequest(BaseModel):
-    """Request body for POST /ros2/topics/{topic}/subscribe."""
-
-    msg_type: Optional[str] = Field(
-        None, description='Message type (e.g. sensor_msgs/msg/JointState)'
-    )
-
-
 class ROS2TwistPublishRequest(BaseModel):
     """Request body for POST /ros2/cmd_vel."""
 
