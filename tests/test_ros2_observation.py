@@ -56,7 +56,6 @@ class ObservationTests(unittest.TestCase):
                 app_state=SimpleNamespace(get_ros2_bridge_or_none=lambda: self.bridge))}):
             spec.loader.exec_module(self.router)
         self.router.DESCRIPTION_TIMEOUT = .15
-        self.router.FRAME_TIMEOUT = .15
         self.router.STATUS_INTERVAL = .05
         app = FastAPI()
         app.include_router(self.router.router)
@@ -108,25 +107,6 @@ class ObservationTests(unittest.TestCase):
             self.assertIn('/robot_description', self.bridge._msg_cache)
         self.assertFalse(self.bridge._subs)
 
-    def test_frame_check_never_converts_image_payload_and_releases_subscription(self):
-        self.feed['/camera'] = object()
-        with patch.object(self.bridge, 'get_topic_data',
-                          side_effect=AssertionError('image conversion')):
-            response = self.client.post('/ros2/camera/check', json={'topic': '/camera'})
-        self.assertTrue(response.json()['received'])
-        self.assertEqual(set(response.json()), {'topic', 'received', 'checked_at'})
-        self.assertFalse(self.bridge._subs)
-
-    def test_frame_check_requires_new_frame_and_preserves_other_owner(self):
-        with SubscriptionOwner(self.bridge) as other:
-            other.subscribe('/camera', 'sensor_msgs/msg/CompressedImage')
-            self.bridge._msg_cache['/camera'] = {
-                'raw_message': object(), 'received_at': time.time() - 1}
-            response = self.client.post('/ros2/camera/check', json={'topic': '/camera'})
-            self.assertFalse(response.json()['received'])
-            self.assertEqual(self.bridge._subscription_users['/camera'], {other.owner_id})
-        self.assertFalse(self.bridge._subs)
-
     def test_http_disconnect_and_task_cancellation_release_temporary_owner(self):
         async def scenario():
             request = SimpleNamespace(is_disconnected=AsyncMock(return_value=True))
@@ -137,13 +117,12 @@ class ObservationTests(unittest.TestCase):
             self.assertFalse(self.bridge._subs)
             request.is_disconnected.return_value = False
             task = asyncio.create_task(self.router.read_once(
-                request, self.bridge, '/camera', 'sensor_msgs/msg/CompressedImage', 5,
-                frame_only=True))
+                request, self.bridge, '/robot_description', 'std_msgs/msg/String', 5))
             for _ in range(100):
-                if '/camera' in self.bridge._subs:
+                if '/robot_description' in self.bridge._subs:
                     break
                 await asyncio.sleep(.005)
-            self.assertIn('/camera', self.bridge._subs)
+            self.assertIn('/robot_description', self.bridge._subs)
             task.cancel()
             with self.assertRaises(asyncio.CancelledError):
                 await task
@@ -152,25 +131,19 @@ class ObservationTests(unittest.TestCase):
 
     def test_invalid_http_topics_are_bad_requests_without_subscriptions(self):
         description = self.client.get('/ros2/robot-description', params={'topic': '/bad//topic'})
-        camera = self.client.post('/ros2/camera/check', json={'topic': '/bad//topic'})
         self.assertEqual(description.status_code, 400)
-        self.assertEqual(camera.status_code, 400)
         self.assertFalse(self.bridge._subscription_users)
         self.bridge._create_sub.assert_not_called()
 
     def test_http_type_conflicts_are_bad_requests_and_preserve_other_owner(self):
-        for topic, expected in [('/robot_description', 'sensor_msgs/msg/JointState'),
-                                ('/camera', 'std_msgs/msg/String')]:
-            with self.subTest(topic=topic), SubscriptionOwner(self.bridge) as owner:
-                owner.subscribe(topic, expected)
-                if topic == '/robot_description':
-                    response = self.client.get('/ros2/robot-description')
-                else:
-                    response = self.client.post('/ros2/camera/check', json={'topic': topic})
-                self.assertEqual(response.status_code, 400)
-                self.assertIn('Conflicting message type', response.json()['detail'])
-                self.assertEqual(self.bridge._subscription_users[topic], {owner.owner_id})
-            self.assertFalse(self.bridge._subs)
+        topic = '/robot_description'
+        with SubscriptionOwner(self.bridge) as owner:
+            owner.subscribe(topic, 'sensor_msgs/msg/JointState')
+            response = self.client.get('/ros2/robot-description')
+            self.assertEqual(response.status_code, 400)
+            self.assertIn('Conflicting message type', response.json()['detail'])
+            self.assertEqual(self.bridge._subscription_users[topic], {owner.owner_id})
+        self.assertFalse(self.bridge._subs)
 
     def test_subscription_failure_releases_owner(self):
         self.bridge._create_sub.return_value = None

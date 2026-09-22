@@ -20,16 +20,14 @@ import ObserverConnectionNotice from "@/components/ObserverConnectionNotice";
 import { useSystemTelemetry } from "@/hooks/useSystemTelemetry";
 import type { SystemProfile } from "@/config/systemProfiles";
 import type { RobotType, ServiceStatusResponse } from "@/types/api";
-import CameraStatusRow from "./CameraStatusRow";
 
 interface Props {
   profile: SystemProfile;
   robotType: string;
   bringup: ServiceStatusResponse | null;
-  viewerReloadKey: string;
 }
 
-export default function SystemRobotStatus({ profile, robotType, bringup, viewerReloadKey }: Props) {
+export default function SystemRobotStatus({ profile, robotType, bringup }: Props) {
   const batteryTopics = profile.batteryTopics;
   const cameraTopics = profile.cameraTopicsByRobotType?.[robotType as RobotType] ?? profile.cameraTopics;
   const { batteries: batteryPercentage, cameras: cameraPublishers,
@@ -67,6 +65,11 @@ export default function SystemRobotStatus({ profile, robotType, bringup, viewerR
               ok: pct !== null ? pct > 20 : null,
             };
           }),
+          ...cameraTopics.map(({ label, topic }) => ({
+            label,
+            value: cameraPublishers[topic] ? "Active" : null,
+            ok: cameraPublishers[topic] ?? null,
+          })),
         ].map(({ label, value, ok }) => (
           <div
             key={label}
@@ -89,9 +92,6 @@ export default function SystemRobotStatus({ profile, robotType, bringup, viewerR
             </span>
           </div>
         ))}
-        {cameraTopics.map(({ label, topic }) => <CameraStatusRow
-          key={`${viewerReloadKey}:${topic}`} label={label} topic={topic}
-          publisher={cameraPublishers[topic] ?? null} />)}
       </div>
     </div>
   );

@@ -153,7 +153,6 @@ Interactive docs: `http://<host>:8081/docs`
 | | `GET /ros2/topics/{topic}/available` | Cheap liveness check (no JSON conversion of payload) |
 | | `GET /ros2/topics/{topic}/info` | `ros2 topic info -v` output |
 | | `GET /ros2/robot-description` | One-shot URDF; optional `topic` (default `/robot_description`); transient-local subscription released after receipt or 5 s timeout |
-| | `POST /ros2/camera/check` | Body `{ "topic": "..." }`; wait up to 3 s for a new compressed frame, return receipt metadata only, then release subscription |
 | | `POST /ros2/cmd_vel` | Publish Twist (`linear_x`, `angular_z`; optional `topic`) |
 | Host | `GET /host/repos`, `GET /host/repos/updates` | Managed host git repos |
 | | `GET /host/repos/{name}/branch`, `GET /host/repos/{name}/status` | Branch check and local-change status |

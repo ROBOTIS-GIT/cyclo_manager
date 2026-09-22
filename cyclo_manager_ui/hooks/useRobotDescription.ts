@@ -19,21 +19,29 @@
 import { useEffect, useState } from "react";
 import { getRobotDescription } from "@/lib/api";
 
-/** One retained description per mount/topic/reload; no permanent ROS subscription. */
-export function useRobotDescription(topic: string, reloadKey: string | number) {
+/** One retained description per enabled lifecycle; no permanent ROS subscription. */
+export function useRobotDescription(topic: string, reloadKey: string | number, enabled = true) {
   const [attempt, setAttempt] = useState(0);
-  const key = JSON.stringify([topic, reloadKey, attempt]);
-  const [result, setResult] = useState<{ key: string; data: unknown; error: string | null } | null>(null);
+  const key = JSON.stringify([topic, reloadKey, attempt, enabled]);
+  const [result, setResult] = useState<{
+    key: string; value: { data: unknown; error: string | null } | null;
+  }>({ key, value: null });
+  // Forget old data/errors before rendering a stopped or restarted robot.
+  if (result.key !== key) setResult({ key, value: null });
+
   useEffect(() => {
+    if (!enabled) return;
     const controller = new AbortController();
     getRobotDescription(topic, controller.signal).then(response => {
-      if (!controller.signal.aborted) setResult({ key, data: response.data, error: null });
+      if (!controller.signal.aborted) setResult({ key, value: { data: response.data, error: null } });
     }).catch(error => {
-      if (!controller.signal.aborted) setResult({ key, data: null, error: error instanceof Error ? error.message : "Could not load robot description" });
+      if (!controller.signal.aborted) setResult({ key, value: {
+        data: null, error: error instanceof Error ? error.message : "Could not load robot description",
+      } });
     });
     return () => controller.abort();
-  }, [topic, key]);
-  const current = result?.key === key ? result : null;
-  return { data: current?.data, loading: !current, error: current?.error,
-    retry: () => setAttempt(value => value + 1) };
+  }, [topic, key, enabled]);
+  const current = enabled && result.key === key ? result.value : null;
+  return { data: current?.data, loading: enabled && !current, error: current?.error,
+    retry: () => { if (enabled) setAttempt(value => value + 1); } };
 }

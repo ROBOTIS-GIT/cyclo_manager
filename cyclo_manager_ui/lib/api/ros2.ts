@@ -23,12 +23,6 @@ export async function getRobotDescription(topic: string, signal: AbortSignal) {
   });
 }
 
-export async function checkCameraFrame(topic: string, signal: AbortSignal) {
-  return request<{ topic: string; received: boolean; checked_at: number }>({
-    method: "POST", url: "/ros2/camera/check", data: { topic }, signal,
-  });
-}
-
 export async function getROS2Topics(): Promise<ROS2TopicsListResponse> {
   return request<ROS2TopicsListResponse>({ method: "GET", url: "/ros2/topics" });
 }

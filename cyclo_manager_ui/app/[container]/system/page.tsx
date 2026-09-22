@@ -44,9 +44,10 @@ function SystemContent({ container, profile }: { container: string; profile: Sys
       />
       <div className="flex flex-col lg:flex-row gap-4 items-stretch mt-4 flex-1 min-h-0">
         <div className="w-full lg:w-[500px] max-w-full flex-none flex flex-col gap-4">
-          <Robot3DViewer reloadKey={viewerReloadKey} />
+          <Robot3DViewer reloadKey={viewerReloadKey}
+            descriptionEnabled={services.robot.status?.is_up === true} />
           <SystemRobotStatus profile={profile} robotType={settings.robot.value}
-            bringup={services.robot.status} viewerReloadKey={viewerReloadKey} />
+            bringup={services.robot.status} />
         </div>
         <SystemLogPanel target={log} container={container} profile={profile} onClose={() => setLog(null)} />
       </div>

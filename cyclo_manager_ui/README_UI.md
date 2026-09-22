@@ -11,8 +11,8 @@ Next.js web interface for **cyclo_manager** (ROS 2 robot containers, s6 services
   - Follower bringup (`ai_worker_bringup`) with robot model **SG2 / BG2 / SH5 / BH5 / F1 / F2 / Mobile**
   - **Launch arguments** popup (gear icon): bool/string fields; **Init Position File** as dropdown (model default YAML, `pack_position.yaml`, or custom filename)
   - Leader bringup (`avatar_bringup`), **Cyclo Intelligence** (`cyclo_intelligence`), Zenoh daemon
-  - Live service logs and **3D URDF viewer**: one-shot HTTP URDF lookup with a temporary transient-local subscription (5 s timeout); `/joint_states` via WebSocket. The reusable viewer owns both lifecycles. `reloadKey` reloads the model on robot/bringup process changes; failed lookups offer Retry.
-  - **Robot Status** panel: one `/ws/ros2/system-status` connection sends battery percentages and camera publisher presence every 2 s. Only battery topics are subscribed automatically. Camera **Check frame** briefly subscribes for a new frame (3 s timeout), returns metadata only, then releases its owner. Publisher presence is not proof of frame delivery; check results include the last check time.
+  - Live service logs and **3D URDF viewer**: one-shot HTTP URDF lookup with a temporary transient-local subscription (5 s timeout); `/joint_states` via WebSocket. The reusable viewer owns both lifecycles. `descriptionEnabled` gates model requests: System waits for bringup Running, loads once per model/PID, and cancels requests and clears the model when bringup stops or its status is unavailable. `reloadKey` reloads the model on robot/bringup process changes; failed lookups offer Retry while enabled.
+  - **Robot Status** panel: one `/ws/ros2/system-status` connection sends battery percentages and camera publisher presence every 2 s. Only battery topics are subscribed automatically. Cameras show **Active** when a publisher exists and **—** otherwise, without subscribing to image messages.
 - **Topics** (`/topics`): Discover topics (`GET /ros2/topics`) and stream message JSON via WebSocket (`/ws/ros2/topics/{topic}`); optional **Info** tab (`GET /ros2/topics/{topic}/info`)
 - **Terminal** (`/terminal`, optional `?container={name}`): Multi-tab xterm.js shells into running containers, process list with kill; links from Dashboard when a container is running
 - **Files** (`/files`): Browse and edit UTF-8 text files on the robot host under the host agent file root (create, rename, delete; hidden files optional)
@@ -88,7 +88,6 @@ The UI calls the cyclo_manager **REST API** and **WebSockets**:
 | ROS topic data | `WebSocket /ws/ros2/topics/{topic}` — each connection acquires a subscription owner, receives `ready` after registration, then receives cached JSON when data changes; disconnect releases only its owner |
 | Robot description | `GET /ros2/robot-description?topic=/robot_description` — temporary subscription, released on completion, timeout or disconnect |
 | System telemetry | `WebSocket /ws/ros2/system-status?battery=...&camera=...` — repeated query parameters, battery subscriptions only; camera graph inspection |
-| Camera frame check | `POST /ros2/camera/check` with `{ "topic": "..." }` — waits for a newly received compressed frame; does not serialize image data |
 | Container terminal | `WebSocket /terminal/{name}/ws?session_id=...` |
 | Host files | `GET /host/files/tree`, `GET /host/files/read`, `POST /host/files/write`, etc. |
 
@@ -127,3 +126,7 @@ until readiness is acknowledged. Unmount cancels retries and closes the socket.
 
 See [Code structure](../docs/code-structure.md) for feature hooks/components, the
 shared API client, navigation, robot-control boundaries and validation commands.
+
+Camera status shows **Active** when ROS graph inspection finds a publisher, or
+**—** when none is found or status is unavailable. It does not subscribe to images
+or check frame delivery.

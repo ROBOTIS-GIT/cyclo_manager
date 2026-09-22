@@ -285,11 +285,6 @@ class Ros2Bridge:
             return None
         return self._enqueue_request(RequestKind.INSPECT_PUBLISHERS, topics, timeout=2.0)
 
-    def get_topic_received_at(self, topic: str) -> float | None:
-        """Read the last receipt time without converting a potentially large message."""
-        with self._lock:
-            return self._msg_cache.get(topic, {}).get('received_at')
-
     def run_discovery(self, timeout: float = 2.0) -> bool:
         """Run topic discovery on the spin thread and wait until finished."""
         return (

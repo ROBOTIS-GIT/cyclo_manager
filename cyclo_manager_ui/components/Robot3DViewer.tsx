@@ -67,6 +67,7 @@ interface Robot3DViewerProps {
   jointStatesTopic?: string;
   className?: string;
   reloadKey?: string | number;
+  descriptionEnabled?: boolean;
 }
 
 // -----------------------------------------------------------------------------
@@ -167,6 +168,7 @@ export default function Robot3DViewer({
   jointStatesTopic = "/joint_states",
   className = "",
   reloadKey = 0,
+  descriptionEnabled = true,
 }: Robot3DViewerProps) {
   const { theme } = useTheme();
   const containerRef = useRef<HTMLDivElement>(null);
@@ -178,7 +180,7 @@ export default function Robot3DViewer({
   const groundMeshRef = useRef<THREE.Mesh | null>(null);
   const gridHelperRef = useRef<THREE.GridHelper | null>(null);
   const robotRef = useRef<URDFRobotRef>(null);
-  const description = useRobotDescription(robotDescriptionTopic, reloadKey);
+  const description = useRobotDescription(robotDescriptionTopic, reloadKey, descriptionEnabled);
   const robotDescription = extractRobotDescriptionString(description.data);
   const { topicData: jointStatesData, connection, reconnect } = useROS2TopicWebSocket(jointStatesTopic, {
     msgType: "sensor_msgs/msg/JointState",

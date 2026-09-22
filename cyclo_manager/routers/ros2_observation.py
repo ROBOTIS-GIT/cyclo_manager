@@ -30,11 +30,9 @@ from cyclo_manager.routers.websocket_utils import (
 from cyclo_manager.state import app_state
 from cyclo_manager.subscriptions import SubscriptionError, SubscriptionOwner, validate_topic
 from fastapi import APIRouter, HTTPException, Query, Request, WebSocket, WebSocketDisconnect
-from pydantic import BaseModel, Field
 
 router = APIRouter()
 DESCRIPTION_TIMEOUT = 5.0
-FRAME_TIMEOUT = 3.0
 STATUS_INTERVAL = 2.0
 
 
@@ -46,30 +44,20 @@ def require_bridge():
     return bridge
 
 
-async def read_once(request, bridge, topic, msg_type, timeout, *, frame_only=False):
+async def read_once(request, bridge, topic, msg_type, timeout):
     """Release the temporary owner on success, timeout, cancellation or disconnect."""
     owner = SubscriptionOwner(bridge)
-    started = time.time()
     deadline = time.monotonic() + timeout
-    qos = ({'reliability': 'best_effort', 'durability': 'volatile', 'depth': 1}
-           if frame_only else
-           {'reliability': 'reliable', 'durability': 'transient_local', 'depth': 1})
+    qos = {'reliability': 'reliable', 'durability': 'transient_local', 'depth': 1}
     try:
         await asyncio.to_thread(owner.subscribe, topic, msg_type, qos)
         while time.monotonic() < deadline:
             if await request.is_disconnected():
                 raise HTTPException(499, 'Client disconnected.')
-            if frame_only:
-                received = bridge.get_topic_received_at(topic)
-                if received is not None and received >= started:
-                    return {'topic': topic, 'received': True, 'checked_at': time.time()}
-            else:
-                cached = bridge.get_topic_data(topic)
-                if cached is not None:
-                    return {'topic': topic, 'data': cached['data']}
+            cached = bridge.get_topic_data(topic)
+            if cached is not None:
+                return {'topic': topic, 'data': cached['data']}
             await asyncio.sleep(.05)
-        if frame_only:
-            return {'topic': topic, 'received': False, 'checked_at': time.time()}
         raise HTTPException(504, 'Robot description not received within 5 seconds.')
     except SubscriptionError as exc:
         raise HTTPException(503 if exc.retryable else 400, str(exc)) from exc
@@ -82,19 +70,6 @@ async def robot_description(request: Request, topic: str = '/robot_description')
     """Read a retained URDF with a temporary transient-local subscription."""
     return await read_once(request, require_bridge(), topic, 'std_msgs/msg/String',
                            DESCRIPTION_TIMEOUT)
-
-
-class FrameCheck(BaseModel):
-    """Camera topic to inspect on explicit user request."""
-
-    topic: str = Field(min_length=1, max_length=1024)
-
-
-@router.post('/ros2/camera/check')
-async def check_camera_frame(request: Request, body: FrameCheck):
-    """Wait for a new compressed frame, returning metadata only."""
-    return await read_once(request, require_bridge(), body.topic,
-                           'sensor_msgs/msg/CompressedImage', FRAME_TIMEOUT, frame_only=True)
 
 
 def battery_percentage(bridge, topic):
