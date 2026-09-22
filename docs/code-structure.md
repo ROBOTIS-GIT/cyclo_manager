@@ -23,13 +23,16 @@ robot selection, or polling interval.
 Files retains optimistic save checks, unsaved-edit prompts, search debounce and
 mobile/desktop interaction differences. System reads saved model settings before
 mounting its viewers and updates a model and its launch arguments together.
-Dashboard CPU and general status polling retain their separate intervals.
+Dashboard system statistics and CPU process rows poll every second; container
+and host-info observations have separate intervals. CPU summaries share the
+host agent's moving average of the latest three one-second samples.
 
 ## Robot control
 
 - `robot/profiles.py`: bringup types/services, command topics, labels and base support.
 - `robot/runtime.py`: lifespan-owned existing service status/type observations and generation guards.
-- `robot/joints.py`: bounded commanded joints, URDF parsing and controller topics.
+- `robot/joints.py`: bounded position-command joints and limits parsed from URDF.
+- `robot/catalog.py`: command topics and controller membership matched by ROS endpoint node identity.
 - `robot/interface.py`: shared cached feedback access and command publication.
 - `jog.py`: per-connection jog input, targets, controller-wide held positions and stop state.
 - `record_play`: bag storage, motion validation/return planning and background jobs.
@@ -39,15 +42,45 @@ Dashboard CPU and general status polling retain their separate intervals.
 
 The shared robot interface does not acquire subscriptions. Jog connections and
 record/play jobs keep ownership in their existing lifecycle scopes. Constructing
-an interface does not publish a command. The refactor preserves subscriber checks,
-feedback freshness thresholds, recording durations and stop behavior.
+an interface does not publish a command. Profiles choose Jog routes and Record &
+Play recommendations; discovery validates actual controller joint membership.
+The runtime monitor uses existing s6 status endpoints and Docker reads of
+`/run/robot_type`, without new agent endpoints. See [Jog](jog.md) and
+[Record & Play](record-play.md) for timing, validation and stop behavior.
+
+## Host agent
+
+`cyclo_manager_cli/cyclo_host_agent` runs as the separately installed systemd
+service. `cpu_usage.py` owns continuous CPU sampling; `routers/system_stats.py`
+serves statistics and process rows. `routers/files.py` and `routers/repos.py`
+handle workspace files and managed repository operations. The manager proxies
+these through its host-agent client. Dev API/UI source mounts do not update the
+host agent's installed Python package.
 
 ## Verification
 
-From the repository root, run `python -m unittest discover -s tests -v` in the
-server's dependency environment. From `cyclo_manager_ui`, run
-`npx tsc --noEmit`, `npm run lint`, `npm run test:observers` and `npm run build`.
+From the repository root, in environments with the corresponding server or
+host-agent dependencies installed:
+
+```sh
+python -m unittest discover -s tests -v
+PYTHONPATH=cyclo_manager_cli python -m unittest discover -s cyclo_manager_cli/tests -v
+```
+
+The first command covers backend motion, recording, subscription and API logic;
+the second covers host CPU sampling and shared summaries. They use test doubles,
+not live robot commands. They are development checks, not application startup code.
+
+From `cyclo_manager_ui`, run:
+
+```sh
+npm ci
+npx tsc --noEmit
+npm run lint
+npm run test:observers
+npm run build
+```
+
 For UI changes, also check Files editing/search/diff, model-specific System launch
 settings, connection cleanup, and Record & Play on desktop and mobile widths.
-
-`robot/catalog.py` discovers command topics and matches controller feedback by ROS endpoint node identity. Profiles choose Jog routes and Record & Play recommendations; discovery validates actual joint membership.
+On-robot motion verification remains separate from these automated checks.

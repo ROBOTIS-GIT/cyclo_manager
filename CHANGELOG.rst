@@ -4,11 +4,24 @@ Changelog for package cyclo_manager
 
 1.1.0 (unreleased)
 ------------------
-* Added a Files page and ``/host/files/*`` API for browsing, searching, uploading, creating, renaming, deleting, and editing host files through ``cyclo_host_agent``.
-* Added git status and diff view for workspace files, scoped to ``CYCLO_HOST_AGENT_WORKSPACE``.
-* Moved host CPU, memory, and disk stats to ``cyclo_host_agent`` and added ``GET /system/processes`` with a dashboard CPU usage modal.
-* Changed repository update container start to a background job that streams create and start logs, including Docker image pull output.
-* Updated Dynamixel Wizard 2 AppImages in noVNC and created the ``DYNAMIXEL Wizard2`` documents directory.
+* Added joystick-based mobile base control with selectable joystick and keyboard modes.
+* Changed Jog communication from HTTP commands to a dedicated WebSocket, with ordered command processing and active motion stops on input timeout or disconnection.
+* Added a Record & Play page for recording joint command topics to rosbags and playing back saved recordings.
+* Added automatic transitions to the start pose, playback speed selection, finite and infinite repetition, and returns to the start pose between passes.
+* Made recording and playback server-managed jobs that continue after page navigation or browser disconnection.
+* Added a Files page for browsing, searching, uploading, creating, renaming, deleting, and editing host files.
+* Added Git status and diff views for files.
+* Changed ROS subscription management to track ownership per connection and job, releasing subscriptions only when the last owner leaves to prevent interruptions in other windows or recording/playback jobs.
+* Changed System robot description loading to a one-shot subscription while bringup is running. Camera status now checks publisher presence without subscribing to image messages.
+* Added a dashboard CPU details modal showing overall usage and per-process CPU and memory usage.
+* Moved host statistics collection to ``cyclo_host_agent``. Dashboard and CPU details summaries share the average of the latest three one-second CPU samples and refresh every second.
+* Improved mobile layouts for navigation, buttons, file management, terminals, and robot controls.
+* Changed container creation and startup during repository updates to background jobs with progress logs, including Docker image pull output.
+* Added a fallback to the container's saved image information when image inspection fails, preventing failures of the entire container listing.
+* Added s6-agent APIs for listing services and retrieving all service statuses.
+* Updated DYNAMIXEL Wizard 2 in noVNC and added its documents directory.
+* Refactored the frontend and backend into feature modules, consolidated shared API and connection handling, and expanded regression tests and documentation.
+* Contributors: Hyungyu Kim
 
 1.0.1 (2026-08-19)
 ------------------

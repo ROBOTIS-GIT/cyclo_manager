@@ -24,6 +24,7 @@ For the full monorepo (API source, UI source, dev compose), see the [repository 
 - [What `cyclo_manager up` does](#what-cyclo_manager-up-does)
 - [Host agent (`cyclo_host_agent`)](#host-agent-cyclo_host_agent)
 - [Compose services](#compose-services)
+- [Recording storage](#recording-storage)
 - [Configuration](#configuration)
 - [Agent sockets on the host](#agent-sockets-on-the-host)
 - [Environment variables](#environment-variables)
@@ -120,6 +121,10 @@ The API container reaches it at `/agents/host/host_agent.sock` (see bundled `con
 - Update repos on allowed branches (`main`, `jazzy`) using stash or reset workflows.
 - Stop/start a repo's `docker/container.sh` helper during an update when requested by the UI.
 - Run Cyclo Manager package updates from the UI by delegating to `cyclo_manager update`.
+- Provide host CPU/memory/disk statistics and process information. CPU summaries
+  share a background sampler's average of the latest three one-second samples.
+- Serve the Files UI's browsing, filename search, upload, text editing, Git diff
+  and file/directory management operations under the configured workspace.
 
 `cyclo_manager up` installs the `refresh-host-agent` CLI subcommand into sudoers. It is registered as `sys.executable -m cyclo_manager_cli.cli refresh-host-agent` with `SETENV`, so UI-triggered updates can pass the current `PYTHONPATH` to sudo and do not depend on `PATH`. The command is idempotent and refreshes the socket directory, sudoers file, systemd unit, and service state after package upgrades.
 
@@ -131,14 +136,35 @@ Repository scanning and the Files UI use `CYCLO_HOST_AGENT_WORKSPACE` when set. 
 
 Defined in [`cyclo_manager_cli/docker/docker-compose.yml`](cyclo_manager_cli/docker/docker-compose.yml). All services use **`network_mode: host`**.
 
-| Compose service | Container name | `cyclo_manager up` | Image (example) |
+| Compose service | Container name | `cyclo_manager up` | Image in this checkout |
 |-----------------|----------------|--------------------|-----------------|
-| `cyclo_manager` | `cyclo_manager` | **Started** | `robotis/cyclo-manager:1.0.1` |
-| `ui` | `cyclo_manager_ui` | **Started** | `robotis/cyclo-manager-ui:1.0.1` |
+| `cyclo_manager` | `cyclo_manager` | **Started** | `robotis/cyclo-manager:1.1.0` |
+| `ui` | `cyclo_manager_ui` | **Started** | `robotis/cyclo-manager-ui:1.1.0` |
 | `rmw_zenoh` | `zenoh_daemon` | **Created only** | `robotis/zenoh-daemon:latest` |
 | `novnc-server` | `novnc-server` | **Created only** | `robotis/novnc-server:latest` |
 
 Start optional containers from the UI or manually, e.g. `docker start zenoh_daemon`.
+
+---
+
+## Recording storage
+
+The packaged stack and dev compose both mount:
+
+```yaml
+- ${HOME}/cyclo_manager_ros_bags:/cyclo_manager_ros_bags
+```
+
+Compose resolves `${HOME}` on the host at invocation time. The API container uses
+`RECORDINGS_DIR=/cyclo_manager_ros_bags`, which is also the server default when the
+variable is absent. The host directory is independent of
+`CYCLO_HOST_AGENT_WORKSPACE`; each recording stores its metadata and MCAP bag under
+its generated ID. Container recreation, `down` and package updates preserve this
+bind-mounted data. Applying a new mount requires container recreation.
+
+Recording and playback run in the API container using `rosbag2_py` and the MCAP
+storage plugin included in the manager image. They are not host-agent jobs.
+See [Record & Play](../docs/record-play.md) for capture, repeat playback and stops.
 
 ---
 
@@ -154,10 +180,13 @@ The API reads it as `CONFIG_FILE=/app/config.yml` inside the container.
 
 | Key | Description |
 |-----|-------------|
-| **`supported_robot_containers`** | Robot Docker container names that can open the System page (e.g. `ai_worker`, `open_manipulator`). Each must be a key in `sockets` and cannot be `host_agent`. |
+| **`supported_robot_containers`** | Containers eligible for System navigation and server-side motion profile detection (e.g. `ai_worker`, `open_manipulator`). Each must be a key in `sockets` and cannot be `host_agent`. |
 | **`sockets`** | Map of logical name → agent **Unix socket path as seen inside the API container** (under `/agents/...`). Include robot/service containers and `host_agent`. |
 
-s6 **service names** are not listed in config; each in-container agent reports them at runtime.
+s6 **service names** are defined in the manager's System/motion profiles, not in
+this config. Motion detection checks the existing individual status endpoints for
+`ai_worker_bringup` and `open_manipulator_bringup`, then reads `/run/robot_type`
+inside the selected container through Docker. This needs no new s6-agent endpoint.
 
 ### Example (bundled default)
 
@@ -184,6 +213,7 @@ On the host, sockets typically live under:
 ```text
 /var/run/robotis/agent_sockets/
 ├── ai_worker/s6_agent.sock
+├── open_manipulator/s6_agent.sock
 ├── cyclo_intelligence/s6_agent.sock
 └── host/host_agent.sock          ← created by cyclo_manager up
 ```
@@ -206,7 +236,11 @@ So `/agents/ai_worker/s6_agent.sock` in config corresponds to the host path abov
 | **`CYCLO_HOST_AGENT_WORKSPACE`** | User or CLI-generated systemd unit | Workspace scanned by `cyclo_host_agent` for managed git repositories and used as the Files UI/API root |
 | **`HOSTNAME`** | CLI (default: machine hostname) | Passed to API as `HOST_HOSTNAME` |
 | **`CONFIG_FILE`** | Compose (`/app/config.yml`) | Path inside the API container |
-| **`ROS_DOMAIN_ID`** | **Not** set by CLI | Set inside robot containers (e.g. `~/.bashrc`) so DDS matches your fleet |
+| **`HOME`** | Host environment used by Compose | Selects the host `${HOME}/cyclo_manager_ros_bags` bind-mount directory |
+| **`RECORDINGS_DIR`** | Compose (`/cyclo_manager_ros_bags`) | Server-side recording directory inside the API container; same default without the variable |
+| **`ROS_DOMAIN_ID`** | Manager image shell startup (`30`); not set by CLI | Must match the robot; the manager image configures it in `/root/.bashrc`, which the API startup sources |
+| **`RMW_IMPLEMENTATION`** | Manager image shell startup (`rmw_zenoh_cpp`) | ROS middleware used by the manager; requires a reachable Zenoh router |
+| **`NEXT_PUBLIC_API_URL`** | UI dev/build environment | Browser API address; production bundles embed it at build time, so a compose runtime value does not reconfigure a prebuilt UI |
 
 ---
 
@@ -219,6 +253,12 @@ With `network_mode: host` and default ports:
 | Web UI | http://127.0.0.1:3000 |
 | cyclo_manager API | http://127.0.0.1:8081 |
 | OpenAPI (Swagger) | http://127.0.0.1:8081/docs |
+
+These loopback URLs apply on the robot host. From another device, use the robot's
+hostname/IP and a browser-reachable API URL. Both compose files contain a UI
+runtime value of `http://127.0.0.1:8081`; it takes effect in development, while a
+production bundle uses its build-time value or hostname fallback. See the
+[UI API address guide](../cyclo_manager_ui/README_UI.md#api-address).
 
 ---
 
@@ -233,6 +273,11 @@ For development (local API/UI source, custom `config.yml`, hot reload):
 docker compose -f docker-compose.dev.yml up
 ```
 
+The dev compose command starts all defined services and does not install the host
+agent. API/UI source mounts do not update the Python code used by the separately
+installed `cyclo_host_agent.service`; install the updated CLI package and refresh
+that service when testing host-agent changes.
+
 See the [root README](../README.md#development).
 
 ---
@@ -245,7 +290,7 @@ Python dependencies declared in [`pyproject.toml`](pyproject.toml):
 |---------|---------|
 | **fastapi** | `cyclo_host_agent` HTTP API |
 | **uvicorn** | `cyclo_host_agent` server |
-| **psutil** | Declared package dependency for host/system utility support |
+| **psutil** | Host CPU sampler, memory/disk statistics and process inspection |
 
 The **`cyclo_manager`** CLI itself uses only the Python standard library plus **`subprocess`** calls to **`docker compose`**, **`pip`**, **`systemctl`**, and **`sudo`**.
 

@@ -8,23 +8,48 @@ Next.js web interface for **cyclo_manager** (ROS 2 robot containers, s6 services
 - **Dashboard** (`/dashboard`): Host stats, Docker container list (start/stop/restart), logs, bashrc editing, version management (host git repos)
   - System stats and the CPU process list refresh every second. The dashboard and CPU detail summary share the host agent's moving average of the latest three consecutive one-second CPU samples; during startup, the available samples are used. Process rows retain their short 0.2-second measurement window.
 - **System** (`/{container}/system`):
-  - Follower bringup (`ai_worker_bringup`) with robot model **SG2 / BG2 / SH5 / BH5 / F1 / F2 / Mobile**
+  - **AI Worker**: follower `ai_worker_bringup` with **SG2 / BG2 / SH5 / BH5 / F1 / F2 / Mobile**, and LG2 leader `avatar_bringup`
+  - **Open Manipulator**: follower `open_manipulator_bringup` with **OMY / OMX**, and OMY-L / OMX-L leader `leader_bringup`
   - **Launch arguments** popup (gear icon): bool/string fields; **Init Position File** as dropdown (model default YAML, `pack_position.yaml`, or custom filename)
-  - Leader bringup (`avatar_bringup`), **Cyclo Intelligence** (`cyclo_intelligence`), Zenoh daemon
+  - **Cyclo Intelligence** (`cyclo_intelligence`) and Zenoh daemon controls
   - Live service logs and **3D URDF viewer**: one-shot HTTP URDF lookup with a temporary transient-local subscription (5 s timeout); `/joint_states` via WebSocket. The reusable viewer owns both lifecycles. `descriptionEnabled` gates model requests: System waits for bringup Running, loads once per model/PID, and cancels requests and clears the model when bringup stops or its status is unavailable. `reloadKey` reloads the model on robot/bringup process changes; failed lookups offer Retry while enabled.
   - **Robot Status** panel: one `/ws/ros2/system-status` connection sends battery percentages and camera publisher presence every 2 s. Only battery topics are subscribed automatically. Cameras show **Active** when a publisher exists and **—** otherwise, without subscribing to image messages.
 - **Topics** (`/topics`): Discover topics (`GET /ros2/topics`) and stream message JSON via WebSocket (`/ws/ros2/topics/{topic}`); optional **Info** tab (`GET /ros2/topics/{topic}/info`)
+- **Jog** (`/jog`): Enable/stop controls, joystick or keyboard base input, and joint buttons for taps and holds. The server selects the running robot profile; joint metadata comes from URDF and ROS feedback. See [Jog](../docs/jog.md).
+- **Record & Play** (`/record-play`): **New recording** selects trajectory topics; **Playback** contains the saved recording list, automatic start-pose transition, speed selection, repetition and stop. Server jobs continue after page navigation. See [Record & Play](../docs/record-play.md).
 - **Terminal** (`/terminal`, optional `?container={name}`): Multi-tab xterm.js shells into running containers, process list with kill; links from Dashboard when a container is running
-- **Files** (`/files`): Browse and edit UTF-8 text files on the robot host under the host agent file root (create, rename, delete; hidden files optional)
+- **Files** (`/files`): Browse/search host files, upload by file picker or drag-and-drop, edit UTF-8 text and inspect diffs; create, rename and delete files/directories, with optional hidden files and unsaved-edit/conflict checks
 - **noVNC** (`/novnc`): Start/stop `novnc-server` and open the remote desktop viewer
 
-The VS Code–style sidebar (Dashboard, System, Topics, Terminal, Files, noVNC) is shown on all routes **except** `/app`.
+The flat navigation list is **Dashboard, System, Jog, Record & Play, Topics,
+Terminal, noVNC, Files**. It appears as a desktop sidebar or mobile menu on all
+routes **except** `/app`. System navigation selects among configured, running
+robot containers; Jog and Record & Play open directly.
+
+## Motion pages
+
+Jog and Record & Play show **Server connected** and **Robot bringup** separately.
+The server chooses an AI Worker, OMY or OMX profile from the container's
+`/run/robot_type` and existing s6 bringup status endpoints. Profile detection
+requires no s6-agent update. Joint definitions and limits come from URDF, measured
+positions from `/joint_states`, and controller membership from controller-state
+feedback. Jog routes commands through the profile automatically and has no
+command-topic selector. Restart/model changes disarm Jog.
+
+Record & Play recommends the running profile's topics and also lists other
+discovered `JointTrajectory` topics. Expand **Topic** in a group to see its ROS
+name. Recording needs neither bringup nor an active publisher. Playback requires
+verified bringup, fresh joint/controller feedback, valid URDF limits and verified
+controller routing. Stop remains available when bringup is unavailable, although
+publishing a pose hold still requires valid feedback and the same running robot.
+See [motion profiles](../docs/record-play.md#robot-profiles) for supported types and
+runtime checks.
 
 ## Development
 
 ### Prerequisites
 
-- Node.js 20+
+- Node.js 24 (the version used by the Dockerfiles)
 - npm
 - cyclo_manager API running (e.g. `http://127.0.0.1:8081`)
 
@@ -32,7 +57,7 @@ The VS Code–style sidebar (Dashboard, System, Topics, Terminal, Files, noVNC) 
 
 ```bash
 cd cyclo_manager_ui
-npm install
+npm ci
 ```
 
 ### Run development server
@@ -43,14 +68,33 @@ npm run dev
 
 Open **http://localhost:3000** (redirects to `/app`).
 
-Set the API base URL only when the UI and API are not on the same host (e.g. UI on your PC, API on the robot):
+### API address
+
+REST and WebSocket connections originate in the **browser**. With no
+`NEXT_PUBLIC_API_URL` value, the client uses the page's protocol and hostname with
+port `8081`. For example, opening `http://robot.local:3000` targets
+`http://robot.local:8081`; an HTTPS page targets HTTPS/WSS and needs a suitably
+configured API endpoint.
+
+If the API is on a different host or port, set an address reachable from the
+browser before starting the development server. For example, for a robot at
+`192.168.6.2`:
 
 ```bash
-export NEXT_PUBLIC_API_URL=http://127.0.0.1:8081
+export NEXT_PUBLIC_API_URL=http://192.168.6.2:8081
 npm run dev
 ```
 
-When unset, the UI uses `window.location.hostname:8081` for REST and WebSocket calls, which is correct for opening the UI on the robot host (e.g. `http://ffw-snpr48a1050.local:3000`).
+`127.0.0.1` refers to the device running the browser. A Docker service name is
+normally resolvable only inside Docker, so it is not a browser API address.
+For a bridge-network deployment, expose the API port and use the host's
+browser-reachable address or a reverse proxy.
+
+Both compose files currently specify `NEXT_PUBLIC_API_URL=http://127.0.0.1:8081`
+for the UI service. In **dev compose**, remove that entry or override it with an
+empty string to use the browser hostname, or set the robot's reachable API URL;
+recreate the UI container after changing its environment. Exporting a value in
+the host shell alone does not override that literal compose setting.
 
 ### Build for production
 
@@ -59,9 +103,16 @@ npm run build
 npm start
 ```
 
+`NEXT_PUBLIC_API_URL` is embedded in the browser bundle at build time. Set it
+before `npm run build` if needed. Setting it only for `npm start`, or only in the
+runtime environment of a prebuilt Docker image, does not change that bundle.
+The production Dockerfile does not pass the compose runtime value into its
+builder, so the bundle uses the hostname fallback unless a value is supplied
+during the build (for example through a build-time `.env.production` file).
+
 ## Docker deployment
 
-With the repo root **`docker-compose.dev.yml`**:
+From the repository root, using **`docker-compose.dev.yml`**:
 
 ```bash
 docker compose -f docker-compose.dev.yml up -d ui
@@ -73,10 +124,8 @@ Or use the packaged stack via **`cyclo_manager up`** (prebuilt `robotis/cyclo-ma
 
 | Variable | Description |
 |----------|-------------|
-| `NEXT_PUBLIC_API_URL` | Optional cyclo_manager API base URL. Omit on the robot so the browser targets the same hostname as the UI (`:8081`). |
+| `NEXT_PUBLIC_API_URL` | Optional browser-reachable API URL; empty/unset uses the page protocol and hostname on port 8081. Read during dev startup or production build; see [API address](#api-address). |
 | `NODE_ENV` | `development` or `production` |
-
-With **`network_mode: host`**, the default hostname-based URL resolves to `http://<host>:8081`. On a Docker bridge network, set `NEXT_PUBLIC_API_URL` to the API service hostname instead.
 
 ## Architecture
 
@@ -88,10 +137,16 @@ The UI calls the cyclo_manager **REST API** and **WebSockets**:
 | ROS topic data | `WebSocket /ws/ros2/topics/{topic}` — each connection acquires a subscription owner, receives `ready` after registration, then receives cached JSON when data changes; disconnect releases only its owner |
 | Robot description | `GET /ros2/robot-description?topic=/robot_description` — temporary subscription, released on completion, timeout or disconnect |
 | System telemetry | `WebSocket /ws/ros2/system-status?battery=...&camera=...` — repeated query parameters, battery subscriptions only; camera graph inspection |
+| Jog | `WebSocket /ws/jog` — ordered operator inputs and feedback, normally 10 Hz; closes on page unmount |
+| Recording catalog | `WebSocket /record-play/watch` — scoped subscriptions for the page; closing it does not stop a recording/playback job |
+| Record & Play status | `GET /record-play` for catalog/library/runtime about every 2 s, `GET /record-play/status` for job status every 500 ms |
+| Record & Play commands | `POST /record-play/record`, `/record-play/play`, `/record-play/stop` |
 | Container terminal | `WebSocket /terminal/{name}/ws?session_id=...` |
-| Host files | `GET /host/files/tree`, `GET /host/files/read`, `POST /host/files/write`, etc. |
+| Host files | `GET /host/files/tree`, `/read`, `/search`, `/diff`; `POST /host/files/write`, `/create`, `/rename`, `/upload`; `DELETE /host/files` |
 
-Launch arguments and robot type for bringup are stored in **`localStorage`** per container (and per follower model for `ai_worker`).
+System launch arguments and selected robot/leader types are stored in
+**`localStorage`**. These configure bringup requests; they do not select the
+Jog/playback profile, which comes from the server's running-robot observation.
 
 Configuration for default launch args lives in **`config/launchArgs.ts`** (edited in the UI popup, not in this file at runtime).
 
@@ -103,14 +158,16 @@ Configuration for default launch args lives in **`config/launchArgs.ts`** (edite
 | `/app` | Apps hub (Cyclo Manager / Cyclo Intelligence on port 7080) |
 | `/dashboard` | Host + Docker management, repo updates |
 | `/{container}/system` | Bringup, 3D viewer, robot status |
+| `/jog` | Base teleoperation and measured-position joint jogging |
+| `/record-play` | Record trajectory topics, saved recording library and repeated playback |
 | `/topics` | ROS 2 topic list + live viewer |
 | `/terminal` | Multi-tab container shells |
-| `/files` | Host file browser and text editor |
+| `/files` | Host file browsing, search, upload, editing and diff |
 | `/novnc` | noVNC |
 
 For the full stack and API, see the repository **[README.md](../README.md)**.
 
-### Observer recovery
+## Observer recovery
 
 Topic and System status observers receive a `ready` frame after subscriptions
 are registered, even before any ROS messages arrive. Only this acknowledgement
@@ -126,21 +183,3 @@ until readiness is acknowledged. Unmount cancels retries and closes the socket.
 
 See [Code structure](../docs/code-structure.md) for feature hooks/components, the
 shared API client, navigation, robot-control boundaries and validation commands.
-
-Camera status shows **Active** when ROS graph inspection finds a publisher, or
-**—** when none is found or status is unavailable. It does not subscribe to images
-or check frame delivery.
-
-### Motion pages
-
-Jog and Record & Play show Server connected and Robot bringup separately. The
-server chooses an AI Worker, OMY or OMX profile from the container's `/run/robot_type`
-and existing s6 bringup status API. The s6-agent does not need updating. Jog routes commands through the profile automatically; it has no
-Automatic/command-topic selector. Joint cards and limits still come from URDF and
-live controller feedback. Restart/model changes disarm Jog.
-
-Record & Play recommends the running profile's topics and also lists other discovered
-JointTrajectory topics for manual capture. Recording needs neither bringup nor an
-active publisher. Playback requires verified bringup, fresh feedback, valid URDF limits
-and verified controller routing. Stop remains available when bringup is unavailable.
-See [Record & Play](../docs/record-play.md) for profile selection and supported interfaces.

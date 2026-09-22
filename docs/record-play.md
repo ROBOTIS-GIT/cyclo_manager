@@ -8,7 +8,8 @@ come from the configured bringup type profile; URDF and ROS feedback supply dyna
 
 Both compose files mount `${HOME}/cyclo_manager_ros_bags` on the host at
 `/cyclo_manager_ros_bags` in the manager container. `HOME` is resolved when
-compose runs. `RECORDINGS_DIR` points the server to that container-side path.
+compose runs. `RECORDINGS_DIR` points the server to that container-side path;
+without the variable, the server also defaults to `/cyclo_manager_ros_bags`.
 Recreating or updating a container does not remove mounted files.
 
 Each recording has a generated directory ID; the display name is never used as
@@ -33,7 +34,8 @@ they are not automatically resumed after a restart.
 
 ## Recording
 
-Choose **New recording**, enter a name, select discovered trajectory topics and start recording while
+Choose **New recording**, enter a name, select discovered trajectory topics and
+click **recording start** while
 the leader or Jog supplies commands. Incoming messages are captured by ROS
 subscription callbacks, queued (up to 2,000 messages) and written by a worker;
 the UI does not poll joint values to manufacture a recording. Capture intervals
@@ -48,6 +50,13 @@ listed and replayed. Selected groups with no messages are noted as excluded in
 the recording details. Completely empty captures cannot be replayed. Use
 complete, consistent joint membership per topic: a bag that
 changes a topic's commanded joint set is rejected before any motion.
+Current Jog commands include the complete selected controller joint set, so Jog
+captures can be replayed when they satisfy the same validation. Older partial-joint
+captures that change membership within one topic still fail this check.
+
+The saved recording list is inside **Playback**. Expanding **Topic** in a recording
+group shows the actual ROS topic name. Publisher presence is informational and
+does not prevent starting a capture.
 
 ## Playback and repetition
 
@@ -113,7 +122,9 @@ unsubscribe endpoints have been removed. System uses `/ws/ros2/system-status`
 for low-rate battery values and camera publisher presence, and
 `GET /ros2/robot-description` for one-shot description reads. Camera status is
 `Active` when a publisher exists; it never subscribes to image streams.
-Viewers reconnect after a connection closes while their component is mounted.
+The Record & Play catalog observer retries connection closures with backoff while
+mounted. Topic/System observers also distinguish retryable from terminal errors;
+Jog uses explicit Reconnect after connection failures.
 A job started without a viewer allows up to two seconds for initial feedback.
 
 Stop interrupts playback, preparation or return and replaces pending targets
@@ -128,8 +139,9 @@ observes the job that is already running; it does not start a new job.
 
 `robot/joints.py` parses commanded URDF limits. `robot/catalog.py` resolves controller
 joint membership by matching JointTrajectory subscribers to controller-state publishers.
-`robot/interface.py` reads shared bridge caches, checks feedback freshness, and
-publishes commands. It does not register subscriptions or track motion. Jog adds
+`robot/interface.py` reads shared bridge caches, checks feedback freshness and
+resolved routes, and publishes commands through the runtime guard. It does not
+register subscriptions or run a motion loop. Jog adds
 its per-connection command state through `JogSession`; Record & Play uses the
 same robot interface directly, with subscription lifetimes owned by its jobs.
 `record_play/motion.py` validates bags and computes transitions from joint
