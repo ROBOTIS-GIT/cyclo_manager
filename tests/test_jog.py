@@ -206,6 +206,75 @@ class JogTests(unittest.TestCase):
         self.joint()
         self.assertEqual(self.target(), 0.7)
 
+    def test_boundary_noise_allows_jog_but_never_extends_command_limits(self):
+        for name, lower, upper, tolerance, delta in [
+                ('head_joint1', -0.3, 0.7, math.radians(0.05), math.radians(0.1)),
+                ('lift_joint', -0.5, 0, 0.00005, 0.001)]:
+            for side, boundary in [(-1, lower), (1, upper)]:
+                for fraction in (0, 0.1, 1):
+                    for direction in (-1, 1):
+                        with self.subTest(joint=name, side=side, fraction=fraction,
+                                          direction=direction):
+                            self.setUp()
+                            measured = boundary + side * tolerance * fraction
+                            data = self.bridge.cache['/joint_states']['data']
+                            data['position'][data['name'].index(name)] = measured
+                            self.session.apply(JogInput(kind='joint', joint=name,
+                                                        direction=direction, resolution='fine'))
+                            # Keep the offset relative to raw feedback, not a rounded/clamped sample.
+                            expected = max(lower, min(upper, measured + direction * delta))
+                            self.assertAlmostEqual(self.target(), expected)
+                            self.assertGreaterEqual(self.target(), lower)
+                            self.assertLessEqual(self.target(), upper)
+                            shown = next(j for j in self.session.snapshot()['joints']
+                                         if j['name'] == name)
+                            self.assertEqual(shown['position'], measured)
+
+    def test_feedback_beyond_tolerance_reports_actual_value_limits_and_units(self):
+        for name, lower, upper, tolerance, unit in [
+                ('head_joint1', -0.3, 0.7, math.radians(0.05), 'deg'),
+                ('lift_joint', -0.5, 0, 0.00005, 'mm')]:
+            for side, boundary in [(-1, lower), (1, upper)]:
+                with self.subTest(joint=name, side=side):
+                    self.setUp()
+                    data = self.bridge.cache['/joint_states']['data']
+                    data['position'][data['name'].index(name)] = boundary + side * tolerance * 1.02
+                    with self.assertRaisesRegex(ValueError, 'outside URDF limits') as raised:
+                        self.session.apply(JogInput(kind='joint', joint=name))
+                    for detail in (name, 'measured=', 'limits=[', f'tolerance=0.050000 {unit}'):
+                        self.assertIn(detail, str(raised.exception))
+                    self.assertEqual(self.bridge.published, [])
+
+    def test_stop_clamps_small_boundary_noise_for_rotary_and_linear_joints(self):
+        for name, lower, upper, tolerance in [
+                ('head_joint1', -0.3, 0.7, math.radians(0.05)),
+                ('lift_joint', -0.5, 0, 0.00005)]:
+            for side, boundary in [(-1, lower), (1, upper)]:
+                with self.subTest(joint=name, side=side):
+                    self.setUp()
+                    self.session.apply(JogInput(kind='joint', joint=name))
+                    data = self.bridge.cache['/joint_states']['data']
+                    data['position'][data['name'].index(name)] = boundary + side * tolerance / 2
+                    self.session.stop()
+                    self.assertEqual(len(self.bridge.published), 2)
+                    self.assertEqual(self.target(), boundary)
+                    self.assertIsNone(self.session.active_joint)
+
+    def test_stop_rejects_invalid_feedback_and_can_retry_when_it_recovers(self):
+        for measured in (0.7 + math.radians(0.051), float('nan'), float('inf')):
+            with self.subTest(measured=measured):
+                self.setUp()
+                self.joint()
+                self.bridge.feedback(measured)
+                with self.assertRaisesRegex(ValueError, 'Joint feedback'):
+                    self.session.stop()
+                self.assertEqual(len(self.bridge.published), 1)
+                self.assertEqual(self.session.active_joint, 'head_joint1')
+                self.bridge.feedback(0.7)
+                self.session.stop()
+                self.assertEqual(self.target(), 0.7)
+                self.assertIsNone(self.session.active_joint)
+
     def test_stale_missing_and_out_of_range_feedback_reject_motion(self):
         for position, age in [(0.2, 1), (float('nan'), 0), (1, 0)]:
             with self.subTest(position=position, age=age):
@@ -433,6 +502,41 @@ class ArmGripperJogTests(unittest.TestCase):
         self.feedback(gripper_l_joint1=0.6)
         self.session.apply(command)
         self.assertEqual(self.goals()['gripper_l_joint1'], 0.6)
+
+    def test_other_arm_joint_boundary_noise_is_clamped_and_kept_latched(self):
+        for side in ('l', 'r'):
+            for lower, upper, sign in [(0, 2, -1), (-2, 0, 1)]:
+                with self.subTest(side=side, lower=lower):
+                    self.setUp()
+                    active, held = f'arm_{side}_joint1', f'arm_{side}_joint2'
+                    xml = self.bridge.cache['/robot_description']['data']
+                    xml['data'] = xml['data'].replace(
+                        f'<joint name="{held}" type="revolute"><limit lower="-2" upper="2"',
+                        f'<joint name="{held}" type="revolute"><limit lower="{lower}" upper="{upper}"')
+                    self.feedback(**{held: sign * math.radians(0.003)})
+                    command = JogInput(kind='joint', joint=active)
+                    self.session.apply(command)
+                    self.assertEqual(self.goals()[held], 0)
+                    self.feedback(**{held: -sign * math.radians(0.03), active: 0.105})
+                    self.session.apply(command)
+                    self.assertEqual(self.goals()[held], 0)
+                    self.session.stop()
+                    self.assertEqual(self.goals()[held], 0)
+                    gripper = f'gripper_{side}_joint1'
+                    self.assertEqual(self.goals()[gripper], self.values[gripper])
+
+    def test_other_arm_joint_beyond_tolerance_blocks_publish_with_diagnostic(self):
+        xml = self.bridge.cache['/robot_description']['data']
+        xml['data'] = xml['data'].replace(
+            '<joint name="arm_r_joint2" type="revolute"><limit lower="-2" upper="2"',
+            '<joint name="arm_r_joint2" type="revolute"><limit lower="0" upper="2"')
+        self.feedback(arm_r_joint2=math.radians(-0.051))
+        with self.assertRaisesRegex(ValueError, 'arm_r_joint2') as raised:
+            self.session.apply(JogInput(kind='joint', joint='arm_r_joint1'))
+        self.assertIn('measured=-0.051000 deg', str(raised.exception))
+        self.assertIn('limits=[0.000000,', str(raised.exception))
+        self.assertIn('tolerance=0.050000 deg', str(raised.exception))
+        self.assertEqual(self.bridge.published, [])
 
     def test_gripper_can_still_be_jogged_directly(self):
         self.session.apply(JogInput(kind='joint', joint='arm_l_joint1'))

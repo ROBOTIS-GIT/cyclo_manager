@@ -20,6 +20,7 @@
 
 import asyncio
 import importlib.util
+import math
 from pathlib import Path
 import sys
 from types import SimpleNamespace
@@ -71,8 +72,8 @@ class FakeSocket:
 
 
 class WebsocketJogTests(unittest.IsolatedAsyncioTestCase):
-    async def run_socket(self, inputs, runtime=None):
-        bridge = FakeBridge()
+    async def run_socket(self, inputs, runtime=None, bridge=None):
+        bridge = bridge or FakeBridge()
         bridge.prepare_jog_publishers = lambda *args: True
         fake_state = SimpleNamespace(app_state=SimpleNamespace(
             get_ros2_bridge_or_none=lambda: bridge, robot_runtime=runtime or ready_runtime()))
@@ -133,6 +134,21 @@ class WebsocketJogTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(point['time_from_start'], {'sec': 0, 'nanosec': 0})
         self.assertNotIn('velocities', point)
         self.assertTrue(socket.closed)
+
+    async def test_small_held_joint_boundary_error_does_not_close_connection(self):
+        bridge = FakeBridge()
+        bridge.cache['/joint_states']['data']['position'][1] = 0.4 + math.radians(0.003)
+        bridge, socket = await self.run_socket([
+            {'kind': 'joint', 'joint': 'head_joint1'},
+            {'kind': 'joint', 'joint': 'head_joint1'},
+            {'kind': 'stop'}, {'kind': 'idle'}, 'disconnect'], bridge=bridge)
+        self.assertEqual(len(socket.output), 4)
+        self.assertFalse(any(item['error'] for item in socket.output))
+        self.assertEqual(socket.close_calls, 0)
+        self.assertEqual(len(bridge.published), 2)
+        for _, _, message in bridge.published:
+            values = dict(zip(message['joint_names'], message['points'][0]['positions']))
+            self.assertEqual(values['head_joint2'], 0.4)
 
     async def test_read_only_session_survives_a_background_pause(self):
         bridge, socket = await self.run_socket([

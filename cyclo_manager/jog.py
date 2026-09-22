@@ -47,6 +47,30 @@ BASE_TICK_MAX = 0.1  # seconds
 JOINT_INCREMENTS = {  # millimetres, degrees
     'fine': (1, 0.1), 'normal': (10, 1), 'coarse': (15, 3), 'large': (20, 5),
 }
+# Measurement noise allowance only; published goals still obey exact URDF limits.
+FEEDBACK_LIMIT_TOLERANCE = {'m': 0.00005, 'rad': math.radians(0.05)}
+
+
+def _checked_position(joint: RobotJoint, position: float | None) -> float:
+    """Validate measured feedback without rounding or changing the raw value."""
+    tolerance = FEEDBACK_LIMIT_TOLERANCE[joint.unit]
+    scale, unit = (1000, 'mm') if joint.unit == 'm' else (180 / math.pi, 'deg')
+    limits = (f'limits=[{joint.lower * scale:.6f}, {joint.upper * scale:.6f}] {unit}, '
+              f'tolerance={tolerance * scale:.6f} {unit}')
+    if position is None or not math.isfinite(position):
+        raise ValueError(
+            f'Joint feedback unavailable: {joint.name} '
+            f'(missing or non-finite position; {limits})')
+    if not joint.lower - tolerance <= position <= joint.upper + tolerance:
+        raise ValueError(
+            f'Joint feedback outside URDF limits: {joint.name} '
+            f'(measured={position * scale:.6f} {unit}; {limits})')
+    return position
+
+
+def _clamp_position(joint: RobotJoint, position: float) -> float:
+    """Keep every selected, held and stop goal within the original URDF range."""
+    return max(joint.lower, min(joint.upper, position))
 
 
 class JogInput(BaseModel):
@@ -147,10 +171,8 @@ class JogSession(RobotInterface):
         for other in self.joints:
             if other.topic != joint.topic or other.name == joint.name:
                 continue
-            position = positions.get(other.name)
-            if position is None or not other.lower <= position <= other.upper:
-                raise ValueError(f'Joint feedback unavailable or outside limits: {other.name}')
-            held[other.name] = position
+            position = _checked_position(other, positions.get(other.name))
+            held[other.name] = _clamp_position(other, position)
         self.held_positions = held
 
     def stop(self):
@@ -167,11 +189,10 @@ class JogSession(RobotInterface):
             joint = next((j for j in self.joints if j.name == self.active_joint), None)
             # Never send an old pose to stop. Without fresh feedback, leave
             # the last bounded position target in place.
-            if joint and age is not None and age <= FEEDBACK_MAX_AGE and joint.name in positions:
+            if joint and age is not None and age <= FEEDBACK_MAX_AGE:
                 try:
-                    position = positions[joint.name]
-                    if joint.lower <= position <= joint.upper:
-                        self.trajectory(joint, position)
+                    position = _checked_position(joint, positions.get(joint.name))
+                    self.trajectory(joint, _clamp_position(joint, position))
                 except ValueError as exc:
                     errors.append(str(exc))
             if not errors:
@@ -222,11 +243,9 @@ class JogSession(RobotInterface):
         if age is None or age > FEEDBACK_MAX_AGE:
             raise ValueError('Joint feedback is stale. Jog stopped.')
         joint = next((j for j in self.joints if j.name == command.joint), None)
-        if joint is None or not joint.topic or joint.name not in positions:
+        if joint is None or not joint.topic:
             raise ValueError('Joint or URDF limits are unavailable.')
-        current = positions[joint.name]
-        if not joint.lower <= current <= joint.upper:
-            raise ValueError('Joint feedback is outside URDF limits.')
+        current = _checked_position(joint, positions.get(joint.name))
         if sample == self.last_joint_sample:
             return  # Do not repeatedly command from the same feedback sample.
         self.last_joint_sample = sample
@@ -235,7 +254,7 @@ class JogSession(RobotInterface):
         self.retain_controller(joint, positions)
         millimetres, degrees = JOINT_INCREMENTS[command.resolution]
         delta = millimetres / 1000 if joint.unit == 'm' else math.radians(degrees)
-        target = max(joint.lower, min(joint.upper, current + command.direction * delta))
+        target = _clamp_position(joint, current + command.direction * delta)
         # Recompute from measured position, never by accumulating prior goals.
         # Track attempted motion before publishing so a failed send also stops.
         self.active_joint = joint.name

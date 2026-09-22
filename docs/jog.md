@@ -129,10 +129,18 @@ of their names and works with controllers that reject partial joint goals.
 
 Hold updates do not recapture fluctuating gripper or other held-joint feedback.
 A new gesture after stopping captures new held positions. Missing or
-out-of-range positions block the initial command; joints on separate controllers
-are not included. This holds position, not grasp force or an earlier closing
+out-of-range positions beyond the feedback allowance block the initial command;
+joints on separate controllers are not included. This holds position, not grasp force or an earlier closing
 target. A changed controller mapping interrupts the gesture instead of redirecting
 its commands.
+
+Measured positions may exceed a URDF boundary by up to **0.05°** for revolute
+joints or **0.05 mm** for prismatic joints to accommodate small boundary noise.
+This allowance applies to the selected joint, other held joints and stop feedback.
+Every published target is still clamped to the original URDF range. Held positions
+are clamped once per press and remain latched; raw feedback shown in the UI is not
+modified. Larger violations report the joint name, measured value, URDF range and
+allowance in degrees or mm. Missing/non-finite or stale feedback remains invalid.
 
 Each message contains exactly one point with `positions` and
 `time_from_start: {sec: 0, nanosec: 0}`. Velocity and acceleration arrays are empty.
@@ -158,7 +166,8 @@ highlight uses a 0.01° or 0.1 mm tolerance, which does not affect command gener
 ## Stops and timeouts
 
 Release/stop sends one immediate target at the selected joint's latest measured
-position, keeping the other controller joints at their latched goals. Stale
+position, clamped to the URDF range when within the feedback allowance, keeping
+the other controller joints at their latched goals. Stale
 feedback prevents sending an old measured pose. A changed or unavailable bringup
 also blocks the old session's final publish and reports an error; the controller
 can retain the last joint goal.
