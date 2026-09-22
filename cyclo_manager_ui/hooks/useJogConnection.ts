@@ -18,7 +18,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
-  COMMAND_MIN_INTERVAL_MS, FEEDBACK_TIMEOUT_MS, JOG_POLL_INTERVAL_MS, JOINT_HOLD_DELAY_MS,
+  COMMAND_MIN_INTERVAL_MS, FEEDBACK_TIMEOUT_MS, JOG_POLL_INTERVAL_MS,
 } from "@/lib/jog";
 import type { JogCommand, JogResolution, JogState } from "@/lib/jog";
 import { getWebSocketBaseUrl } from "@/lib/websocketUtils";
@@ -32,55 +32,29 @@ export function useJogConnection() {
   const desired = useRef<JogCommand>({ kind: "idle" });
   const enabledRef = useRef(false);
   const pumpRef = useRef<() => void>(() => {});
-  const jointPress = useRef<{ timer: ReturnType<typeof setTimeout>; holding: boolean } | null>(null);
-
-  const cancelJointPress = useCallback(() => {
-    const press = jointPress.current;
-    if (press) clearTimeout(press.timer);
-    jointPress.current = null;
-    return press?.holding ?? false;
-  }, []);
 
   const stop = useCallback((disarm = false) => {
-    cancelJointPress();
     desired.current = { kind: "stop" };
     if (disarm) {
       enabledRef.current = false;
       setEnabledState(false);
     }
     pumpRef.current();
-  }, [cancelJointPress]);
+  }, []);
 
   const command = useCallback((value: JogCommand) => {
     if (!enabledRef.current) return;
-    cancelJointPress();
     desired.current = value;
     pumpRef.current();
-  }, [cancelJointPress]);
+  }, []);
 
   const pressJoint = useCallback((joint: string, direction: -1 | 1, resolution: JogResolution) => {
-    if (!enabledRef.current) return;
-    cancelJointPress();
-    // Start with one bounded step, then repeat feedback-relative goals when
-    // the button remains pressed. Never accumulate targets in the browser.
-    desired.current = { kind: "joint", joint, direction, mode: "step", resolution };
-    pumpRef.current();
-    const press = {
-      holding: false,
-      timer: setTimeout(() => {
-        if (jointPress.current !== press || !enabledRef.current) return;
-        press.holding = true;
-        desired.current = { kind: "joint", joint, direction, mode: "hold", resolution };
-        pumpRef.current();
-      }, JOINT_HOLD_DELAY_MS),
-    };
-    jointPress.current = press;
-  }, [cancelJointPress]);
+    command({ kind: "joint", joint, direction, resolution });
+  }, [command]);
 
   const releaseJoint = useCallback(() => {
-    // A tap completes its single step; releasing a hold stops repeated motion.
-    if (cancelJointPress()) stop();
-  }, [cancelJointPress, stop]);
+    if (desired.current.kind === "joint") stop();
+  }, [stop]);
 
   const setEnabled = useCallback((value: boolean) => {
     if (!value) { stop(true); return; }
@@ -100,7 +74,6 @@ export function useJogConnection() {
     let generation: string | null = null;
     let ws: WebSocket | null = null;
     const disarm = () => {
-      cancelJointPress();
       enabledRef.current = false;
       desired.current = { kind: "idle" };
       setEnabledState(false);
@@ -146,7 +119,6 @@ export function useJogConnection() {
           }
           if (message.state) {
             if (generation !== message.state.robot.generation || !message.state.robot.ready) {
-              cancelJointPress();
               enabledRef.current = false;
               setEnabledState(false);
               desired.current = { kind: "idle" };
@@ -155,7 +127,7 @@ export function useJogConnection() {
             setState(message.state); setConnected(true);
           }
           const sent = pending;
-          if (sent === desired.current && (sent?.kind === "stop" || (sent?.kind === "joint" && sent.mode === "step"))) {
+          if (sent === desired.current && sent?.kind === "stop") {
             desired.current = { kind: "idle" };
           } else if (sent !== desired.current) {
             // A release/stop that arrived during the request is sent immediately.
@@ -197,9 +169,8 @@ export function useJogConnection() {
       }
     };
     const release = () => {
-      releaseJoint();
       const input = desired.current;
-      if (input.kind === "base" || (input.kind === "joint" && input.mode === "hold")) stop();
+      if (input.kind === "base" || input.kind === "joint") stop();
     };
     const cancel = () => stop();
     window.addEventListener("blur", blur);
@@ -210,7 +181,6 @@ export function useJogConnection() {
     document.addEventListener("visibilitychange", visibility);
     return () => {
       disposed = true;
-      cancelJointPress();
       enabledRef.current = false;
       desired.current = { kind: "idle" };
       pumpRef.current = () => {};
@@ -226,7 +196,7 @@ export function useJogConnection() {
       if (ws?.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ kind: "stop" }));
       ws?.close();
     };
-  }, [attempt, stop, cancelJointPress, releaseJoint]);
+  }, [attempt, stop]);
 
   return {
     state, connected,

@@ -46,16 +46,16 @@ distinction between configured bringup type and actual launch-process detection.
   in ROS. Choose **1 mm / 0.1°**, **10 mm / 1°** (default), **15 mm / 3°**, or
   **20 mm / 5°**. The mm value applies to prismatic joints, including the lift;
   degrees apply to revolute joints. Limits can shorten a move near a boundary.
-- Tap a joint button for one step. Keep it pressed for 350 ms to switch to
-  continuous movement. Every hold update sends measured position plus/minus the
+- Press a joint button to start continuous movement immediately, with no
+  tap/hold transition delay. Every update sends measured position plus/minus the
   selected increment, bounded by joint limits, without waiting for arrival.
   Goals are never accumulated from previous targets. Changing the increment
   stops the gesture.
-- Both taps and holds send one immediate position point. Release of a hold sends
-  the selected joint's latest measured position as the stop target. A tap leaves
-  its goal intact until fresh feedback confirms arrival, completing local tracking
-  without publishing another command. Explicit stop, focus loss, disconnect and
-  input timeout still interrupt a pending step.
+- Each update sends one immediate position point. Releasing the button sends
+  the selected joint's latest measured position as the stop target, even after a
+  short press. The selected increment is a target offset, not a guaranteed travel
+  distance per click. Explicit stop, focus loss, disconnect and input timeout also
+  stop the gesture.
 - Stop jog, loss of browser focus or a hidden page disables operation. Explicit
   enabling is required again. A hidden tab sends a stop, pauses periodic Jog
   messages and keeps the stopped WebSocket session open. Returning to the tab
@@ -124,11 +124,11 @@ not measured odometry.
 A Jog message contains the **complete joint set of the selected controller**.
 The selected joint receives the measured-position offset. Every other joint on
 that controller is captured from fresh feedback at press start and held at that
-position throughout the tap, hold and final stop. This includes grippers regardless
+position throughout the press and final stop. This includes grippers regardless
 of their names and works with controllers that reject partial joint goals.
 
 Hold updates do not recapture fluctuating gripper or other held-joint feedback.
-A new tap or gesture after stopping captures new held positions. Missing or
+A new gesture after stopping captures new held positions. Missing or
 out-of-range positions block the initial command; joints on separate controllers
 are not included. This holds position, not grasp force or an earlier closing
 target. A changed controller mapping interrupts the gesture instead of redirecting
@@ -141,7 +141,7 @@ acceleration/braking profiles. Motion speed and acceleration therefore depend on
 the controller and hardware; the manager does not enforce joint speed through
 trajectory duration.
 
-For taps and holds, the selected target is:
+While pressed, the selected target is:
 
 ```text
 clamp(measured position + direction * selected increment, URDF lower, URDF upper)
@@ -151,8 +151,9 @@ The bound uses the fresh measurement at command generation, not a previous goal
 or predicted position. A 3-degree selection commands at most 3 degrees ahead of
 that sample. A stalled joint does not accumulate increasingly distant targets.
 This bounds commanded position, not physical overshoot or speed. Other controller
-joints keep their latched goals. Local tap completion tolerances are 0.01° or
-0.1 mm; completion does not send a zero or another hold target.
+joints keep their latched goals. Reaching a target does not end a held gesture;
+the next fresh feedback sample supplies the next target. The UI's pending-target
+highlight uses a 0.01° or 0.1 mm tolerance, which does not affect command generation.
 
 ## Stops and timeouts
 
@@ -182,7 +183,7 @@ avoidance.
   mapping, shared cached feedback and publication.
 - `jog.py`: per-session inputs, targets, held positions and stop state.
 - `cyclo_manager_ui/lib/jog.ts`: message types, units, increments and timing.
-- `useJogConnection.ts`: ordered WebSocket input and tap/hold lifecycle.
+- `useJogConnection.ts`: ordered WebSocket input and press/release lifecycle.
 - `useKeyboardTeleop.ts`: keyboard focus, input and release handling.
 - `JointJogCard.tsx` and `JogControls.tsx`: joint display and controls.
 
@@ -194,5 +195,7 @@ python -m unittest discover -s tests -v
 
 Tests use fake feedback and do not send commands to a robot. They cover profile
 selection, restart guards, mapping, complete controller goals, held grippers,
-limits, stale feedback, taps/holds, stops and connection timeouts. See
+limits, stale feedback, continuous movement, stops and connection timeouts.
+Run `npm run test:jog` in `cyclo_manager_ui` for mocked browser tests of press/release
+ordering, focus loss, page exit and connection timeouts. See
 [Code structure](code-structure.md#verification) for UI and host-agent checks.

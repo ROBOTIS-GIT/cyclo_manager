@@ -234,7 +234,7 @@ class Ros2Bridge:
         ) is True
 
     def prepare_jog_publishers(self, topics: list[tuple[str, str]]) -> bool:
-        """Allow DDS discovery before the first single-step command, without moving."""
+        """Allow DDS discovery before the first jog command, without moving."""
         return self._enqueue_request(RequestKind.PREPARE_JOG, topics) is True
 
     def jog_publishers_ready(self, topics: list[tuple[str, str]]) -> bool:

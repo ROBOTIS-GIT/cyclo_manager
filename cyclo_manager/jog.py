@@ -47,7 +47,6 @@ BASE_TICK_MAX = 0.1  # seconds
 JOINT_INCREMENTS = {  # millimetres, degrees
     'fine': (1, 0.1), 'normal': (10, 1), 'coarse': (15, 3), 'large': (20, 5),
 }
-POSITION_TOLERANCE = {'m': 0.0001, 'rad': math.radians(0.01)}
 
 
 class JogInput(BaseModel):
@@ -60,7 +59,6 @@ class JogInput(BaseModel):
     yaw: float = Field(0, ge=-BASE_ANGULAR_MAX, le=BASE_ANGULAR_MAX)
     joint: str = Field('', max_length=100)
     direction: Literal[-1, 1] = 1
-    mode: Literal['hold', 'step'] = 'hold'
     resolution: Literal['normal', 'fine', 'coarse', 'large'] = 'normal'
 
 
@@ -81,11 +79,8 @@ class JogSession(RobotInterface):
         self.base = [0.0, 0.0, 0.0]
         self.last_tick = time.monotonic()
         self.last_joint_sample: float | None = None
-        self.active_increment: tuple[str, int, str] | None = None
         self.held_positions: dict[str, float] = {}
         self.active_topic = None
-        self.held_joint = None
-        self.holding = False
         self.prepared_topics = set()
 
     def setup(self):
@@ -144,9 +139,9 @@ class JogSession(RobotInterface):
         self.publish(joint.topic, TRAJECTORY_TYPE, position_message(goals))
         self.targets.update(goals)
 
-    def retain_controller(self, joint, positions, mode):
+    def retain_controller(self, joint, positions):
         """Latch every other controller joint once per press, including unknown grippers."""
-        if mode == 'hold' and self.held_joint == joint.name and self.held_positions:
+        if self.active_joint == joint.name:
             return
         held = {}
         for other in self.joints:
@@ -157,7 +152,6 @@ class JogSession(RobotInterface):
                 raise ValueError(f'Joint feedback unavailable or outside limits: {other.name}')
             held[other.name] = position
         self.held_positions = held
-        self.held_joint = joint.name
 
     def stop(self):
         """Stop this session's motion without reusing stale joint positions."""
@@ -182,19 +176,11 @@ class JogSession(RobotInterface):
                     errors.append(str(exc))
             if not errors:
                 self.active_joint = None
-        self.active_increment = None
         self.last_joint_sample = None
         if errors:
             raise ValueError('; '.join(errors))
         self.held_positions = {}
         self.active_topic = None
-        self.held_joint = None
-        self.holding = False
-
-    def _target_reached(self, joint: RobotJoint, position: float) -> bool:
-        """Check measured completion without replacing the controller's goal."""
-        target = self.targets.get(joint.name)
-        return target is not None and abs(position - target) <= POSITION_TOLERANCE[joint.unit]
 
     def apply(self, command: JogInput):
         """Apply one validated input, using measured position for joint goals."""
@@ -204,31 +190,12 @@ class JogSession(RobotInterface):
         now = time.monotonic()
         dt = min(max(now - self.last_tick, BASE_TICK_MIN), BASE_TICK_MAX)
         self.last_tick = now
-        if command.kind == 'stop':
+        if command.kind in ('idle', 'stop'):
             self.stop()
-        elif command.kind == 'idle':
-            self._handle_idle()
         elif command.kind == 'base':
             self._apply_base(command, dt)
         else:
             self._apply_joint(command)
-
-    def _handle_idle(self):
-        """Finish a measured step or stop released continuous movement."""
-        if any(self.base) or self.holding:
-            self.stop()
-        elif self.active_joint:
-            # A single step remains the controller's goal even if tracking
-            # lags. Retain stop/timeout handling
-            # until fresh feedback confirms completion; do not publish here.
-            positions, age, _ = self.feedback()
-            joint = next((j for j in self.joints if j.name == self.active_joint), None)
-            if (joint and age is not None and age <= FEEDBACK_MAX_AGE
-                    and joint.name in positions
-                    and self._target_reached(joint, positions[joint.name])):
-                self.active_joint = None
-                self.active_increment = None
-                self.last_joint_sample = None
 
     def _apply_base(self, command: JogInput, dt: float):
         """Apply bounded base velocity with the existing slew limit."""
@@ -249,10 +216,7 @@ class JogSession(RobotInterface):
 
     def _apply_joint(self, command: JogInput):
         """Publish a selected-size offset from fresh measured joint position."""
-        # A completed tap retains held positions for the tap-to-hold transition.
-        # Starting a different joint ends that press, even after active_joint cleared.
-        previous_joint = self.active_joint or self.held_joint
-        if any(self.base) or (previous_joint and previous_joint != command.joint):
+        if any(self.base) or (self.active_joint and self.active_joint != command.joint):
             self.stop()
         positions, age, sample = self.feedback()
         if age is None or age > FEEDBACK_MAX_AGE:
@@ -266,23 +230,14 @@ class JogSession(RobotInterface):
         if sample == self.last_joint_sample:
             return  # Do not repeatedly command from the same feedback sample.
         self.last_joint_sample = sample
-        increment = (joint.name, command.direction, command.resolution)
-        if command.mode == 'step' and self.active_increment == increment:
-            # A tap completes its full increment. Holds instead replace the
-            # target on each fresh feedback sample, even before arrival.
-            reached = self._target_reached(joint, current)
-            if not reached:
-                return
         if self.active_topic and self.active_topic != joint.topic:
             raise ValueError('Controller mapping changed. Reconnect before moving.')
-        self.retain_controller(joint, positions, command.mode)
+        self.retain_controller(joint, positions)
         millimetres, degrees = JOINT_INCREMENTS[command.resolution]
         delta = millimetres / 1000 if joint.unit == 'm' else math.radians(degrees)
         target = max(joint.lower, min(joint.upper, current + command.direction * delta))
         # Recompute from measured position, never by accumulating prior goals.
         # Track attempted motion before publishing so a failed send also stops.
-        self.active_increment = increment
         self.active_joint = joint.name
         self.active_topic = joint.topic
-        self.holding = command.mode == 'hold'
         self.trajectory(joint, target)

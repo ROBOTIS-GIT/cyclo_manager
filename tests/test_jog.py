@@ -142,12 +142,11 @@ class JogTests(unittest.TestCase):
         self.assertAlmostEqual(self.target(), 0.1 + math.radians(1))
         self.assertNotIn('velocities', self.bridge.published[-1][2]['points'][0])
 
-    def test_hold_replaces_unfinished_lift_step_from_measured_position(self):
-        command = JogInput(kind='joint', joint='lift_joint', mode='step')
+    def test_hold_refreshes_lift_target_before_arrival(self):
+        command = JogInput(kind='joint', joint='lift_joint')
         with patch('cyclo_manager.jog.time.monotonic', return_value=100):
             self.session.apply(command)
         self.assertAlmostEqual(self.target(), -0.19)
-        command = command.model_copy(update={'mode': 'hold'})
         for tick, position in enumerate([-0.198, -0.197, -0.196], start=1):
             self.bridge.cache['/joint_states']['data']['position'][2] = position
             self.bridge.cache['/joint_states']['received_at'] = time.time() + tick / 1000
@@ -157,29 +156,29 @@ class JogTests(unittest.TestCase):
             self.assertAlmostEqual(self.target(), position + 0.01)
 
     def test_hold_keeps_refreshing_without_accumulating_stalled_targets(self):
-        self.joint(mode='hold')
+        self.joint()
         original = self.target()
         for tick in range(1, 4):
             self.bridge.feedback(0.2)  # Fresh sample, but the robot has not moved.
             with patch('cyclo_manager.jog.time.monotonic',
                        return_value=time.monotonic() + 0.1):
-                self.joint(mode='hold')
+                self.joint()
             self.assertEqual(len(self.bridge.published), tick + 1)
             self.assertAlmostEqual(self.target(), original)
 
     def test_hold_reverses_direction_before_previous_goal_is_reached(self):
-        self.joint(mode='hold', direction=1)
+        self.joint(direction=1)
         self.bridge.feedback(0.203)
         with patch('cyclo_manager.jog.time.monotonic',
                    return_value=time.monotonic() + 0.1):
-            self.joint(mode='hold', direction=-1)
+            self.joint(direction=-1)
         self.assertEqual(len(self.bridge.published), 2)
         self.assertAlmostEqual(self.target(), 0.203 - math.radians(1))
 
     def test_position_only_goal_has_no_manager_duration_even_with_low_urdf_speed(self):
         self.bridge.cache['/robot_description']['data']['data'] = URDF.replace(
             'velocity="2"', 'velocity="0.03"')
-        self.joint(mode='hold', resolution='coarse')
+        self.joint(resolution='coarse')
         self.assertAlmostEqual(self.target(), 0.2 + math.radians(3))
         points = self.bridge.published[-1][2]['points']
         self.assertEqual(points, [{
@@ -187,12 +186,12 @@ class JogTests(unittest.TestCase):
             'time_from_start': {'sec': 0, 'nanosec': 0},
         }])
 
-    def test_releasing_hold_interrupts_pending_step(self):
-        self.session.apply(JogInput(kind='joint', joint='lift_joint', mode='hold'))
+    def test_releasing_hold_interrupts_unfinished_target(self):
+        self.session.apply(JogInput(kind='joint', joint='lift_joint'))
         self.bridge.cache['/joint_states']['data']['position'][2] = -0.198
         self.session.stop()
         self.assertAlmostEqual(self.target(), -0.198)
-        self.assertIsNone(self.session.active_increment)
+        self.assertIsNone(self.session.active_joint)
         count = len(self.bridge.published)
         self.session.apply(JogInput())
         self.assertEqual(len(self.bridge.published), count)
@@ -237,98 +236,59 @@ class JogTests(unittest.TestCase):
         self.assertNotIn('velocities', points[0])
         self.assertAlmostEqual(points[-1]['positions'][0], 0.2 + math.radians(1))
 
-    def test_step_is_not_cancelled_by_idle_heartbeat(self):
-        self.joint(mode='step')
-        before = len(self.bridge.published)
-        target = self.target()
+    def test_idle_stops_before_target_arrival_and_does_not_resume(self):
+        self.joint()
+        self.bridge.feedback(0.205)
         self.session.apply(JogInput())
-        self.assertEqual(len(self.bridge.published), before)
-        with patch('cyclo_manager.jog.time.monotonic', return_value=time.monotonic() + 10):
-            self.session.apply(JogInput())
-        self.assertEqual(len(self.bridge.published), before)
-        self.assertEqual(self.target(), target)
+        self.assertEqual(len(self.bridge.published), 2)
+        self.assertEqual(self.target(), 0.205)
+        self.assertIsNone(self.session.active_joint)
+        self.bridge.feedback(0.206)
+        self.session.apply(JogInput())
+        self.assertEqual(len(self.bridge.published), 2)
+
+    def test_arrival_does_not_end_continuous_gesture(self):
+        self.joint()
+        arrived = self.target()
+        self.bridge.feedback(arrived)
+        self.joint()
+        self.assertEqual(len(self.bridge.published), 2)
+        self.assertAlmostEqual(self.target(), arrived + math.radians(1))
         self.assertEqual(self.session.active_joint, 'head_joint1')
 
-    def test_completed_step_clears_tracking_without_publishing_hold(self):
-        self.joint(mode='step')
-        target = self.target()
-        self.bridge.feedback(target)
-        with patch('cyclo_manager.jog.time.monotonic', return_value=time.monotonic() + 10):
-            self.session.apply(JogInput())
-            self.session.apply(JogInput())
-        self.assertIsNone(self.session.active_joint)
-        self.assertEqual(len(self.bridge.published), 1)
-        self.assertEqual(self.target(), target)
-
-    def test_lagging_lift_keeps_original_target_until_measured_completion(self):
-        self.session.apply(JogInput(kind='joint', joint='lift_joint', mode='step'))
-        deadline = time.monotonic() + 10
-        # Only 8 of the requested 10 mm have been travelled despite elapsed time.
-        self.bridge.cache['/joint_states']['data']['position'][2] = -0.192
-        with patch('cyclo_manager.jog.time.monotonic', return_value=deadline + 0.1):
-            self.session.apply(JogInput())
-            self.session.apply(JogInput())
-        self.assertEqual(len(self.bridge.published), 1)
-        self.assertAlmostEqual(self.target(), -0.19)
-        self.assertEqual(self.session.active_joint, 'lift_joint')
-        # Completion updates only local bookkeeping, not the ROS trajectory.
-        self.bridge.cache['/joint_states']['data']['position'][2] = -0.19
-        with patch('cyclo_manager.jog.time.monotonic', return_value=deadline + 0.2):
-            self.session.apply(JogInput())
-        self.assertIsNone(self.session.active_joint)
-        self.assertEqual(len(self.bridge.published), 1)
-
-    def test_explicit_stop_interrupts_lagging_step(self):
-        self.joint(mode='step')
+    def test_explicit_stop_interrupts_unfinished_target(self):
+        self.joint()
         self.bridge.feedback(0.205)
-        with patch('cyclo_manager.jog.time.monotonic', return_value=time.monotonic() + 10):
-            self.session.apply(JogInput())
-            self.session.apply(JogInput(kind='stop'))
+        self.session.apply(JogInput(kind='stop'))
         self.assertEqual(len(self.bridge.published), 2)
         self.assertEqual(self.target(), 0.205)
         self.assertIsNone(self.session.active_joint)
 
-    def test_stale_feedback_cannot_mark_step_complete(self):
-        self.joint(mode='step')
-        self.bridge.feedback(self.target(), age=2)
-        with patch('cyclo_manager.jog.time.monotonic', return_value=time.monotonic() + 10):
-            self.session.apply(JogInput())
-        self.assertEqual(self.session.active_joint, 'head_joint1')
-        self.assertEqual(len(self.bridge.published), 1)
-
-    def test_lift_normal_step_preserves_ten_mm_with_immediate_target(self):
-        self.session.apply(JogInput(kind='joint', joint='lift_joint', mode='step'))
+    def test_lift_normal_increment_uses_immediate_ten_mm_offset(self):
+        self.session.apply(JogInput(kind='joint', joint='lift_joint'))
         self.assertAlmostEqual(self.target(), -0.19)
         point = self.bridge.published[-1][2]['points'][-1]
         self.assertEqual(point['time_from_start'], {'sec': 0, 'nanosec': 0})
-        count = len(self.bridge.published)
-        with patch('cyclo_manager.jog.time.monotonic', return_value=time.monotonic() + 0.1):
-            self.session.apply(JogInput())
-        self.assertEqual(len(self.bridge.published), count)
         self.assertEqual(self.bridge.published[-1][0],
                          '/leader/joystick_controller_right/joint_trajectory')
 
-    def test_selected_increments_and_immediate_point_for_taps_and_holds(self):
+    def test_selected_increments_and_immediate_point(self):
         for name, current in [('head_joint1', 0.2), ('lift_joint', -0.2)]:
             for resolution, mm, degrees in [('fine', 1, 0.1), ('normal', 10, 1),
                                             ('coarse', 15, 3), ('large', 20, 5)]:
-                for mode in ('step', 'hold'):
-                    for direction in (-1, 1):
-                        with self.subTest(joint=name, resolution=resolution,
-                                          mode=mode, direction=direction):
-                            self.session = JogSession(self.bridge, 'sg2')
-                            self.session.apply(JogInput(
-                                kind='joint', joint=name, resolution=resolution,
-                                mode=mode, direction=direction))
-                            expected_delta = (mm / 1000 if name == 'lift_joint'
-                                              else math.radians(degrees))
-                            self.assertAlmostEqual(
-                                self.target(), current + direction * expected_delta)
-                            message = self.bridge.published[-1][2]
-                            self.assertEqual(message['points'], [{
-                                'positions': message['points'][0]['positions'],
-                                'time_from_start': {'sec': 0, 'nanosec': 0},
-                            }])
+                for direction in (-1, 1):
+                    with self.subTest(joint=name, resolution=resolution, direction=direction):
+                        self.session = JogSession(self.bridge, 'sg2')
+                        self.session.apply(JogInput(
+                            kind='joint', joint=name, resolution=resolution, direction=direction))
+                        expected_delta = (mm / 1000 if name == 'lift_joint'
+                                          else math.radians(degrees))
+                        self.assertAlmostEqual(self.target(), current + direction * expected_delta)
+                        message = self.bridge.published[-1][2]
+                        self.assertEqual(message['points'], [{
+                            'positions': message['points'][0]['positions'],
+                            'time_from_start': {'sec': 0, 'nanosec': 0},
+                        }])
 
     def test_hold_targets_remain_bounded_through_repeated_feedback_updates(self):
         for name, initial in [('head_joint1', 0.2), ('lift_joint', -0.2)]:
@@ -338,7 +298,7 @@ class JogTests(unittest.TestCase):
                     with self.subTest(joint=name, resolution=resolution, direction=direction):
                         self.setUp()
                         delta = mm / 1000 if name == 'lift_joint' else math.radians(degrees)
-                        command = JogInput(kind='joint', joint=name, mode='hold',
+                        command = JogInput(kind='joint', joint=name,
                                            resolution=resolution, direction=direction)
                         for tick in range(30):
                             # Include stalled samples, gradual motion and tracking changes.
@@ -361,7 +321,7 @@ class JogTests(unittest.TestCase):
                         self.bridge.feedback(current if name == 'head_joint1' else 0.2)
                         if name == 'lift_joint':
                             self.bridge.cache['/joint_states']['data']['position'][2] = current
-                        self.session.apply(JogInput(kind='joint', joint=name, mode='hold',
+                        self.session.apply(JogInput(kind='joint', joint=name,
                                                     resolution=resolution, direction=direction))
                         self.assertEqual(self.target(), boundary)
 
@@ -428,19 +388,19 @@ class ArmGripperJogTests(unittest.TestCase):
         self.assertNotIn('accelerations', point)
         return dict(zip(message['joint_names'], point['positions']))
 
-    def test_step_hold_and_release_keep_one_explicit_gripper_goal(self):
+    def test_press_hold_and_release_keep_one_explicit_gripper_goal(self):
         for side, gripper_position in [('l', 0.4), ('r', 0.7)]:
             with self.subTest(side=side):
                 self.setUp()
                 arm, gripper = f'arm_{side}_joint3', f'gripper_{side}_joint1'
-                self.session.apply(JogInput(kind='joint', joint=arm, mode='step'))
+                self.session.apply(JogInput(kind='joint', joint=arm))
                 self.assertIn(arm, self.goals())
                 self.assertIn(gripper, self.goals())
                 self.assertEqual(self.goals()[gripper], gripper_position)
                 for tick in range(1, 11):
                     self.feedback(**{arm: 0.1 + tick * 0.001,
                                      gripper: gripper_position + (-1) ** tick * 0.02})
-                    self.session.apply(JogInput(kind='joint', joint=arm, mode='hold'))
+                    self.session.apply(JogInput(kind='joint', joint=arm))
                     self.assertEqual(self.goals()[gripper], gripper_position)
                     self.assertGreater(self.goals()[arm], self.values[arm])
                     message = self.bridge.published[-1][2]
@@ -455,20 +415,19 @@ class ArmGripperJogTests(unittest.TestCase):
                 self.assertAlmostEqual(self.goals()[arm], self.values[arm], places=6)
                 self.assertEqual(self.session.held_positions, {})
 
-    def test_step_completion_before_hold_does_not_recapture_gripper(self):
+    def test_arrival_during_hold_does_not_recapture_gripper(self):
         arm = 'arm_l_joint1'
-        self.session.apply(JogInput(kind='joint', joint=arm, mode='step'))
+        self.session.apply(JogInput(kind='joint', joint=arm))
         self.feedback(arm_l_joint1=self.goals()[arm], gripper_l_joint1=0.42)
-        with patch('cyclo_manager.jog.time.monotonic',
-                   return_value=time.monotonic() + 0.01):
-            self.session.apply(JogInput())
-        self.assertIsNone(self.session.active_joint)
+        self.session.apply(JogInput(kind='joint', joint=arm))
+        self.assertEqual(self.session.active_joint, arm)
+        self.assertEqual(self.goals()['gripper_l_joint1'], 0.4)
         self.feedback(gripper_l_joint1=0.38)
-        self.session.apply(JogInput(kind='joint', joint=arm, mode='hold'))
+        self.session.apply(JogInput(kind='joint', joint=arm))
         self.assertEqual(self.goals()['gripper_l_joint1'], 0.4)
 
     def test_new_press_captures_new_gripper_position(self):
-        command = JogInput(kind='joint', joint='arm_l_joint1', mode='step')
+        command = JogInput(kind='joint', joint='arm_l_joint1')
         self.session.apply(command)
         self.session.stop()
         self.feedback(gripper_l_joint1=0.6)
@@ -476,9 +435,9 @@ class ArmGripperJogTests(unittest.TestCase):
         self.assertEqual(self.goals()['gripper_l_joint1'], 0.6)
 
     def test_gripper_can_still_be_jogged_directly(self):
-        self.session.apply(JogInput(kind='joint', joint='arm_l_joint1', mode='hold'))
+        self.session.apply(JogInput(kind='joint', joint='arm_l_joint1'))
         self.feedback()
-        self.session.apply(JogInput(kind='joint', joint='gripper_l_joint1', mode='hold'))
+        self.session.apply(JogInput(kind='joint', joint='gripper_l_joint1'))
         self.assertIn('gripper_l_joint1', self.goals())
         self.assertGreater(self.goals()['gripper_l_joint1'], 0.4)
         self.assertTrue(self.session.held_positions)

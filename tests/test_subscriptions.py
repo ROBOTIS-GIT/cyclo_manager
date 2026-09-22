@@ -363,7 +363,7 @@ class SubscriptionTests(unittest.TestCase):
         self.bridge.publish_jog = checked_publish
         with self.client.websocket_connect('/ws/jog/f2') as jog:
             self.wait(lambda: self.bridge.get_topic_data('/test_head/controller_state') is not None)
-            jog.send_json({'kind': 'joint', 'joint': 'head_joint1', 'mode': 'hold'})
+            jog.send_json({'kind': 'joint', 'joint': 'head_joint1'})
             self.assertIsNone(receive_data(jog)['error'])
         self.wait(lambda: not self.bridge._subs)
         self.assertEqual(len(holds), 2)

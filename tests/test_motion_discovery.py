@@ -121,16 +121,18 @@ class MotionDiscoveryTests(unittest.TestCase):
                     robot.require_feedback()
         self.assertEqual(self.bridge.published, [])
 
-    def test_completed_step_can_switch_controller_without_explicit_stop(self):
+    def test_switching_controller_stops_previous_joint_and_resets_held_positions(self):
         bridge = FakeBridge()
         jog = JogSession(bridge)
-        jog.apply(JogInput(kind='joint', joint='head_joint1', mode='step'))
+        jog.apply(JogInput(kind='joint', joint='head_joint1'))
         bridge.feedback(position=jog.targets['head_joint1'])
-        jog.apply(JogInput(kind='idle'))
-        self.assertIsNone(jog.active_joint)
         before = len(bridge.published)
-        jog.apply(JogInput(kind='joint', joint='lift_joint', mode='step'))
-        self.assertEqual(len(bridge.published), before + 1)
+        jog.apply(JogInput(kind='joint', joint='lift_joint'))
+        self.assertEqual(len(bridge.published), before + 2)
+        self.assertEqual(bridge.published[-2][0],
+                         '/leader/joystick_controller_left/joint_trajectory')
+        self.assertEqual(bridge.published[-2][2]['points'][0]['positions'],
+                         [jog.targets['head_joint1'], 0.1])
         self.assertEqual(bridge.published[-1][0],
                          '/leader/joystick_controller_right/joint_trajectory')
         self.assertEqual(bridge.published[-1][2]['joint_names'], ['lift_joint'])
@@ -159,7 +161,7 @@ class MotionDiscoveryTests(unittest.TestCase):
         for measured in (.4, .42, .38):
             self.bridge.cache['/joint_states']['received_at'] = time.time()
             self.bridge.cache['/joint_states']['data']['position'][1] = measured
-            jog.apply(JogInput(kind='joint', joint='shoulder', mode='hold'))
+            jog.apply(JogInput(kind='joint', joint='shoulder'))
             _, _, message = self.bridge.published[-1]
             values = dict(zip(message['joint_names'], message['points'][0]['positions']))
             self.assertEqual(values['tool_claw'], .4)
@@ -170,11 +172,11 @@ class MotionDiscoveryTests(unittest.TestCase):
 
     def test_mapping_change_cannot_redirect_active_jog(self):
         jog = JogSession(self.bridge)
-        jog.apply(JogInput(kind='joint', joint='shoulder', mode='hold'))
+        jog.apply(JogInput(kind='joint', joint='shoulder'))
         self.bridge.graph['/new_input'] = self.bridge.graph.pop(COMMAND)
         self.bridge.cache['/joint_states']['received_at'] = time.time()
         with self.assertRaisesRegex(ValueError, 'mapping changed'):
-            jog.apply(JogInput(kind='joint', joint='shoulder', mode='hold'))
+            jog.apply(JogInput(kind='joint', joint='shoulder'))
         self.assertEqual(len(self.bridge.published), 1)
 
     def test_record_unknown_topic_without_urdf_or_controller_feedback(self):

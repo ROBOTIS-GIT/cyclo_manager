@@ -119,14 +119,14 @@ class WebsocketJogTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_joint_hold_timeout_stops_at_measured_position(self):
         bridge, socket = await self.run_socket([
-            {'kind': 'joint', 'joint': 'head_joint1', 'mode': 'hold'}, 'timeout'])
+            {'kind': 'joint', 'joint': 'head_joint1'}, 'timeout'])
         self.assertGreater(bridge.published[0][2]['points'][-1]['positions'][0], 0.2)
         self.assertEqual(bridge.published[-1][2]['points'][-1]['positions'], [0.2, 0.1])
         self.assertTrue(socket.closed)
 
     async def test_joint_hold_disconnect_holds_measured_position(self):
         bridge, socket = await self.run_socket([
-            {'kind': 'joint', 'joint': 'head_joint1', 'mode': 'hold'}, 'disconnect'])
+            {'kind': 'joint', 'joint': 'head_joint1'}, 'disconnect'])
         self.assertGreater(bridge.published[0][2]['points'][-1]['positions'][0], 0.2)
         point = bridge.published[-1][2]['points'][-1]
         self.assertEqual(point['positions'], [0.2, 0.1])
@@ -151,12 +151,13 @@ class WebsocketJogTests(unittest.IsolatedAsyncioTestCase):
         self.assertGreater(bridge.published[0][2]['linear']['x'], 0)
         self.assertEqual(bridge.published[1][2]['linear']['x'], 0)
 
-    async def test_pending_joint_step_still_requires_heartbeat_after_idle(self):
+    async def test_joint_idle_stops_and_allows_background_pause(self):
         bridge, socket = await self.run_socket([
-            {'kind': 'joint', 'joint': 'head_joint1', 'mode': 'step'},
+            {'kind': 'joint', 'joint': 'head_joint1'},
             {'kind': 'idle'}, (0.6, {'kind': 'idle'})])
-        self.assertEqual(len(socket.output), 2)
-        self.assertTrue(socket.closed)
+        self.assertEqual(len(socket.output), 3)
+        self.assertFalse(any(item['error'] for item in socket.output))
+        self.assertEqual(len(bridge.published), 2)
         self.assertEqual(bridge.published[-1][2]['points'][-1]['positions'], [0.2, 0.1])
 
     async def test_invalid_input_stops_preceding_motion(self):

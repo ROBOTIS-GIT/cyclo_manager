@@ -187,7 +187,7 @@ class ProfileMotionTests(unittest.TestCase):
         profile = PROFILES['omy']
         bridge.graph[profile.topics[0]] = bridge.graph[COMMAND]
         jog = JogSession(bridge, 'omy', command_topics=profile.topics, base_topic=None)
-        jog.apply(JogInput(kind='joint', joint=NAMES[0], mode='step'))
+        jog.apply(JogInput(kind='joint', joint=NAMES[0]))
         self.assertEqual(bridge.published[0][0], profile.topics[0])
         self.assertEqual(bridge.published[0][2]['joint_names'], NAMES)
         self.assertEqual(bridge.published[0][2]['points'][0]['positions'][1], .4)

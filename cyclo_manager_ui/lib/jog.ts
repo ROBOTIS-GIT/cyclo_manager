@@ -25,9 +25,8 @@ export const JOINT_INCREMENTS = [
   { value: "large", millimetres: 20, degrees: 5 },
 ] as const;
 
-// SI units, matching the server's measured-completion tolerances.
+// SI tolerances for displaying a pending target; they do not gate movement.
 export const POSITION_TOLERANCE = { m: 0.0001, rad: Math.PI / 18000 };
-export const JOINT_HOLD_DELAY_MS = 350;
 export const COMMAND_MIN_INTERVAL_MS = 90;
 export const JOG_POLL_INTERVAL_MS = 100;
 export const FEEDBACK_TIMEOUT_MS = 700;
@@ -39,7 +38,7 @@ export type JogResolution = typeof JOINT_INCREMENTS[number]["value"];
 export type JogCommand =
   | { kind: "idle" | "stop" }
   | { kind: "base"; x: number; y: number; yaw: number }
-  | { kind: "joint"; joint: string; direction: -1 | 1; mode: "hold" | "step"; resolution: JogResolution };
+  | { kind: "joint"; joint: string; direction: -1 | 1; resolution: JogResolution };
 
 export type JogJoint = {
   name: string; group: string; topic: string; unit: "m" | "rad";
