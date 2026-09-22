@@ -23,6 +23,7 @@ import importlib.util
 import math
 from pathlib import Path
 import sys
+import time
 from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
@@ -34,8 +35,9 @@ from robot_runtime_fixture import ready_runtime
 
 
 class FakeSocket:
-    def __init__(self, inputs):
+    def __init__(self, inputs, send_delay=0):
         self.inputs = iter(inputs)
+        self.send_delay = send_delay
         self.output = []
         self.closed = False
         self.client_state = WebSocketState.CONNECTING
@@ -48,9 +50,12 @@ class FakeSocket:
 
     async def receive_json(self):
         value = next(self.inputs, 'disconnect')
+        delay = 0.02
         if isinstance(value, tuple):
             delay, value = value
-            await asyncio.sleep(delay)
+        await asyncio.sleep(delay)
+        if callable(value):
+            value = value()
         if value == 'timeout':
             await asyncio.sleep(1)
         if value == 'disconnect':
@@ -60,6 +65,8 @@ class FakeSocket:
         return value
 
     async def send_json(self, value):
+        if self.send_delay:
+            await asyncio.sleep(self.send_delay)
         self.output.append(value)
 
     async def close(self, **kwargs):
@@ -72,7 +79,7 @@ class FakeSocket:
 
 
 class WebsocketJogTests(unittest.IsolatedAsyncioTestCase):
-    async def run_socket(self, inputs, runtime=None, bridge=None):
+    async def run_socket(self, inputs, runtime=None, bridge=None, send_delay=0):
         bridge = bridge or FakeBridge()
         bridge.prepare_jog_publishers = lambda *args: True
         fake_state = SimpleNamespace(app_state=SimpleNamespace(
@@ -82,7 +89,7 @@ class WebsocketJogTests(unittest.IsolatedAsyncioTestCase):
         module = importlib.util.module_from_spec(spec)
         with patch.dict(sys.modules, {'cyclo_manager.state': fake_state}):
             spec.loader.exec_module(module)
-        socket = FakeSocket(inputs)
+        socket = FakeSocket(inputs, send_delay)
         await module.websocket_jog(socket, 'sg2')
         return bridge, socket
 
@@ -90,7 +97,7 @@ class WebsocketJogTests(unittest.IsolatedAsyncioTestCase):
         bridge, socket = await self.run_socket(
             [{'kind': 'base', 'x': .1}], ready_runtime('omy'))
         self.assertEqual(bridge.published, [])
-        self.assertIn('does not support', socket.output[0]['error'])
+        self.assertIn('does not support', socket.output[-1]['error'])
 
     async def test_bringup_down_keeps_status_connected_but_blocks_motion(self):
         runtime = ready_runtime()
@@ -98,7 +105,7 @@ class WebsocketJogTests(unittest.IsolatedAsyncioTestCase):
         bridge, socket = await self.run_socket(
             [{'kind': 'idle'}, {'kind': 'joint', 'joint': 'head_joint1'}], runtime)
         self.assertFalse(socket.output[0]['state']['robot']['ready'])
-        self.assertIn('Bringup down', socket.output[1]['error'])
+        self.assertIn('Bringup down', socket.output[-1]['error'])
         self.assertEqual(bridge.published, [])
 
     async def test_disconnect_stops_base(self):
@@ -125,6 +132,19 @@ class WebsocketJogTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(bridge.published[-1][2]['points'][-1]['positions'], [0.2, 0.1])
         self.assertTrue(socket.closed)
 
+    async def test_joint_release_retains_last_goal_through_idle_and_disconnect(self):
+        bridge, socket = await self.run_socket([
+            {'kind': 'joint', 'joint': 'head_joint1', 'resolution': 'coarse'},
+            {'kind': 'release'}, (0.6, {'kind': 'idle'}), 'disconnect'])
+        self.assertGreaterEqual(len(socket.output), 3)
+        self.assertFalse(any(item['error'] for item in socket.output))
+        self.assertEqual(len(bridge.published), 1)
+        target = 0.2 + math.radians(3)
+        self.assertAlmostEqual(bridge.published[0][2]['points'][0]['positions'][0], target)
+        shown = next(j for j in socket.output[-1]['state']['joints'] if j['name'] == 'head_joint1')
+        self.assertAlmostEqual(shown['target'], target)
+        self.assertEqual(socket.close_calls, 0)
+
     async def test_joint_hold_disconnect_holds_measured_position(self):
         bridge, socket = await self.run_socket([
             {'kind': 'joint', 'joint': 'head_joint1'}, 'disconnect'])
@@ -142,7 +162,7 @@ class WebsocketJogTests(unittest.IsolatedAsyncioTestCase):
             {'kind': 'joint', 'joint': 'head_joint1'},
             {'kind': 'joint', 'joint': 'head_joint1'},
             {'kind': 'stop'}, {'kind': 'idle'}, 'disconnect'], bridge=bridge)
-        self.assertEqual(len(socket.output), 4)
+        self.assertGreaterEqual(len(socket.output), 2)
         self.assertFalse(any(item['error'] for item in socket.output))
         self.assertEqual(socket.close_calls, 0)
         self.assertEqual(len(bridge.published), 2)
@@ -153,7 +173,7 @@ class WebsocketJogTests(unittest.IsolatedAsyncioTestCase):
     async def test_read_only_session_survives_a_background_pause(self):
         bridge, socket = await self.run_socket([
             {'kind': 'idle'}, (0.6, {'kind': 'idle'}), 'disconnect'])
-        self.assertEqual(len(socket.output), 2)
+        self.assertGreaterEqual(len(socket.output), 2)
         self.assertFalse(any(item['error'] for item in socket.output))
         self.assertEqual(bridge.published, [])
 
@@ -161,7 +181,7 @@ class WebsocketJogTests(unittest.IsolatedAsyncioTestCase):
         bridge, socket = await self.run_socket([
             {'kind': 'base', 'x': 0.1}, {'kind': 'stop'},
             (0.6, {'kind': 'idle'}), 'disconnect'])
-        self.assertEqual(len(socket.output), 3)
+        self.assertGreaterEqual(len(socket.output), 3)
         self.assertFalse(any(item['error'] for item in socket.output))
         self.assertEqual(len(bridge.published), 2)
         self.assertGreater(bridge.published[0][2]['linear']['x'], 0)
@@ -171,7 +191,7 @@ class WebsocketJogTests(unittest.IsolatedAsyncioTestCase):
         bridge, socket = await self.run_socket([
             {'kind': 'joint', 'joint': 'head_joint1'},
             {'kind': 'idle'}, (0.6, {'kind': 'idle'})])
-        self.assertEqual(len(socket.output), 3)
+        self.assertGreaterEqual(len(socket.output), 3)
         self.assertFalse(any(item['error'] for item in socket.output))
         self.assertEqual(len(bridge.published), 2)
         self.assertEqual(bridge.published[-1][2]['points'][-1]['positions'], [0.2, 0.1])
@@ -192,6 +212,71 @@ class WebsocketJogTests(unittest.IsolatedAsyncioTestCase):
         bridge, socket = await self.run_socket([{'kind': 'idle'}, 'disconnect'])
         self.assertEqual(bridge.published, [])
         self.assertTrue(socket.output[0]['state']['feedback_fresh'])
+
+    async def test_slow_status_send_does_not_set_ros_publish_cadence(self):
+        bridge = FakeBridge()
+        original_read = bridge.get_topic_data
+        original_publish = bridge.publish_jog
+        published_at = []
+
+        def read(topic):
+            if topic == '/joint_states':
+                bridge.feedback(0.2)
+            return original_read(topic)
+
+        def publish(*args):
+            published_at.append(time.monotonic())
+            return original_publish(*args)
+
+        bridge.get_topic_data = read
+        bridge.publish_jog = publish
+        command = {'kind': 'joint', 'joint': 'head_joint1'}
+        bridge, socket = await self.run_socket([
+            command, (0.1, command), (0.1, command), (0.1, command),
+            (0.06, {'kind': 'release'}), (0.12, 'disconnect')], bridge=bridge, send_delay=0.18)
+        self.assertGreaterEqual(len(bridge.published), 6)
+        intervals = [b - a for a, b in zip(published_at, published_at[1:])]
+        self.assertGreaterEqual(sum(gap < 0.09 for gap in intervals), 4)
+        self.assertLessEqual(len(socket.output), 3)
+        self.assertFalse(any(item['error'] for item in socket.output))
+        self.assertFalse(bridge.subscription_users)
+
+    async def test_many_heartbeats_do_not_accelerate_ros_publishing(self):
+        bridge = FakeBridge()
+        original_read = bridge.get_topic_data
+
+        def read(topic):
+            if topic == '/joint_states':
+                bridge.feedback(0.2)
+            return original_read(topic)
+
+        bridge.get_topic_data = read
+        command = {'kind': 'joint', 'joint': 'head_joint1'}
+        bridge, socket = await self.run_socket([
+            command, *[(0.002, command) for _ in range(20)],
+            {'kind': 'release'}, (0.1, 'disconnect')], bridge=bridge)
+        self.assertLessEqual(len(bridge.published), 4)
+        self.assertGreaterEqual(len(bridge.published), 1)
+        self.assertFalse(any(item['error'] for item in socket.output))
+
+    async def test_blocked_status_transport_stops_motion_and_closes_without_an_error_frame(self):
+        command = {'kind': 'base', 'x': 0.1}
+        bridge, socket = await self.run_socket([
+            command, (0.1, command), (0.1, command), (0.1, command),
+            (1, 'disconnect')], send_delay=0.5)
+        self.assertGreater(bridge.published[0][2]['linear']['x'], 0)
+        self.assertEqual(bridge.published[-1][2]['linear']['x'], 0)
+        self.assertEqual(socket.close_calls, 1)
+        self.assertFalse(bridge.subscription_users)
+
+    async def test_periodic_joint_updates_still_require_fresh_feedback(self):
+        bridge = FakeBridge()
+        command = {'kind': 'joint', 'joint': 'head_joint1'}
+        bridge, socket = await self.run_socket([
+            command, *[(0.1, command) for _ in range(7)]], bridge=bridge)
+        self.assertIn('stale', socket.output[-1]['error'])
+        self.assertEqual(len(bridge.published), 1)
+        self.assertFalse(bridge.subscription_users)
 
 
 if __name__ == '__main__':

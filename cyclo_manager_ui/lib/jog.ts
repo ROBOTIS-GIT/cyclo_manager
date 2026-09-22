@@ -27,8 +27,9 @@ export const JOINT_INCREMENTS = [
 
 // SI tolerances for displaying a pending target; they do not gate movement.
 export const POSITION_TOLERANCE = { m: 0.0001, rad: Math.PI / 18000 };
+// Browser intent refresh only; the server owns the ROS publish cadence.
 export const COMMAND_MIN_INTERVAL_MS = 90;
-export const JOG_POLL_INTERVAL_MS = 100;
+export const JOG_HEARTBEAT_INTERVAL_MS = 100;
 export const FEEDBACK_TIMEOUT_MS = 700;
 export const BASE_TRANSLATION = { min: 0.05, max: 0.3, step: 0.05, initial: 0.1 };
 export const BASE_ROTATION = { min: 0.1, max: 0.6, step: 0.1, initial: 0.2 };
@@ -36,7 +37,7 @@ export const BASE_ROTATION = { min: 0.1, max: 0.6, step: 0.1, initial: 0.2 };
 export type JogResolution = typeof JOINT_INCREMENTS[number]["value"];
 
 export type JogCommand =
-  | { kind: "idle" | "stop" }
+  | { kind: "idle" | "release" | "stop" }
   | { kind: "base"; x: number; y: number; yaw: number }
   | { kind: "joint"; joint: string; direction: -1 | 1; resolution: JogResolution };
 

@@ -55,6 +55,7 @@ function fixture() {
   class Socket {
     static OPEN = 1;
     readyState = 0;
+    bufferedAmount = 0;
     sent = [];
     constructor() { sockets.push(this); }
     send(message) { this.sent.push(JSON.parse(message)); }
@@ -109,51 +110,65 @@ function fixture() {
   };
 }
 
-test('press starts continuous input without a hold delay and repeats until release', () => {
+test('held input heartbeats continue without waiting for status replies', () => {
   const f = fixture();
   f.jog.pressJoint('head_joint1', 1, 'coarse');
   assert.deepEqual(f.socket.sent.at(-1), { kind: 'joint', joint: 'head_joint1', direction: 1, resolution: 'coarse' });
-  f.reply(); f.advance(110); f.reply(); f.advance(100);
-  assert.equal(f.joints().length, 3); // All three inputs precede the old 350 ms transition.
-  f.reply(); f.jog.releaseJoint();
-  assert.equal(f.socket.sent.at(-1).kind, 'stop');
-  f.reply(); f.advance(100);
-  assert.equal(f.socket.sent.at(-1).kind, 'idle');
+  f.advance(210);
   assert.equal(f.joints().length, 3);
+  f.jog.releaseJoint();
+  assert.equal(f.socket.sent.at(-1).kind, 'release');
+  const count = f.socket.sent.length;
+  f.reply(); f.advance(300);
+  assert.equal(f.socket.sent.length, count);
   f.unmount();
 });
 
-test('short press releases before the first reply and flushes stop immediately after it', () => {
+test('short press sends release immediately even without a status reply', () => {
   const f = fixture();
   f.jog.pressJoint('lift_joint', -1, 'fine');
   f.advance(10); f.jog.releaseJoint();
-  assert.equal(f.socket.sent.at(-1).kind, 'joint');
-  f.reply();
-  assert.equal(f.socket.sent.at(-1).kind, 'stop');
-  f.reply(); f.advance(500);
+  assert.equal(f.socket.sent.at(-1).kind, 'release');
+  f.advance(500);
   assert.equal(f.joints().length, 1);
-  assert.equal(f.socket.sent.at(-1).kind, 'idle');
+  assert.equal(f.socket.sent.at(-1).kind, 'release');
   f.unmount();
 });
 
-test('release before a queued press is sent cancels that movement entirely', () => {
+test('release cancels a press that could not enter a blocked transport', () => {
   const f = fixture();
-  f.advance(10); // An idle request is now in flight.
+  f.socket.bufferedAmount = 1;
   f.jog.pressJoint('head_joint1', 1, 'normal');
-  f.jog.releaseJoint(); f.reply();
-  assert.equal(f.socket.sent.at(-1).kind, 'stop');
-  f.reply(); f.advance(400);
+  f.jog.releaseJoint();
+  assert.equal(f.socket.sent.at(-1).kind, 'release');
+  f.socket.bufferedAmount = 0;
+  f.advance(400);
   assert.equal(f.joints().length, 0);
   f.unmount();
 });
 
-test('pointer release, cancellation, focus loss and tab exit stop continuous input', () => {
+test('blocked transport keeps only the latest held intent and does not queue heartbeats', () => {
+  const f = fixture();
+  f.jog.pressJoint('head_joint1', 1, 'normal');
+  f.socket.bufferedAmount = 1;
+  f.advance(300);
+  f.jog.pressJoint('head_joint1', -1, 'coarse');
+  assert.equal(f.joints().length, 1);
+  f.socket.bufferedAmount = 0;
+  f.advance(10);
+  assert.equal(f.joints().length, 2);
+  assert.equal(f.joints().at(-1).direction, -1);
+  assert.equal(f.joints().at(-1).resolution, 'coarse');
+  f.unmount();
+});
+
+test('pointer events release joints while focus loss and tab exit send stop', () => {
   for (const event of ['pointerup', 'pointercancel', 'blur', 'pagehide', 'cyclo:jog-stop', 'hidden']) {
     const f = fixture();
-    f.jog.pressJoint('head_joint1', 1, 'normal'); f.reply();
+    f.jog.pressJoint('head_joint1', 1, 'normal');
     if (event === 'hidden') f.hide();
     else f.event(event);
-    assert.equal(f.socket.sent.at(-1).kind, 'stop', event);
+    assert.equal(f.socket.sent.at(-1).kind, event.startsWith('pointer') ? 'release' : 'stop', event);
     if (!event.startsWith('pointer')) assert.equal(f.jog.enabled, false, event);
     f.reply(); f.advance(400);
     assert.equal(f.joints().length, 1, event);
@@ -162,7 +177,29 @@ test('pointer release, cancellation, focus loss and tab exit stop continuous inp
   }
 });
 
-test('unmount sends stop after an outstanding input and cancels all periodic work', () => {
+test('release and a new press are sent in order without waiting for status', () => {
+  const f = fixture();
+  f.jog.pressJoint('head_joint1', 1, 'normal');
+  f.jog.releaseJoint();
+  f.jog.pressJoint('head_joint1', -1, 'normal');
+  assert.deepEqual(f.socket.sent.slice(-3).map(message => message.kind), ['joint', 'release', 'joint']);
+  f.jog.stop(true); f.render();
+  assert.equal(f.jog.enabled, false);
+  assert.equal(f.socket.sent.at(-1).kind, 'stop');
+  f.unmount();
+});
+
+test('pointer release and cancellation still send stop for the base', () => {
+  for (const event of ['pointerup', 'pointercancel']) {
+    const f = fixture();
+    f.jog.command({ kind: 'base', x: 0.1, y: 0, yaw: 0 });
+    f.event(event);
+    assert.equal(f.socket.sent.at(-1).kind, 'stop', event);
+    f.unmount();
+  }
+});
+
+test('unmount sends stop and cancels all periodic work', () => {
   const f = fixture();
   f.jog.pressJoint('head_joint1', 1, 'normal'); f.unmount();
   assert.equal(f.socket.sent.at(-1).kind, 'stop');
@@ -183,13 +220,16 @@ test('changed or unavailable bringup disarms a held input', () => {
   }
 });
 
-test('missing replies close and disarm without queuing further motion', () => {
+test('missing status closes and disarms even while inputs are still being sent', () => {
   const f = fixture();
   f.jog.pressJoint('head_joint1', 1, 'normal');
   f.advance(800); f.render();
   assert.equal(f.jog.enabled, false);
   assert.match(f.jog.error, /timed out/);
   assert.equal(f.socket.readyState, 3);
-  assert.equal(f.joints().length, 1);
+  assert.ok(f.joints().length > 1);
+  const count = f.socket.sent.length;
+  f.advance(1000);
+  assert.equal(f.socket.sent.length, count);
   f.unmount();
 });

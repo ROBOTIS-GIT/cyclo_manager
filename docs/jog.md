@@ -51,11 +51,12 @@ distinction between configured bringup type and actual launch-process detection.
   selected increment, bounded by joint limits, without waiting for arrival.
   Goals are never accumulated from previous targets. Changing the increment
   stops the gesture.
-- Each update sends one immediate position point. Releasing the button sends
-  the selected joint's latest measured position as the stop target, even after a
-  short press. The selected increment is a target offset, not a guaranteed travel
-  distance per click. Explicit stop, focus loss, disconnect and input timeout also
-  stop the gesture.
+- Each update sends one immediate position point. Releasing or cancelling a joint
+  button ends target updates without publishing another trajectory. The controller
+  can finish moving to the last target, even after a short press. The selected
+  increment is a target offset, not a guaranteed travel distance per click.
+  Explicit stop, focus loss, disconnect and input timeout still attempt to hold
+  the measured position of an active gesture.
 - Stop jog, loss of browser focus or a hidden page disables operation. Explicit
   enabling is required again. A hidden tab sends a stop, pauses periodic Jog
   messages and keeps the stopped WebSocket session open. Returning to the tab
@@ -64,10 +65,24 @@ distinction between configured bringup type and actual launch-process detection.
 
 ## ROS connection and feedback
 
-The UI sends ordered inputs to `/ws/jog`, keeping at most one unacknowledged input,
-normally at 10 Hz. Stop is sent as soon as the preceding input is acknowledged,
-avoiding queued motion after release. Responses include server-owned robot status
-and cached joint/controller feedback. The UI connects without a robot selection.
+The UI sends the current operator intent to `/ws/jog`: a press starts the gesture,
+held inputs refresh it about every 100 ms, and release/stop is sent immediately.
+These messages do not wait for status responses. A blocked browser transport skips
+held inputs and retains only the latest intent; release/stop is still sent.
+
+The server owns the ROS cadence, applying the latest held input every 50 ms
+(20 Hz). Each joint update still uses fresh measured position plus/minus the
+selected increment, never accumulated targets. Unchanged feedback samples are
+skipped. Frequent input messages do not create extra publish ticks, and missed
+ticks are skipped rather than replayed in a burst. Input reception, the serialized
+motion worker and WebSocket status transmission run independently. Session calls,
+including feedback snapshots, remain serialized; this is not a real-time deadline
+guarantee when ROS or server processing is slow.
+
+Status is sampled about every 100 ms and includes server-owned robot status and
+cached joint/controller feedback. A slow sender keeps only the latest waiting
+snapshot instead of delaying ROS publishing or accumulating old display states.
+The UI connects without a robot selection.
 The legacy `/ws/jog/{robot_type}` route remains accepted, but its model and old
 `topic` / `base_topic` query parameters cannot override the profile.
 
@@ -165,14 +180,25 @@ highlight uses a 0.01° or 0.1 mm tolerance, which does not affect command gener
 
 ## Stops and timeouts
 
-Release/stop sends one immediate target at the selected joint's latest measured
+Ordinary joint-button release or pointer cancellation sends a `release` input.
+It clears the active gesture and its watchdog without publishing a trajectory;
+subsequent idle messages and connection cleanup leave the last goal unchanged.
+The next press captures fresh held-joint positions. Base release still sends zero
+velocity.
+
+Explicit stop, focus loss, page exit, disconnect or timeout during an active joint
+gesture sends one immediate target at the selected joint's latest measured
 position, clamped to the URDF range when within the feedback allowance, keeping
 the other controller joints at their latched goals. Stale
 feedback prevents sending an old measured pose. A changed or unavailable bringup
 also blocks the old session's final publish and reports an error; the controller
 can retain the last joint goal.
 
-During active motion, no input for 400 ms stops commands and closes the session.
+During active motion, no operator input for 400 ms stops commands and closes the
+session, even if status messages are still being delivered. Release/stop wakes the
+motion worker immediately; any already-running publish finishes before the end of
+the gesture is processed. Disconnect cleanup also joins in-flight work before
+stopping and releasing subscriptions or motion ownership.
 Stopped/read-only sessions can wait without that timeout, including while hidden.
 The UI's 700 ms feedback timeout pauses while hidden and restarts on return.
 Commands waiting more than 250 ms in the ROS bridge queue are discarded. If the
@@ -191,8 +217,9 @@ avoidance.
 - `robot/joints.py`, `robot/catalog.py`, `robot/interface.py`: URDF joints, controller
   mapping, shared cached feedback and publication.
 - `jog.py`: per-session inputs, targets, held positions and stop state.
+- `jog_stream.py`: latest input, 50 ms motion cadence, watchdog and serialized cleanup.
 - `cyclo_manager_ui/lib/jog.ts`: message types, units, increments and timing.
-- `useJogConnection.ts`: ordered WebSocket input and press/release lifecycle.
+- `useJogConnection.ts`: input heartbeats, streamed status and press/release lifecycle.
 - `useKeyboardTeleop.ts`: keyboard focus, input and release handling.
 - `JointJogCard.tsx` and `JogControls.tsx`: joint display and controls.
 

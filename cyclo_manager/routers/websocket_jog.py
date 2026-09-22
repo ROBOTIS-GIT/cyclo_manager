@@ -16,16 +16,14 @@
 #
 # Author: Hyungyu Kim
 
-"""Ordered jog input and feedback; no leader arbitration or automatic restart."""
+"""Jog input and status transport; ROS cadence belongs to the session controller."""
 
 import asyncio
 import logging
 
-from anyio import CancelScope, to_thread
-from cyclo_manager.jog import JogInput, JogSession
-from cyclo_manager.motion_guard import motion_lock
-from cyclo_manager.robot.profiles import PROFILES
-from cyclo_manager.routers.websocket_utils import release_subscription_owner
+from anyio import CancelScope
+from cyclo_manager.jog import JogInput
+from cyclo_manager.jog_stream import JogController, INPUT_TIMEOUT
 from cyclo_manager.state import app_state
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 from pydantic import ValidationError
@@ -33,13 +31,12 @@ from starlette.websockets import WebSocketState
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
-INPUT_TIMEOUT = 0.4
 
 
 @router.websocket('/ws/jog')
 @router.websocket('/ws/jog/{robot_type}')
 async def websocket_jog(websocket: WebSocket, robot_type: str = 'ros'):
-    """Process ordered jog inputs and stop when the input stream ends."""
+    """Receive current intent and stream status independently of ROS publishing."""
     await websocket.accept()
     bridge = app_state.get_ros2_bridge_or_none()
     if bridge is None:
@@ -51,103 +48,54 @@ async def websocket_jog(websocket: WebSocket, robot_type: str = 'ros'):
         await websocket.send_json({'error': 'Robot bringup monitoring unavailable.'})
         await websocket.close(code=1013)
         return
+    controller = JogController(bridge, runtime)
 
-    def new_session(status):
-        profile = PROFILES.get(status['model']) if status['ready'] else None
-        generation = status['generation']
-        return JogSession(
-            bridge, profile.model if profile else 'ros',
-            base_topic=profile.base_topic if profile else None,
-            command_topics=profile.topics if profile else (),
-            guard=lambda: runtime.require(generation))
-
-    robot = runtime.snapshot()
-    session = new_session(robot)
-    watchdog_armed = False
-    owns_motion = False
-    try:
-        await asyncio.to_thread(session.setup)
+    async def receive():
         while True:
             try:
-                # A stopped session may stay idle in a background tab. Only
-                # active motion requires the operator's input heartbeat.
-                raw = await asyncio.wait_for(
-                    websocket.receive_json(), INPUT_TIMEOUT if watchdog_armed else None)
-                command = JogInput.model_validate(raw)
-            except asyncio.TimeoutError:
-                await asyncio.to_thread(session.stop)
-                await websocket.close(code=1008, reason='Jog input timed out')
-                break
-            except (ValidationError, ValueError):
-                await asyncio.to_thread(session.stop)
-                await websocket.close(code=1008, reason='Invalid jog input')
-                break
-            error = None
+                command = JogInput.model_validate(await websocket.receive_json())
+            except (ValidationError, ValueError) as exc:
+                raise ValueError('Invalid jog input') from exc
+            controller.update(command)
+
+    async def send():
+        while True:
+            state = await controller.states.get()
             try:
-                current = runtime.snapshot()
-                if current['generation'] != robot['generation']:
-                    # Never apply a command from the old UI to a newly started robot.
-                    if command.kind in ('base', 'joint') or owns_motion:
-                        raise ValueError('Robot bringup changed. Reconnect and enable Jog again.')
-                    await asyncio.to_thread(session.stop)
-                    await release_subscription_owner(session.subscriptions)
-                    robot = current
-                    session = new_session(robot)
-                    await asyncio.to_thread(session.setup)
-                if command.kind in ('base', 'joint') and not owns_motion:
-                    if not motion_lock.acquire(blocking=False):
-                        raise ValueError('Another manager motion is active. Stop it before Jog.')
-                    owns_motion = True
-                await asyncio.to_thread(session.apply, command)
-            except ValueError as exc:
-                error = str(exc)
-                try:
-                    await asyncio.to_thread(session.stop)
-                except ValueError:
-                    logger.warning('Jog stop could not reach the controller')
-            if owns_motion and not any(session.base) and session.active_joint is None:
-                motion_lock.release()
-                owns_motion = False
-            if command.kind == 'stop':
-                watchdog_armed = False
-            elif command.kind in ('base', 'joint'):
-                watchdog_armed = True
-            elif not any(session.base) and session.active_joint is None:
-                watchdog_armed = False
-            state = await asyncio.to_thread(session.snapshot)
-            state['robot'] = runtime.snapshot()
-            await asyncio.wait_for(
-                websocket.send_json({'state': state, 'error': error}), INPUT_TIMEOUT)
-            if error:
-                await websocket.close(code=1008, reason='Jog stopped after command error')
-                break
+                await asyncio.wait_for(websocket.send_json(state), INPUT_TIMEOUT)
+            except asyncio.TimeoutError as exc:
+                raise ValueError('Jog feedback send timed out') from exc
+
+    tasks = [asyncio.create_task(controller.run()), asyncio.create_task(receive()),
+             asyncio.create_task(send())]
+    error = None
+    close_code = 1000
+    try:
+        done, _ = await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)
+        for task in done:
+            task.result()
     except WebSocketDisconnect:
         pass
+    except ValueError as exc:
+        error, close_code = str(exc), 1008
     except Exception as exc:
         logger.exception('Jog connection failed')
-        try:
-            await asyncio.wait_for(
-                websocket.send_json({'error': str(exc) or 'Jog connection failed.'}),
-                INPUT_TIMEOUT)
-        except Exception:
-            pass
+        error, close_code = str(exc) or 'Jog connection failed.', 1011
     finally:
+        # Join the publishing thread and stop before releasing subscriptions/ownership.
         with CancelScope(shield=True):
-            try:
-                await to_thread.run_sync(session.stop)
-            except Exception:
-                logger.exception(
-                    'Could not send final jog stop; last joint targets remain; '
-                    'base timeout applies')
-            finally:
-                await release_subscription_owner(session.subscriptions)
-                if owns_motion:
-                    motion_lock.release()
+            for task in tasks:
+                if not task.done():
+                    task.cancel()
+            await asyncio.gather(*tasks, return_exceptions=True)
         try:
-            # A peer can leave before the opening handshake finishes. Once
-            # disconnected, the legacy transport must not be closed again.
+            if error and websocket.client_state != WebSocketState.DISCONNECTED:
+                await asyncio.wait_for(websocket.send_json({'error': error}), INPUT_TIMEOUT)
+        except (RuntimeError, WebSocketDisconnect, asyncio.TimeoutError):
+            pass
+        try:
             if (websocket.client_state != WebSocketState.DISCONNECTED
                     and websocket.application_state != WebSocketState.DISCONNECTED):
-                await websocket.close()
+                await websocket.close(code=close_code)
         except (RuntimeError, WebSocketDisconnect):
             pass

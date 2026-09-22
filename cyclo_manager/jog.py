@@ -77,7 +77,7 @@ class JogInput(BaseModel):
     """Bounded operator intent, without arbitrary topics or absolute poses."""
 
     model_config = ConfigDict(extra='forbid', allow_inf_nan=False)
-    kind: Literal['idle', 'stop', 'base', 'joint'] = 'idle'
+    kind: Literal['idle', 'release', 'stop', 'base', 'joint'] = 'idle'
     x: float = Field(0, ge=-BASE_LINEAR_MAX, le=BASE_LINEAR_MAX)
     y: float = Field(0, ge=-BASE_LINEAR_MAX, le=BASE_LINEAR_MAX)
     yaw: float = Field(0, ge=-BASE_ANGULAR_MAX, le=BASE_ANGULAR_MAX)
@@ -175,8 +175,8 @@ class JogSession(RobotInterface):
             held[other.name] = _clamp_position(other, position)
         self.held_positions = held
 
-    def stop(self):
-        """Stop this session's motion without reusing stale joint positions."""
+    def stop(self, *, hold_joint=True):
+        """End input and stop the base; ordinary release keeps the last joint goal."""
         errors = []
         if any(self.base):
             try:
@@ -184,7 +184,7 @@ class JogSession(RobotInterface):
                 self.base = [0.0, 0.0, 0.0]
             except ValueError as exc:
                 errors.append(str(exc))
-        if self.active_joint:
+        if self.active_joint and hold_joint:
             positions, age, _ = self.feedback()
             joint = next((j for j in self.joints if j.name == self.active_joint), None)
             # Never send an old pose to stop. Without fresh feedback, leave
@@ -195,11 +195,10 @@ class JogSession(RobotInterface):
                     self.trajectory(joint, _clamp_position(joint, position))
                 except ValueError as exc:
                     errors.append(str(exc))
-            if not errors:
-                self.active_joint = None
         self.last_joint_sample = None
         if errors:
             raise ValueError('; '.join(errors))
+        self.active_joint = None
         self.held_positions = {}
         self.active_topic = None
 
@@ -211,8 +210,8 @@ class JogSession(RobotInterface):
         now = time.monotonic()
         dt = min(max(now - self.last_tick, BASE_TICK_MIN), BASE_TICK_MAX)
         self.last_tick = now
-        if command.kind in ('idle', 'stop'):
-            self.stop()
+        if command.kind in ('idle', 'release', 'stop'):
+            self.stop(hold_joint=command.kind != 'release')
         elif command.kind == 'base':
             self._apply_base(command, dt)
         else:

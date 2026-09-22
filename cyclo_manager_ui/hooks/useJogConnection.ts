@@ -18,7 +18,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
-  COMMAND_MIN_INTERVAL_MS, FEEDBACK_TIMEOUT_MS, JOG_POLL_INTERVAL_MS,
+  COMMAND_MIN_INTERVAL_MS, FEEDBACK_TIMEOUT_MS, JOG_HEARTBEAT_INTERVAL_MS,
 } from "@/lib/jog";
 import type { JogCommand, JogResolution, JogState } from "@/lib/jog";
 import { getWebSocketBaseUrl } from "@/lib/websocketUtils";
@@ -53,8 +53,10 @@ export function useJogConnection() {
   }, [command]);
 
   const releaseJoint = useCallback(() => {
-    if (desired.current.kind === "joint") stop();
-  }, [stop]);
+    if (desired.current.kind !== "joint") return;
+    desired.current = { kind: "release" };
+    pumpRef.current();
+  }, []);
 
   const setEnabled = useCallback((value: boolean) => {
     if (!value) { stop(true); return; }
@@ -66,11 +68,10 @@ export function useJogConnection() {
 
   useEffect(() => {
     let disposed = false;
-    let inFlight = false;
     let lastReply = performance.now();
     let lastSend = -Infinity;
+    let lastSent: JogCommand | null = null;
     let hidden = document.hidden;
-    let pending: JogCommand | null = null;
     let generation: string | null = null;
     let ws: WebSocket | null = null;
     const disarm = () => {
@@ -81,15 +82,25 @@ export function useJogConnection() {
       setState(null);
     };
     const pump = () => {
-      if (disposed || inFlight || ws?.readyState !== WebSocket.OPEN) return;
+      if (disposed || ws?.readyState !== WebSocket.OPEN) return;
       // Flush a stop on tab exit, then let the stopped session stay idle.
       if (hidden && desired.current.kind !== "stop") return;
-      if (desired.current.kind !== "stop" && performance.now() - lastSend < COMMAND_MIN_INTERVAL_MS) return;
-      // One unacknowledged message: motion never builds up in a browser queue.
-      pending = desired.current;
-      inFlight = true;
+      const input = desired.current;
+      const motion = input.kind === "joint" || input.kind === "base";
+      if (input.kind === "idle" && lastSent?.kind === "idle") return;
+      if (motion) {
+        // Coalesce pointer changes and never add held inputs to a blocked transport.
+        if (ws.bufferedAmount > 0) return;
+        if ((lastSent?.kind === "joint" || lastSent?.kind === "base")
+            && performance.now() - lastSend < COMMAND_MIN_INTERVAL_MS) return;
+      }
       lastSend = performance.now();
-      ws.send(JSON.stringify(pending));
+      ws.send(JSON.stringify(input));
+      lastSent = input;
+      if (input.kind === "stop" || input.kind === "release") {
+        desired.current = { kind: "idle" };
+        lastSent = desired.current;
+      }
     };
     pumpRef.current = pump;
     // Strict Mode immediately cleans up its first effect pass. Defer only
@@ -109,7 +120,6 @@ export function useJogConnection() {
         if (disposed) return;
         try {
           const message = JSON.parse(event.data) as { state?: JogState; error?: string };
-          inFlight = false;
           lastReply = performance.now();
           if (message.error) {
             setError(message.error);
@@ -125,13 +135,6 @@ export function useJogConnection() {
             }
             generation = message.state.robot.generation;
             setState(message.state); setConnected(true);
-          }
-          const sent = pending;
-          if (sent === desired.current && sent?.kind === "stop") {
-            desired.current = { kind: "idle" };
-          } else if (sent !== desired.current) {
-            // A release/stop that arrived during the request is sent immediately.
-            pump();
           }
         } catch {
           setError("Invalid Jog feedback. Reconnect to continue.");
@@ -155,7 +158,7 @@ export function useJogConnection() {
         return;
       }
       pump();
-    }, JOG_POLL_INTERVAL_MS);
+    }, JOG_HEARTBEAT_INTERVAL_MS);
     const blur = () => stop(true);
     const visibility = () => {
       hidden = document.hidden;
@@ -170,14 +173,14 @@ export function useJogConnection() {
     };
     const release = () => {
       const input = desired.current;
-      if (input.kind === "base" || input.kind === "joint") stop();
+      if (input.kind === "joint") releaseJoint();
+      else if (input.kind === "base") stop();
     };
-    const cancel = () => stop();
     window.addEventListener("blur", blur);
     window.addEventListener("cyclo:jog-stop", blur);
     window.addEventListener("pagehide", blur);
     window.addEventListener("pointerup", release);
-    window.addEventListener("pointercancel", cancel);
+    window.addEventListener("pointercancel", release);
     document.addEventListener("visibilitychange", visibility);
     return () => {
       disposed = true;
@@ -190,13 +193,13 @@ export function useJogConnection() {
       window.removeEventListener("cyclo:jog-stop", blur);
       window.removeEventListener("pagehide", blur);
       window.removeEventListener("pointerup", release);
-      window.removeEventListener("pointercancel", cancel);
+      window.removeEventListener("pointercancel", release);
       document.removeEventListener("visibilitychange", visibility);
       // Ordered after any outstanding command; the server also stops on close.
       if (ws?.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ kind: "stop" }));
       ws?.close();
     };
-  }, [attempt, stop]);
+  }, [attempt, releaseJoint, stop]);
 
   return {
     state, connected,

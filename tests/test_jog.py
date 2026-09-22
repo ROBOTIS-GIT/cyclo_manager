@@ -186,15 +186,36 @@ class JogTests(unittest.TestCase):
             'time_from_start': {'sec': 0, 'nanosec': 0},
         }])
 
-    def test_releasing_hold_interrupts_unfinished_target(self):
+    def test_release_keeps_unfinished_target_without_publishing_again(self):
         self.session.apply(JogInput(kind='joint', joint='lift_joint'))
         self.bridge.cache['/joint_states']['data']['position'][2] = -0.198
-        self.session.stop()
-        self.assertAlmostEqual(self.target(), -0.198)
+        self.session.apply(JogInput(kind='release'))
+        self.assertEqual(len(self.bridge.published), 1)
+        self.assertAlmostEqual(self.target(), -0.19)
         self.assertIsNone(self.session.active_joint)
-        count = len(self.bridge.published)
+        self.assertIsNone(self.session.last_joint_sample)
+        self.assertIsNone(self.session.active_topic)
+        self.assertEqual(self.session.held_positions, {})
         self.session.apply(JogInput())
-        self.assertEqual(len(self.bridge.published), count)
+        self.session.stop()
+        self.assertEqual(len(self.bridge.published), 1)
+
+    def test_release_does_not_need_position_feedback_or_controller_publish(self):
+        self.joint(resolution='large')
+        target = self.target()
+        self.bridge.fail = True
+        with patch.object(self.session, 'feedback', side_effect=AssertionError('No feedback needed')):
+            self.session.apply(JogInput(kind='release'))
+        self.assertEqual(len(self.bridge.published), 1)
+        self.assertEqual(self.target(), target)
+        self.assertEqual(self.session.targets['head_joint1'], target)
+        self.assertIsNone(self.session.active_joint)
+
+    def test_release_still_stops_base_velocity(self):
+        self.session.apply(JogInput(kind='base', x=0.1))
+        self.session.apply(JogInput(kind='release'))
+        self.assertEqual(self.bridge.published[-1][2]['linear'], dict(x=0.0, y=0.0, z=0.0))
+        self.assertEqual(self.session.base, [0.0, 0.0, 0.0])
 
     def test_no_repeated_motion_from_same_sample(self):
         self.joint()
@@ -289,7 +310,7 @@ class JogTests(unittest.TestCase):
             self.joint()
         self.assertEqual(self.bridge.published, [])
 
-    def test_release_holds_fresh_position(self):
+    def test_stop_holds_fresh_position(self):
         self.joint()
         self.bridge.feedback(0.203)
         self.session.stop()
@@ -479,9 +500,12 @@ class ArmGripperJogTests(unittest.TestCase):
                     # Repeated feedback jitter must not change the latched target.
                     for point in message['points']:
                         self.assertEqual(point['positions'][index], gripper_position)
-                self.session.stop()
+                count = len(self.bridge.published)
+                goals = self.goals()
+                self.session.apply(JogInput(kind='release'))
+                self.assertEqual(len(self.bridge.published), count)
+                self.assertEqual(self.goals(), goals)
                 self.assertEqual(self.goals()[gripper], gripper_position)
-                self.assertAlmostEqual(self.goals()[arm], self.values[arm], places=6)
                 self.assertEqual(self.session.held_positions, {})
 
     def test_arrival_during_hold_does_not_recapture_gripper(self):
@@ -498,7 +522,7 @@ class ArmGripperJogTests(unittest.TestCase):
     def test_new_press_captures_new_gripper_position(self):
         command = JogInput(kind='joint', joint='arm_l_joint1')
         self.session.apply(command)
-        self.session.stop()
+        self.session.apply(JogInput(kind='release'))
         self.feedback(gripper_l_joint1=0.6)
         self.session.apply(command)
         self.assertEqual(self.goals()['gripper_l_joint1'], 0.6)

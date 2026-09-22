@@ -35,6 +35,7 @@ host agent's moving average of the latest three one-second samples.
 - `robot/catalog.py`: command topics and controller membership matched by ROS endpoint node identity.
 - `robot/interface.py`: shared cached feedback access and command publication.
 - `jog.py`: per-connection jog input, targets, controller-wide held positions and stop state.
+- `jog_stream.py`: latest operator intent, server publish cadence, input timeout and ordered session cleanup.
 - `record_play`: bag storage, motion validation/return planning and background jobs.
 - `motion_guard.py`: mutual exclusion of Manager Jog and playback motion.
 - `ros2_node/bridge.py`: the ROS executor, publishers, subscriptions and cache.
