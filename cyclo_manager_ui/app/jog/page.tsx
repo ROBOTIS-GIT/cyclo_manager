@@ -18,7 +18,8 @@
 
 import { useCallback, useRef, useState, useSyncExternalStore } from "react";
 import JointJogCard from "@/components/JointJogCard";
-import { HoldButton, Slider, surface, secondary, button, danger, btn } from "@/components/JogControls";
+import { HoldButton, Slider } from "@/components/JogControls";
+import { surface, secondary, button, danger, btn } from "@/components/ui/controlStyles";
 import JogJoystick from "@/components/JogJoystick";
 import StatusBadge from "@/components/StatusBadge";
 import { usePolling } from "@/hooks/usePolling";

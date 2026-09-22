@@ -18,7 +18,7 @@
 
 import { useState, useSyncExternalStore } from "react";
 import StatusBadge from "@/components/StatusBadge";
-import { surface, secondary, button as neutral, danger, btn } from "@/components/JogControls";
+import { surface, secondary, button as neutral, danger, btn } from "@/components/ui/controlStyles";
 import { useRecordPlay } from "@/hooks/useRecordPlay";
 import { storedRobot, subscribeRobot } from "@/lib/robotSelection";
 import { GROUP_LABELS, PHASE_LABELS, recordingTime } from "@/lib/recordPlay";

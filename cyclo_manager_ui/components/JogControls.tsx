@@ -17,13 +17,9 @@
 "use client";
 
 import { useRef } from "react";
-import type { CSSProperties, ReactNode } from "react";
+import type { ReactNode } from "react";
 
-export const surface: CSSProperties = { background: "var(--vscode-sidebar-background)", borderColor: "var(--vscode-panel-border)" };
-export const secondary: CSSProperties = { color: "var(--vscode-descriptionForeground)" };
-export const button: CSSProperties = { background: "var(--vscode-button-secondaryBackground)", color: "var(--vscode-button-secondaryForeground)", borderColor: "var(--vscode-panel-border)" };
-export const danger: CSSProperties = { color: "var(--vscode-errorForeground)", borderColor: "var(--vscode-errorForeground)" };
-export const btn = "px-3 py-2 rounded border text-sm disabled:opacity-40 disabled:cursor-not-allowed";
+import { btn, button, secondary } from "@/components/ui/controlStyles";
 
 export function HoldButton({ children, label, disabled, onStart, onStop }: {
   children: ReactNode; label: string; disabled: boolean; onStart: () => void; onStop: () => void;

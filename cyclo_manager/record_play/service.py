@@ -25,12 +25,12 @@ import shutil
 import threading
 import time
 
-from cyclo_manager.jog import JogSession
 from cyclo_manager.motion_guard import motion_lock
-from cyclo_manager.record_play.bags import BagStore, TRAJECTORY_TYPE
+from cyclo_manager.record_play.bags import BagStore
 from cyclo_manager.record_play.motion import (
-    arrived, feedback, interpolate, MotionPlan, position_message, return_duration,
+    arrived, interpolate, MotionPlan, return_duration,
 )
+from cyclo_manager.robot.interface import position_message, RobotInterface, TRAJECTORY_TYPE
 from cyclo_manager.subscriptions import subscribe_joint_feedback, SubscriptionOwner
 
 logger = logging.getLogger(__name__)
@@ -78,28 +78,28 @@ class RecordPlayService:
         with self._lock:
             self._bringup, self._bringup_at = bool(running), time.monotonic()
 
-    def _session(self, robot, subscriptions=None):
+    def _connection(self, robot, subscriptions=None):
         if robot not in ROBOT_TYPES or robot == 'mobile':
             raise ValueError('This robot does not support joint recording/playback.')
         if subscriptions is not None:
             subscribe_joint_feedback(subscriptions)
-        session = JogSession(self.bridge, robot)
-        session.feedback()
-        return session
+        connection = RobotInterface(self.bridge)
+        connection.feedback()
+        return connection
 
-    def _wait_for_feedback(self, session, description_only=False):
+    def _wait_for_feedback(self, connection, description_only=False):
         # A job may start with no page/viewer holding these subscriptions open.
         deadline = time.monotonic() + 2
         while True:
             if not description_only:
                 self._check()
-            session.feedback()
             try:
                 if description_only:
-                    if not session.joints:
+                    connection.feedback()
+                    if not connection.joints:
                         raise ValueError('Robot description is unavailable.')
                 else:
-                    feedback(session)
+                    connection.require_feedback()
                 return
             except ValueError:
                 if time.monotonic() >= deadline:
@@ -110,9 +110,9 @@ class RecordPlayService:
         """Read cached groups; only a connected observer registers subscriptions."""
         if robot == 'mobile':
             return []
-        session = self._session(robot, subscriptions)
+        connection = self._connection(robot, subscriptions)
         groups = {}
-        for joint in session.joints:
+        for joint in connection.joints:
             if joint.group not in groups:
                 if subscriptions is not None:
                     subscriptions.subscribe(joint.topic, TRAJECTORY_TYPE,
@@ -126,14 +126,13 @@ class RecordPlayService:
                 }
         return list(groups.values())
 
-    def _check(self, motion=True):
+    def _check(self):
         if self._cancel.is_set():
             raise Cancelled()
-        if motion:
-            with self._lock:
-                now = time.monotonic()
-                if not self._bringup or now - self._bringup_at > BRINGUP_MAX_AGE:
-                    raise ValueError('Robot bringup is stopped or unavailable.')
+        with self._lock:
+            now = time.monotonic()
+            if not self._bringup or now - self._bringup_at > BRINGUP_MAX_AGE:
+                raise ValueError('Robot bringup is stopped or unavailable.')
 
     def _start(self, phase, robot, owner, work, **state):
         if self._thread and self._thread.is_alive():
@@ -159,9 +158,9 @@ class RecordPlayService:
     def record(self, name, robot, groups, owner):
         """Start receiving selected groups in a background recorder."""
         with self._commands, SubscriptionOwner(self.bridge) as subscriptions:
-            session = self._session(robot, subscriptions)
-            self._wait_for_feedback(session, description_only=True)
-            available = {joint.group: joint.topic for joint in session.joints}
+            connection = self._connection(robot, subscriptions)
+            self._wait_for_feedback(connection, description_only=True)
+            available = {joint.group: joint.topic for joint in connection.joints}
             if not groups or set(groups) - available.keys():
                 raise ValueError('Choose available joint groups.')
             group_topics = {group: available[group] for group in groups}
@@ -262,14 +261,14 @@ class RecordPlayService:
             motion_lock.release()
 
     def _run_motion(self, recording_id, robot, rate, repeats, subscriptions):
-        session = self._session(robot, subscriptions)
+        connection = self._connection(robot, subscriptions)
         plan = None
         attempted = False
         try:
             self._check()
-            self._wait_for_feedback(session)
-            plan = MotionPlan(self.store, recording_id, session, self._check)
-            plan.latch(feedback(session))
+            self._wait_for_feedback(connection)
+            plan = MotionPlan(self.store, recording_id, connection.joints, self._check)
+            plan.latch(connection.require_feedback())
             topics = [(topic, TRAJECTORY_TYPE) for topic in plan.first]
             if not self.bridge.prepare_jog_publishers(topics):
                 raise ValueError('Cannot prepare trajectory publishers.')
@@ -280,97 +279,96 @@ class RecordPlayService:
                     raise ValueError('One or more trajectory controllers have no subscriber.')
                 self._cancel.wait(0.1)
             self._check()
-            feedback(session)
+            connection.require_feedback()
             self.update(duration=plan.duration / rate)
             attempted = True
-            self._return(session, plan, 'preparing')
+            self._return(connection, plan, 'preparing')
             cycle = 0
             while repeats == 0 or cycle < repeats:
                 self._check()
                 cycle += 1
                 self.update(phase='playing', cycle=cycle, elapsed=0.0)
-                attempted = True
                 start = time.monotonic()
                 for topic, data, timestamp in self.store.read(recording_id):
                     offset = (timestamp - plan.first_timestamp) / 1e9 / rate
-                    self._wait_until(start + offset, session)
+                    self._wait_until(start + offset, connection)
                     if time.monotonic() - start - offset > 0.5:
                         raise ValueError(
                             'Playback fell behind; stopped instead of bursting commands.')
-                    session.publish(topic, TRAJECTORY_TYPE, plan.message(topic, data, rate))
+                    connection.publish(topic, TRAJECTORY_TYPE, plan.message(topic, data, rate))
                     self.update(elapsed=offset)
-                self._wait_until(start + plan.duration / rate, session)
+                self._wait_until(start + plan.duration / rate, connection)
                 self.update(phase='settling', elapsed=plan.duration / rate)
-                self._arrive(session, plan, plan.goals(end=True))
+                self._arrive(connection, plan, plan.goals(end=True))
                 if repeats == 0 or cycle < repeats:
-                    self._return(session, plan, 'returning')
+                    self._return(connection, plan, 'returning')
             self.update(phase='completed')
         finally:
             # EOF is not a stop. On cancellation/failure replace any pending timed goal.
             if attempted and plan and self.status()['phase'] != 'completed':
                 try:
-                    positions = feedback(session)
+                    positions = connection.require_feedback()
                     goals, missing = {}, []
                     for topic, values in plan.goals().items():
                         if any(name not in positions for name in values):
                             missing.append(topic)
                         else:
                             goals[topic] = {name: positions[name] for name in values}
-                    self._publish_positions(session, goals, check=False)
+                    self._publish_positions(connection, goals, check=False)
                     if missing:
                         raise ValueError(f'Missing stop feedback for: {", ".join(missing)}')
                 except Exception as exc:
                     raise ValueError(f'Could not hold current pose after stop: {exc}') from exc
 
-    def _publish_positions(self, session, goals, check=True):
+    def _publish_positions(self, connection, goals, check=True):
         errors = []
         for topic, values in goals.items():
             if check:
                 self._check()
             try:
-                session.publish(topic, TRAJECTORY_TYPE, position_message(values))
+                connection.publish(topic, TRAJECTORY_TYPE, position_message(values))
             except ValueError as exc:
                 errors.append(str(exc))
         if errors:
             raise ValueError('; '.join(errors))
 
-    def _wait_until(self, deadline, session):
+    def _wait_until(self, deadline, connection):
         while True:
             self._check()
-            feedback(session)
+            connection.require_feedback()
             remaining = deadline - time.monotonic()
             if remaining <= 0:
                 return
             self._cancel.wait(min(0.05, remaining))
 
-    def _arrive(self, session, plan, goals):
+    def _arrive(self, connection, plan, goals):
         deadline = time.monotonic() + ARRIVAL_TIMEOUT
         while True:
             self._check()
-            if arrived(goals, feedback(session), plan.joints):
+            if arrived(goals, connection.require_feedback(), plan.joints):
                 return
             if time.monotonic() > deadline:
                 raise ValueError('Joint target arrival timed out; playback stopped.')
             self._cancel.wait(0.1)
 
-    def _return(self, session, plan, phase):
+    def _return(self, connection, plan, phase):
         self._check()
-        positions = feedback(session)
+        positions = connection.require_feedback()
         goals = plan.goals()
         if arrived(goals, positions, plan.joints):
             return
-        duration = return_duration(goals, positions, plan.joints, session.description)
+        duration = return_duration(goals, positions, plan.joints, connection.description)
         self.update(phase=phase, return_duration=duration)
         start = time.monotonic()
         while True:
             self._check()
-            feedback(session)
+            connection.require_feedback()
             fraction = min(1.0, (time.monotonic() - start) / duration)
-            self._publish_positions(session, interpolate(goals, positions, fraction))
+            self._publish_positions(connection, interpolate(goals, positions, fraction))
             if fraction >= 1:
                 break
             self._cancel.wait(0.1)
-        self._arrive(session, plan, goals)
+        self._arrive(connection, plan, goals)
 
     def stop(self, owner=None):
         """Cancel motion or finalize recording, optionally scoped to its originating page."""

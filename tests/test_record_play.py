@@ -25,13 +25,13 @@ import time
 import unittest
 from unittest.mock import patch
 
-from cyclo_manager.jog import JogSession
 from cyclo_manager.motion_guard import motion_lock
 from cyclo_manager.record_play.bags import BagStore
 from cyclo_manager.record_play.motion import (
     interpolate, MotionPlan, return_duration, validate_message,
 )
 from cyclo_manager.record_play.service import RecordPlayService
+from cyclo_manager.robot.interface import RobotInterface
 from cyclo_manager.subscriptions import subscribe_joint_feedback, SubscriptionOwner
 from test_jog import FakeBridge
 
@@ -127,9 +127,9 @@ class RecordPlayTests(unittest.TestCase):
         self.service._thread.join(timeout=1)
 
     def plan(self):
-        session = JogSession(self.bridge, 'f2')
+        session = RobotInterface(self.bridge)
         positions, _, _ = session.feedback()
-        plan = MotionPlan(self.store, self.recording_id, session)
+        plan = MotionPlan(self.store, self.recording_id, session.joints)
         plan.latch(positions)
         return plan, session
 
@@ -180,9 +180,9 @@ class RecordPlayTests(unittest.TestCase):
         self.assertEqual(metadata['omitted_groups'], ['lift'])
         self.assertEqual(metadata['messages'], 2)
         self.assertEqual(len(self.store.list()), 2)
-        session = JogSession(self.bridge, 'f2')
+        session = RobotInterface(self.bridge)
         session.feedback()
-        plan = MotionPlan(self.store, recording_id, session)
+        plan = MotionPlan(self.store, recording_id, session.joints)
         self.assertEqual(set(plan.first), {TOPIC})
         self.assertEqual(set(plan.last), {TOPIC})
 

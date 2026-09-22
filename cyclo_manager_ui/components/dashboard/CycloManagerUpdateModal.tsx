@@ -211,9 +211,10 @@ export default function CycloManagerUpdateModal({
     }, STATUS_POLL_MS);
   }, [failUpdate, stopPolling, waitForServerThenCheckVersion]);
 
+  const { current: currentVersion, latest: latestVersion } = version;
   const handleUpdate = useCallback(async () => {
-    const beforeCurrent = version.current;
-    const targetLatest = version.latest;
+    const beforeCurrent = currentVersion;
+    const targetLatest = latestVersion;
     const startedAt = Date.now();
 
     setPhase("updating");
@@ -226,7 +227,7 @@ export default function CycloManagerUpdateModal({
       setPhase("error");
       setErrorMsg(error instanceof Error ? error.message : "Failed to start update.");
     }
-  }, [pollUntilDown, version.current, version.latest]);
+  }, [pollUntilDown, currentVersion, latestVersion]);
 
   useEffect(() => () => stopPolling(), [stopPolling]);
 

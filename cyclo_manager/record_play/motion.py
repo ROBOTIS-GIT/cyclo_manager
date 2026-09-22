@@ -22,19 +22,9 @@ from copy import deepcopy
 import math
 import xml.etree.ElementTree as ET
 
-from cyclo_manager.jog import FEEDBACK_MAX_AGE
-
 RETURN_SPEED = {'rad': math.radians(10), 'm': 0.01}
 RETURN_ACCELERATION = {'rad': math.radians(20), 'm': 0.02}
 ARRIVAL_TOLERANCE = {'rad': math.radians(0.5), 'm': 0.001}
-
-
-def feedback(session):
-    """Require fresh measured positions and usable robot limits."""
-    positions, age, _ = session.feedback()
-    if age is None or age > FEEDBACK_MAX_AGE or not session.joints:
-        raise ValueError('Fresh joint feedback and robot description are required.')
-    return positions
 
 
 def duration_seconds(point):
@@ -80,9 +70,9 @@ def validate_message(topic, data, joints):
 class MotionPlan:
     """Inspect a bag once and stream each replay without loading the entire bag."""
 
-    def __init__(self, store, recording_id, session, check=lambda: None):
+    def __init__(self, store, recording_id, joints, check=lambda: None):
         """Validate the complete bag and retain first/last poses per topic."""
-        self.joints = {joint.name: joint for joint in session.joints}
+        self.joints = {joint.name: joint for joint in joints}
         self.first, self.last, self.schemas = {}, {}, {}
         self.first_timestamp = None
         self.duration = 0.0
@@ -176,9 +166,3 @@ def interpolate(goals, positions, fraction):
     blend = 10 * t**3 - 15 * t**4 + 6 * t**5
     return {topic: {name: positions[name] + (target - positions[name]) * blend
                     for name, target in values.items()} for topic, values in goals.items()}
-
-
-def position_message(values):
-    """Build an immediate position-only trajectory point."""
-    return {'joint_names': list(values), 'points': [{'positions': list(values.values()),
-            'time_from_start': {'sec': 0, 'nanosec': 0}}]}

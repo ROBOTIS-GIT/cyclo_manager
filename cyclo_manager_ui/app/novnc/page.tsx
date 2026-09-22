@@ -16,12 +16,11 @@
 
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
-import Convert from "ansi-to-html";
+import { useCallback, useEffect, useState } from "react";
+import { useAnsiConverter } from "@/hooks/useAnsiConverter";
 import { usePolling } from "@/hooks/usePolling";
 import { controlDockerContainer, getDockerContainers, getDockerContainerLogs } from "@/lib/api";
 import ContainerControlBox from "@/components/system/ContainerControlBox";
-import { useTheme } from "@/contexts/ThemeContext";
 
 const NOVNC_SERVER_CONTAINER_NAME = "novnc-server";
 const NOVNC_PATH = "/vnc.html?autoconnect=true&resize=scale";
@@ -37,7 +36,6 @@ function getNoVNCUrl(): string {
 export default function NoVNCPage() {
   const externalNovncUrl = process.env.NEXT_PUBLIC_NOVNC_URL;
   const [url, setUrl] = useState<string>(() => externalNovncUrl ?? "");
-  const { theme } = useTheme();
 
   const [novncContainer, setNovncContainer] = useState<{ name: string; status: string } | null>(null);
   const [novncActionLoading, setNovncActionLoading] = useState<"start" | "stop" | null>(null);
@@ -45,19 +43,7 @@ export default function NoVNCPage() {
   const [logContent, setLogContent] = useState("");
   const [logLoading, setLogLoading] = useState(false);
 
-  const convert = useMemo(() => {
-    const isDark = theme === "dark";
-    return new Convert({
-      fg: isDark ? "#d4d4d4" : "#333333",
-      bg: isDark ? "#1e1e1e" : "#ffffff",
-      newline: false,
-      escapeXML: true,
-      stream: false,
-      colors: isDark
-        ? { 0: "#000000", 1: "#cd3131", 2: "#0dbc79", 3: "#e5e510", 4: "#2472c8", 5: "#bc3fbc", 6: "#11a8cd", 7: "#e5e5e5", 8: "#666666", 9: "#f14c4c", 10: "#23d18b", 11: "#f5f543", 12: "#3b8eea", 13: "#d670d6", 14: "#29b8db", 15: "#e5e5e5" }
-        : { 0: "#000000", 1: "#cd3131", 2: "#0dbc79", 3: "#e5e510", 4: "#2472c8", 5: "#bc3fbc", 6: "#11a8cd", 7: "#333333", 8: "#666666", 9: "#f14c4c", 10: "#23d18b", 11: "#f5f543", 12: "#3b8eea", 13: "#d670d6", 14: "#29b8db", 15: "#333333" },
-    });
-  }, [theme]);
+  const convert = useAnsiConverter();
 
   useEffect(() => {
     if (externalNovncUrl) return;

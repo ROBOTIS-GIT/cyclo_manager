@@ -16,7 +16,8 @@
 
 "use client";
 
-import { HoldButton, secondary } from "@/components/JogControls";
+import { HoldButton } from "@/components/JogControls";
+import { secondary } from "@/components/ui/controlStyles";
 import { formatJointPosition, POSITION_TOLERANCE } from "@/lib/jog";
 import type { JogJoint } from "@/lib/jog";
 

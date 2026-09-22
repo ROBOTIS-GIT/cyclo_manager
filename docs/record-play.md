@@ -109,8 +109,10 @@ remove another consumer. Disconnect cleanup runs even for static or silent topic
 Record & Play opens a separate `/record-play/watch/{robot}` WebSocket for catalog
 monitoring; closing it releases only the page's subscriptions. HTTP overview,
 status and topic reads are read-only. The old global HTTP topic subscribe and
-unsubscribe endpoints have been removed. System availability monitoring uses
-metadata-only topic WebSockets to avoid sending camera payloads to the browser.
+unsubscribe endpoints have been removed. System uses `/ws/ros2/system-status`
+for low-rate battery and joint availability, `GET /ros2/robot-description` for
+one-shot description reads, and `POST /ros2/camera/check` for explicit camera
+checks without continuously subscribing to image streams.
 Viewers reconnect after a connection closes while their component is mounted.
 A job started without a viewer allows up to two seconds for initial feedback.
 
@@ -121,6 +123,16 @@ its last target. Server shutdown also requests stop before closing the bridge.
 This is a software stop, not a hardware emergency stop. There is no automatic
 motion resumption after a server restart, stop or completion. Reconnecting only
 observes the job that is already running; it does not start a new job.
+
+## Code organization
+
+`robot/joints.py` resolves controller groups and parses commanded URDF limits.
+`robot/interface.py` reads shared bridge caches, checks feedback freshness, and
+publishes commands. It does not register subscriptions or track motion. Jog adds
+its per-connection command state through `JogSession`; Record & Play uses the
+same robot interface directly, with subscription lifetimes owned by its jobs.
+`record_play/motion.py` validates bags and computes transitions from joint
+definitions without depending on Jog state or publishing commands.
 
 ## Validation
 

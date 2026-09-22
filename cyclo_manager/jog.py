@@ -24,17 +24,18 @@ No absolute pose commands are accepted. Runtime URDF limits are required;
 actual motion speed is controlled by the robot, not a manager trajectory duration.
 """
 
-from dataclasses import asdict, dataclass
+from dataclasses import asdict
 import math
-import re
 import time
 from typing import Literal
-import xml.etree.ElementTree as ET
 
+from cyclo_manager.robot.interface import (
+    FEEDBACK_MAX_AGE, position_message, RobotInterface, TRAJECTORY_TYPE,
+)
+from cyclo_manager.robot.joints import joint_group, RobotJoint
 from cyclo_manager.subscriptions import subscribe_joint_feedback, SubscriptionOwner
 from pydantic import BaseModel, ConfigDict, Field
 
-FEEDBACK_MAX_AGE = 0.5
 BASE_MODELS = {'sg2', 'sh5', 'f2', 'mobile'}
 BASE_LINEAR_MAX = 0.3  # m/s
 BASE_ANGULAR_MAX = 0.6  # rad/s
@@ -62,73 +63,14 @@ class JogInput(BaseModel):
     resolution: Literal['normal', 'fine', 'coarse', 'large'] = 'normal'
 
 
-@dataclass(frozen=True)
-class JogJoint:
-    """A supported joint with limits from the active robot description."""
-
-    name: str
-    group: str
-    topic: str
-    unit: str
-    lower: float
-    upper: float
-
-
-def joint_group(name: str) -> tuple[str, str] | None:
-    """Resolve the existing follower controller input for a known joint."""
-    if re.fullmatch(r'head_joint[12]', name):
-        return 'head', '/leader/joystick_controller_left/joint_trajectory'
-    if name == 'lift_joint':
-        return 'lift', '/leader/joystick_controller_right/joint_trajectory'
-    for side, label in [('l', 'left'), ('r', 'right')]:
-        if re.fullmatch(rf'(arm_{side}_joint[1-7]|gripper_{side}_joint1)', name):
-            topic = f'/leader/joint_trajectory_command_broadcaster_{label}/joint_trajectory'
-            return f'arm_{side}', topic
-        if re.fullmatch(rf'finger_{side}_joint\d+', name):
-            topic = f'/leader/joint_trajectory_command_broadcaster_{label}_hand/joint_trajectory'
-            return f'hand_{side}', topic
-    return None
-
-
-def parse_joints(description: str) -> list[JogJoint]:
-    """Extract bounded, non-mimic position joints from expanded URDF."""
-    root = ET.fromstring(description)
-    commanded = {
-        j.attrib.get('name') for j in root.findall('./ros2_control/joint')
-        if j.find("command_interface[@name='position']") is not None
-    }
-    result = []
-    for joint in root.findall('./joint'):
-        name = joint.attrib.get('name', '')
-        group = joint_group(name)
-        limit = joint.find('limit')
-        if (not group or name not in commanded or limit is None
-                or joint.find('mimic') is not None
-                or joint.attrib.get('type') not in ('revolute', 'prismatic')):
-            continue
-        try:
-            lower, upper, velocity = (float(limit.attrib[k])
-                                      for k in ('lower', 'upper', 'velocity'))
-        except (KeyError, ValueError):
-            continue
-        if (not all(math.isfinite(v) for v in (lower, upper, velocity))
-                or lower >= upper or velocity <= 0):
-            continue
-        linear = joint.attrib['type'] == 'prismatic'
-        result.append(JogJoint(name, *group, 'm' if linear else 'rad', lower, upper))
-    return result
-
-
-class JogSession:
+class JogSession(RobotInterface):
     """Track only this connection's jog commands and stop them on release."""
 
     def __init__(self, bridge, robot_type: str):
         """Initialize an idle session without publishing any commands."""
-        self.bridge = bridge
+        super().__init__(bridge)
         self.subscriptions = SubscriptionOwner(bridge)
         self.robot_type = robot_type
-        self.description = None
-        self.joints: list[JogJoint] = []
         self.targets: dict[str, float] = {}
         self.active_joint: str | None = None
         self.base = [0.0, 0.0, 0.0]
@@ -145,30 +87,10 @@ class JogSession:
                      'finger_l_joint1', 'finger_r_joint1'):
             group = joint_group(name)
             if group:
-                topics.append((group[1], 'trajectory_msgs/msg/JointTrajectory'))
+                topics.append((group[1], TRAJECTORY_TYPE))
         if not self.bridge.prepare_jog_publishers(topics):
             raise ValueError('Cannot prepare ROS jog publishers')
         subscribe_joint_feedback(self.subscriptions)
-
-    def feedback(self):
-        """Read finite positions, sample age and runtime joint limits."""
-        description = self.bridge.get_topic_data('/robot_description')
-        xml = (description or {}).get('data', {}).get('data', '')
-        if xml != self.description:
-            self.description = xml
-            try:
-                self.joints = parse_joints(xml) if xml else []
-            except ET.ParseError:
-                self.joints = []
-        cached = self.bridge.get_topic_data('/joint_states')
-        age = max(0, time.time() - cached['received_at']) if cached else None
-        data = cached['data'] if cached else {}
-        positions = {
-            name: float(value)
-            for name, value in zip(data.get('name', []), data.get('position', []))
-            if isinstance(value, (float, int)) and math.isfinite(value)
-        }
-        return positions, age, cached['received_at'] if cached else None
 
     def snapshot(self):
         """Return display state without sending robot commands."""
@@ -189,12 +111,6 @@ class JogSession:
             'wheels': {name: pos for name, pos in positions.items() if 'wheel_steer' in name},
         }
 
-    def publish(self, topic, msg_type, data):
-        """Send through the bridge's expiring command queue."""
-        if not self.bridge.publish_jog(topic, msg_type, data):
-            raise ValueError(
-                'ROS command failed: controller subscriber unavailable or publish timed out.')
-
     def publish_base(self, values):
         """Publish forward, lateral and yaw velocity."""
         self.publish('/cmd_vel', 'geometry_msgs/msg/Twist', {
@@ -202,24 +118,16 @@ class JogSession:
             'angular': dict(x=0.0, y=0.0, z=values[2]),
         })
 
-    def trajectory(self, joint: JogJoint, target: float):
+    def trajectory(self, joint: RobotJoint, target: float):
         """Send one immediate position target, without timed interpolation."""
-        names = [joint.name]
-        positions = [target]
+        goals = {joint.name: target}
         if self.held_gripper and self.held_gripper[0] == joint.name:
             _, gripper, position = self.held_gripper
-            names.append(gripper)
-            positions.append(position)
-        self.publish(joint.topic, 'trajectory_msgs/msg/JointTrajectory', {
-            'joint_names': names,
-            'points': [{
-                'positions': positions,
-                'time_from_start': {'sec': 0, 'nanosec': 0},
-            }],
-        })
-        self.targets.update(zip(names, positions))
+            goals[gripper] = position
+        self.publish(joint.topic, TRAJECTORY_TYPE, position_message(goals))
+        self.targets.update(goals)
 
-    def retain_gripper(self, joint: JogJoint, positions: dict[str, float], mode: str):
+    def retain_gripper(self, joint: RobotJoint, positions: dict[str, float], mode: str):
         """Latch measured gripper position once per arm press, not per update."""
         if not joint.name.startswith('arm_'):
             self.held_gripper = None
@@ -269,7 +177,7 @@ class JogSession:
         self.held_gripper = None
         self.holding = False
 
-    def _target_reached(self, joint: JogJoint, position: float) -> bool:
+    def _target_reached(self, joint: RobotJoint, position: float) -> bool:
         """Check measured completion without replacing the controller's goal."""
         target = self.targets.get(joint.name)
         return target is not None and abs(position - target) <= POSITION_TOLERANCE[joint.unit]

@@ -23,7 +23,7 @@ from pathlib import Path
 import re
 import uuid
 
-TRAJECTORY_TYPE = 'trajectory_msgs/msg/JointTrajectory'
+from cyclo_manager.robot.interface import TRAJECTORY_TYPE
 
 
 class BagStore:

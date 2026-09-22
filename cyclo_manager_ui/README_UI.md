@@ -122,3 +122,8 @@ and type conflicts stop automatic retries (close 1008), while temporary bridge
 or subscription failures retry (close 1013). Connection state and the last error
 are displayed separately. Reconnect triggers an immediate attempt; errors remain
 until readiness is acknowledged. Unmount cancels retries and closes the socket.
+
+## Code organization
+
+See [Code structure](../docs/code-structure.md) for feature hooks/components, the
+shared API client, navigation, robot-control boundaries and validation commands.

@@ -17,7 +17,7 @@
 "use client";
 
 import { useRef, useState, useMemo, useLayoutEffect, useCallback } from "react";
-import Convert from "ansi-to-html";
+import { useAnsiConverter } from "@/hooks/useAnsiConverter";
 import { useTheme } from "@/contexts/ThemeContext";
 
 interface LogViewerProps {
@@ -37,29 +37,7 @@ export default function LogViewer({
 
   const { theme } = useTheme();
 
-  const convert = useMemo(() => {
-    const isDark = theme === "dark";
-    return new Convert({
-      fg: isDark ? "#d4d4d4" : "#333333",
-      bg: isDark ? "#1e1e1e" : "#ffffff",
-      newline: false,
-      escapeXML: true,
-      stream: false,
-      colors: isDark
-        ? {
-            0: "#000000", 1: "#cd3131", 2: "#0dbc79", 3: "#e5e510",
-            4: "#2472c8", 5: "#bc3fbc", 6: "#11a8cd", 7: "#e5e5e5",
-            8: "#666666", 9: "#f14c4c", 10: "#23d18b", 11: "#f5f543",
-            12: "#3b8eea", 13: "#d670d6", 14: "#29b8db", 15: "#e5e5e5",
-          }
-        : {
-            0: "#000000", 1: "#cd3131", 2: "#0dbc79", 3: "#e5e510",
-            4: "#2472c8", 5: "#bc3fbc", 6: "#11a8cd", 7: "#333333",
-            8: "#666666", 9: "#f14c4c", 10: "#23d18b", 11: "#f5f543",
-            12: "#3b8eea", 13: "#d670d6", 14: "#29b8db", 15: "#333333",
-          },
-    });
-  }, [theme]);
+  const convert = useAnsiConverter();
 
   const htmlLines = useMemo(
     () => lines.map((line) => convert.toHtml(line)),

@@ -23,7 +23,7 @@ import time
 import unittest
 from unittest.mock import patch
 
-from cyclo_manager.jog import JogInput, JogSession, parse_joints
+from cyclo_manager.jog import JogInput, JogSession
 from pydantic import ValidationError
 
 URDF = '''<robot name="fixture">
@@ -91,10 +91,6 @@ class JogTests(unittest.TestCase):
 
     def target(self):
         return self.bridge.published[-1][2]['points'][-1]['positions'][0]
-
-    def test_only_commanded_non_mimic_joints_with_finite_limits(self):
-        self.assertEqual({j.name for j in parse_joints(URDF)}, {
-            'head_joint1', 'head_joint2', 'lift_joint', 'arm_l_joint1'})
 
     def test_mobile_rejects_joint_jog_even_with_full_robot_feedback(self):
         self.session = JogSession(self.bridge, 'mobile')
