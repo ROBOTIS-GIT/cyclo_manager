@@ -23,10 +23,12 @@ import type { JogJoint } from "@/lib/jog";
 
 function jointLabel(joint: JogJoint) {
   if (joint.name === "lift_joint") return "Lift";
-  // Keep URDF names visible; pitch/yaw order varies between models.
-  if (joint.group === "head") return `Neck ${joint.name.endsWith("1") ? "1" : "2"}`;
-  if (joint.name.startsWith("gripper")) return joint.name.includes("_l_") ? "Left gripper" : "Right gripper";
-  return `Joint ${joint.name.match(/\d+$/)?.[0] ?? ""}`;
+  if (/^head_joint[12]$/.test(joint.name)) return `Neck ${joint.name.slice(-1)}`;
+  if (joint.name === "rh_r1_joint" || joint.name === "gripper_joint_1") return "Gripper";
+  if (joint.name.startsWith("gripper_l_")) return "Left gripper";
+  if (joint.name.startsWith("gripper_r_")) return "Right gripper";
+  const numbered = joint.name.match(/(?:^joint|_joint)(\d+)$/);
+  return numbered ? `Joint ${numbered[1]}` : joint.name.replaceAll("_", " ");
 }
 
 type JointJogCardProps = {

@@ -30,6 +30,7 @@ from cyclo_manager.host_agent_client import HostAgentClient
 from cyclo_manager.record_play.service import RecordPlayService
 from cyclo_manager.ros2_node import Ros2Bridge
 from cyclo_manager.state import app_state
+from cyclo_manager.robot.runtime import RobotRuntime
 from cyclo_manager.terminal_session_manager import TerminalSessionManager
 from fastapi import FastAPI
 
@@ -39,6 +40,7 @@ logger = logging.getLogger(__name__)
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Lifespan context manager for FastAPI app."""
+    runtime_task = None
     # Startup
     logger.info('Starting cyclo_manager...')
     try:
@@ -88,11 +90,17 @@ async def lifespan(app: FastAPI):
         except Exception as e:
             logger.warning('ROS2 bridge initialization failed: %s', e)
 
+        app_state.robot_runtime = RobotRuntime(
+            app_state.get_docker_client_or_none(), client_pool,
+            config.supported_robot_containers)
+        runtime_task = asyncio.create_task(app_state.robot_runtime.monitor())
+
         if app_state.get_ros2_bridge_or_none():
             try:
                 app_state.record_play = RecordPlayService(
                     app_state.get_ros2_bridge_or_none(),
-                    os.getenv('RECORDINGS_DIR', '/cyclo_manager_ros_bags'))
+                    os.getenv('RECORDINGS_DIR', '/cyclo_manager_ros_bags'),
+                    runtime=app_state.robot_runtime)
             except Exception:
                 logger.exception('Record & Play storage initialization failed')
 
@@ -101,17 +109,17 @@ async def lifespan(app: FastAPI):
         logger.error('Failed to initialize cyclo_manager: %s', e)
         raise
 
-    from cyclo_manager.routers.record_play import monitor_bringup
-    recording_monitor = asyncio.create_task(monitor_bringup())
     try:
         yield
     finally:
-        recording_monitor.cancel()
-        with suppress(asyncio.CancelledError):
-            await recording_monitor
         if app_state.record_play:
             await asyncio.to_thread(app_state.record_play.close)
             app_state.record_play = None
+        if runtime_task:
+            runtime_task.cancel()
+            with suppress(asyncio.CancelledError):
+                await runtime_task
+        app_state.robot_runtime = None
 
     # Shutdown
     logger.info('Shutting down cyclo_manager...')

@@ -20,7 +20,6 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { getDockerContainers, getSupportedRobotContainers } from "@/lib/api";
 
-const JOG_CONTAINER = "ai_worker";
 
 export function useNavigation(closeMenu: () => void) {
   const router = useRouter();
@@ -62,21 +61,11 @@ export function useNavigation(closeMenu: () => void) {
     router.push(`/${container}/system`);
   }
 
-  async function handleJogClick() {
+  function handleJogClick() {
     closeMenu();
     setNavError(null);
     setSystemChoices([]);
-    try {
-      const { containers } = await getDockerContainers(false);
-      const isAiWorkerRunning = containers.some((container) => container.name === JOG_CONTAINER);
-      if (!isAiWorkerRunning) {
-        setNavError("Jog is available only when the ai_worker container is running.");
-        return;
-      }
-      router.push("/jog");
-    } catch {
-      setNavError("Failed to connect to the manager.");
-    }
+    router.push("/jog");
   }
 
   return { navError, setNavError, systemChoices, setSystemChoices, handleSystemClick, handleJogClick, openSystemPage };

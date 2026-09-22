@@ -1,9 +1,8 @@
 # Record & Play
 
 Record & Play records selected `trajectory_msgs/msg/JointTrajectory` topics to
-MCAP rosbag2 files on the robot. It supports neck, lift, arms with their grippers,
-and hands when those commanded groups exist in `/robot_description`. Mobile-only
-bringup has no joint playback. The manager's robot selection must match the bag.
+MCAP rosbag2 files on the robot. Jog command routes and recording recommendations
+come from the configured bringup type profile; URDF and ROS feedback supply dynamic joints.
 
 ## Storage and deployment
 
@@ -34,7 +33,7 @@ they are not automatically resumed after a restart.
 
 ## Recording
 
-Choose **New recording**, enter a name, select groups and start recording while
+Choose **New recording**, enter a name, select discovered trajectory topics and start recording while
 the leader or Jog supplies commands. Incoming messages are captured by ROS
 subscription callbacks, queued (up to 2,000 messages) and written by a worker;
 the UI does not poll joint values to manufacture a recording. Capture intervals
@@ -96,8 +95,9 @@ Recording, preparation, playback and repeat returns continue after page navigati
 browser closure or client disconnection. No browser heartbeat is required. On
 return, the page shows the active recording, progress, speed and repeat settings;
 any browser can explicitly stop the server job. Infinite repeats continue until
-stopped or a robot/server error occurs. Bringup is independently monitored by the
-server while a job is active, with a three-second health timeout.
+stopped or a robot/server error occurs. Playback monitors fresh joint/controller
+feedback, its resolved command routes, and server-owned Docker/s6 bringup status.
+These checks continue independently of browser connections.
 
 Every topic subscription tracks a set of consumer IDs. A topic viewer owns its
 subscriptions for the lifetime of its WebSocket; Jog owns them through its final
@@ -106,7 +106,7 @@ The last consumer's departure destroys the ROS subscription and clears its cache
 Duplicate registration or a late disconnect from an older connection cannot
 remove another consumer. Disconnect cleanup runs even for static or silent topics.
 
-Record & Play opens a separate `/record-play/watch/{robot}` WebSocket for catalog
+Record & Play opens a separate `/record-play/watch` WebSocket for catalog
 monitoring; closing it releases only the page's subscriptions. HTTP overview,
 status and topic reads are read-only. The old global HTTP topic subscribe and
 unsubscribe endpoints have been removed. System uses `/ws/ros2/system-status`
@@ -126,7 +126,8 @@ observes the job that is already running; it does not start a new job.
 
 ## Code organization
 
-`robot/joints.py` resolves controller groups and parses commanded URDF limits.
+`robot/joints.py` parses commanded URDF limits. `robot/catalog.py` resolves controller
+joint membership by matching JointTrajectory subscribers to controller-state publishers.
 `robot/interface.py` reads shared bridge caches, checks feedback freshness, and
 publishes commands. It does not register subscriptions or track motion. Jog adds
 its per-connection command state through `JogSession`; Record & Play uses the
@@ -138,8 +139,77 @@ definitions without depending on Jog state or publishing commands.
 
 `python -m unittest discover -s tests -v` covers filesystem IDs, recording
 capture/finalization, validation before publishing, rate scaling, held joints,
-quintic transitions, finite/infinite loops, stops, ownership, feedback/bringup
+quintic transitions, finite/infinite loops, stops, ownership, feedback/discovery
 failures and HTTP validation with fake robot feedback. A separate integration
 check should write/read a temporary MCAP using the installed ROS packages.
 On-robot verification of follower behavior and return paths is required before
 using recordings for unattended motion.
+
+## ROS discovery and supported interfaces
+
+- Joint cards come from bounded revolute/prismatic position-command joints in
+  `/robot_description`; fixed and mimic joints are excluded. Measurements come from
+  `/joint_states`. Joint names and counts are not hardcoded in profiles.
+- ROS graph discovery finds `JointTrajectory` inputs and
+  `JointTrajectoryControllerState` feedback. Matching subscriber/publisher node
+  identities accounts for remapped command topics. Fresh controller feedback supplies
+  the complete joint list. Missing, duplicate, incomplete, or ambiguous mappings do
+  not enable control. Jog restricts discovery to its profile topics; playback uses
+  the stored recording topics to resolve alternatives.
+- The running profile marks its topics Recommended. Recording lists all discovered
+  `JointTrajectory` topics, even without URDF or incoming messages. Publisher detection
+  does not subscribe to trajectory payloads; recording subscribes only to selected topics.
+- Jog publishes a complete controller joint set. The selected joint gets a measured
+  offset; other joints are latched at press start, including grippers with arbitrary
+  names. This also supports controllers that reject partial joint goals.
+- AI Worker profiles hide `*_wheel_steer` joints from Joint Jog cards. Their measured
+  angles remain in Wheel steering angle; OMY/OMX and other unassigned joints are unchanged.
+- Playback validates against current URDF and discovered command routes; the old
+  metadata `robot` label is informational. All existing saved recordings remain listed.
+  Controller membership/routes and URDF must remain unchanged during playback.
+- Base control requires both profile support and a discovered `geometry_msgs/msg/Twist`
+  subscriber on the profile base topic. OMY/OMX and stationary AI Worker models have no base controls.
+- This version uses `/robot_description` and `/joint_states` in the manager's ROS
+  domain. Multiple robots must not publish conflicting feedback on those same topics.
+  Choosing namespaced feedback sources, Action-only grippers, TwistStamped inputs,
+  and controllers without JointTrajectoryControllerState are outside this version.
+
+New clients use `/ws/jog` and `/record-play/watch`. The Jog state and Record & Play
+overview include `robot` (`ready`, `model`, `container`, `generation`, `reason`).
+Legacy model-suffixed WebSocket routes and request `robot` fields remain accepted
+but cannot select the robot/profile or authorize motion. Old Jog `topic`/`base_topic`
+query parameters do not override profile routes. Playback clients can send the
+observed `generation` to reject a start requested from a stale page.
+
+## Robot profiles
+
+- `robot/profiles.py` defines routes for AI Worker SG2/BG2/SH5/BH5/F1/F2/mobile,
+  OMY and OMX. Profiles contain no joint names, joint counts or limits. Custom Jog
+  remaps require updating the profile; manual recording/playback topics still
+  resolve through controller feedback.
+- About every second, one server task checks running Docker containers listed in
+  `supported_robot_containers`. It queries the existing s6-agent
+  `GET /services/{name}/status` endpoint for `ai_worker_bringup` and
+  `open_manipulator_bringup`; 404 means that service is not installed. No service-list
+  endpoint is required. Leader services do not select a follower profile.
+  If an older agent returns `pid: null`, the manager reads the PID from its `raw`
+  s6 status text, including the `up (pid N pgid N)` format.
+- The manager reads that container's existing `/run/robot_type` using Docker exec
+  (`cat /run/robot_type`). Its type selects the profile and must match the bringup
+  service family. Missing/unknown types keep motion disabled rather than guessing.
+  Browser-saved settings do not select the motion profile.
+- This reads the **configured bringup type**, not the actual launch command. The
+  setting is written before starting/restarting bringup; if it is changed without
+  restarting the service, it may differ from the running robot. Apply type changes
+  by restarting bringup. Actual launch-process identification is deferred.
+- Existing s6-agent deployments work unchanged: no new endpoint or agent update is
+  required. Only the manager implementation changes.
+- Container ID, service PID and type changes, observed uptime resets, and recovery
+  after unavailable status invalidate the current Jog/playback generation. Status
+  older than four seconds, service failures and multiple running followers disable
+  motion. One follower is supported on the shared `/robot_description` and
+  `/joint_states` namespace. This is polled readiness, not hardware interlocking.
+- Recording remains available without bringup. Playback and Jog verify bringup on
+  the server before publishing. A changed or unavailable run also blocks the final
+  pose-hold publish, to avoid sending an old session's goals to a different robot.
+  The error is reported; the last target or controller base timeout then applies.

@@ -16,7 +16,7 @@ robot selection, or polling interval.
   Existing consumers can import from `@/lib/api`; the index exports the same API.
 - `config/navigation.ts`: the flat menu order and route matching.
 - `components/layout/SidebarNavigation.tsx`: shared desktop/mobile menu rendering.
-- `hooks/useNavigation.ts`: container checks before opening System or Jog.
+- `hooks/useNavigation.ts`: container checks for System; motion pages open directly and display server runtime status.
 - `components/ui/controlStyles.ts`: shared control styles, independent of Jog.
 - `hooks/useAnsiConverter.ts`: theme-aware log rendering, including HTML escaping.
 
@@ -27,9 +27,11 @@ Dashboard CPU and general status polling retain their separate intervals.
 
 ## Robot control
 
+- `robot/profiles.py`: bringup types/services, command topics, labels and base support.
+- `robot/runtime.py`: lifespan-owned existing service status/type observations and generation guards.
 - `robot/joints.py`: bounded commanded joints, URDF parsing and controller topics.
 - `robot/interface.py`: shared cached feedback access and command publication.
-- `jog.py`: per-connection jog input, targets, gripper retention and stop state.
+- `jog.py`: per-connection jog input, targets, controller-wide held positions and stop state.
 - `record_play`: bag storage, motion validation/return planning and background jobs.
 - `motion_guard.py`: mutual exclusion of Manager Jog and playback motion.
 - `ros2_node/bridge.py`: the ROS executor, publishers, subscriptions and cache.
@@ -47,3 +49,5 @@ server's dependency environment. From `cyclo_manager_ui`, run
 `npx tsc --noEmit`, `npm run lint`, `npm run test:observers` and `npm run build`.
 For UI changes, also check Files editing/search/diff, model-specific System launch
 settings, connection cleanup, and Record & Play on desktop and mobile widths.
+
+`robot/catalog.py` discovers command topics and matches controller feedback by ROS endpoint node identity. Profiles choose Jog routes and Record & Play recommendations; discovery validates actual joint membership.

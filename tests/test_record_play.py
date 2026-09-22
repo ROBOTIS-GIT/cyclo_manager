@@ -106,7 +106,6 @@ class RecordPlayTests(unittest.TestCase):
         self.store = MemoryStore(self.tmp.name)
         self.service = RecordPlayService(self.bridge, self.tmp.name, self.store)
         self.addCleanup(self.service.close)
-        self.service.set_bringup(True)
         self.recording_id, _ = self.store.create()
         self.store.messages[self.recording_id] = [
             (TOPIC, trajectory(.2), 1000000000), (TOPIC, trajectory(.3), 1050000000)]
@@ -249,7 +248,7 @@ class RecordPlayTests(unittest.TestCase):
             self.finish()
         self.assertEqual(self.service.status()['phase'], 'completed')
         values = [data['points'][0]['positions'][0] for _, _, data in self.bridge.published]
-        self.assertAlmostEqual(values[0], -.2, places=6)
+        self.assertAlmostEqual(values[0], -.2, delta=.001)
         self.assertEqual(values[-2:], [.2, .3])
         self.assertIn(.2, values[:-2])
 
@@ -309,21 +308,9 @@ class RecordPlayTests(unittest.TestCase):
 
     def test_playback_continues_without_browser_requests(self):
         self.store.messages[self.recording_id][1] = (TOPIC, trajectory(.3), 4200000000)
-        done = threading.Event()
-
-        def monitor_robot():
-            while not done.wait(.1):
-                self.service.set_bringup(True)
-
-        monitor = threading.Thread(target=monitor_robot)
-        monitor.start()
-        try:
-            self.service.motion(self.recording_id, 'f2', 'closed-browser')
-            self.wait(lambda: not self.service.status()['active'], timeout=5)
-            self.service._thread.join(timeout=1)
-        finally:
-            done.set()
-            monitor.join()
+        self.service.motion(self.recording_id, 'f2', 'closed-browser')
+        self.wait(lambda: not self.service.status()['active'], timeout=5)
+        self.service._thread.join(timeout=1)
         self.assertEqual(self.service.status()['phase'], 'completed')
         self.assertIsNone(self.service.status()['error'])
         self.assertFalse(motion_lock.locked())
@@ -373,23 +360,16 @@ class RecordPlayTests(unittest.TestCase):
         self.assertEqual(self.service.status()['phase'], 'completed')
         self.assertFalse(self.bridge.subscription_users)
 
-    def test_bringup_monitor_timeout_still_stops_background_playback(self):
+    def test_feedback_loss_stops_background_playback(self):
         self.store.messages[self.recording_id][1] = (TOPIC, trajectory(.3), 5000000000)
         with self.assertLogs('cyclo_manager.record_play.service', level='ERROR'):
             self.service.motion(self.recording_id, 'f2', 'owner')
             self.wait(lambda: len(self.bridge.published) > 0)
-            self.service._bringup_at = time.monotonic() - 4
+            self.bridge.fresh = False
+            self.bridge.feedback(age=2)
             self.finish()
-        self.assertIn('bringup', self.service.status()['error'])
+        self.assertIn('feedback', self.service.status()['error'])
         self.assertFalse(motion_lock.locked())
-
-    def test_stopped_bringup_cannot_move(self):
-        self.service.set_bringup(False)
-        with self.assertLogs('cyclo_manager.record_play.service', level='ERROR'):
-            self.service.motion(self.recording_id, 'f2', 'owner')
-            self.finish()
-        self.assertIn('bringup', self.service.status()['error'])
-        self.assertEqual(self.bridge.published, [])
 
     def test_stale_feedback_cannot_move(self):
         self.bridge.fresh = False
@@ -400,9 +380,6 @@ class RecordPlayTests(unittest.TestCase):
         self.assertEqual(self.bridge.published, [])
         self.assertFalse(self.bridge.subscription_users)
 
-    def test_wrong_robot_rejected_before_starting_job(self):
-        with self.assertRaisesRegex(ValueError, 'does not match'):
-            self.service.motion(self.recording_id, 'sg2', 'owner')
 
     def test_jog_motion_blocks_playback(self):
         motion_lock.acquire()

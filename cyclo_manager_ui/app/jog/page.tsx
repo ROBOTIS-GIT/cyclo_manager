@@ -16,29 +16,22 @@
 
 "use client";
 
-import { useCallback, useRef, useState, useSyncExternalStore } from "react";
+import { useCallback, useRef, useState } from "react";
 import JointJogCard from "@/components/JointJogCard";
 import { HoldButton, Slider } from "@/components/JogControls";
 import { surface, secondary, button, danger, btn } from "@/components/ui/controlStyles";
 import JogJoystick from "@/components/JogJoystick";
 import StatusBadge from "@/components/StatusBadge";
-import { usePolling } from "@/hooks/usePolling";
 import { useJogConnection } from "@/hooks/useJogConnection";
 import { useKeyboardTeleop } from "@/hooks/useKeyboardTeleop";
 import {
-  BASE_TRANSLATION, BASE_ROTATION, BRINGUP_POLL_INTERVAL_MS,
+  BASE_TRANSLATION, BASE_ROTATION,
   JOINT_INCREMENTS, formatJointPosition,
 } from "@/lib/jog";
 import type { JogJoint, JogResolution } from "@/lib/jog";
-import { getDockerContainers, getServiceStatus } from "@/lib/api";
 
-import { storedRobot, subscribeRobot } from "@/lib/robotSelection";
 
 export default function JogPage() {
-  const robot = useSyncExternalStore(subscribeRobot, storedRobot, () => null);
-  const [running, setRunning] = useState(false);
-  const [checking, setChecking] = useState(true);
-  const [robotError, setRobotError] = useState<string | null>(null);
   const [linearSpeed, setLinearSpeed] = useState(BASE_TRANSLATION.initial);
   const [angularSpeed, setAngularSpeed] = useState(BASE_ROTATION.initial);
   const [baseMode, setBaseMode] = useState<"joystick" | "keyboard">("joystick");
@@ -47,29 +40,8 @@ export default function JogPage() {
   const [jointResolution, setJointResolution] = useState<JogResolution>("normal");
   const [group, setGroup] = useState("body");
   const [activeJoint, setActiveJoint] = useState<string | null>(null);
-  const pollInFlight = useRef(false);
-  const jog = useJogConnection(robot, running);
+  const jog = useJogConnection();
   const { command, stop, enabled } = jog;
-
-  const poll = useCallback(async (isActive: () => boolean) => {
-    if (pollInFlight.current) return;
-    pollInFlight.current = true;
-    try {
-      const result = await getDockerContainers(false);
-      const exists = result.containers.some(container => container.name === "ai_worker");
-      const up = exists && (await getServiceStatus("ai_worker", "ai_worker_bringup")).is_up;
-      if (isActive()) {
-        if (!up) stop(true);
-        setRunning(up); setChecking(false); setRobotError(null);
-      }
-    } catch {
-      if (isActive()) {
-        stop(true);
-        setRunning(false); setChecking(false); setRobotError("Cannot read robot service status.");
-      }
-    } finally { pollInFlight.current = false; }
-  }, [stop]);
-  usePolling(poll, BRINGUP_POLL_INTERVAL_MS);
 
   const stopMotion = useCallback(() => { setActiveJoint(null); stop(); }, [stop]);
   const stopAll = useCallback(() => { setActiveJoint(null); stop(true); }, [stop]);
@@ -85,7 +57,7 @@ export default function JogPage() {
     command({ kind: "base", x: 0, y: 0, yaw: direction * angularSpeed });
   };
   const baseEnabled = enabled && !!jog.state?.base_supported;
-  const jointSupported = robot !== "mobile";
+  const manipulator = !jog.state?.base_supported;
 
   useKeyboardTeleop({
     enabled: baseEnabled, mode: baseMode, section: mobileSection,
@@ -93,31 +65,29 @@ export default function JogPage() {
   });
 
   const joints = jog.state?.joints ?? [];
-  const tabs = [
-    { id: "body", label: "Neck & lift", match: (j: JogJoint) => ["head", "lift"].includes(j.group) },
-    { id: "arm_l", label: "Left arm", match: (j: JogJoint) => j.group === "arm_l" && !j.name.startsWith("gripper") },
-    { id: "arm_r", label: "Right arm", match: (j: JogJoint) => j.group === "arm_r" && !j.name.startsWith("gripper") },
-    { id: "gripper", label: "Grippers", match: (j: JogJoint) => j.name.startsWith("gripper") },
-    { id: "hand_l", label: "Left hand", match: (j: JogJoint) => j.group === "hand_l" },
-    { id: "hand_r", label: "Right hand", match: (j: JogJoint) => j.group === "hand_r" },
-  ].filter(tab => tab.id === "body" || joints.some(tab.match));
+  const tabs = Array.from(new Set(joints.map(j => j.group))).map(id => ({
+    id, label: id === "unassigned" ? "Unassigned" : jog.state?.controllers.find(c => c.topic === id)?.label ?? id,
+    match: (j: JogJoint) => j.group === id,
+  }));
   const currentTab = tabs.find(tab => tab.id === group) ?? tabs[0];
-  const visible = joints.filter(currentTab.match);
+  const visible = currentTab ? joints.filter(currentTab.match) : [];
   const base = jog.state?.base ?? [0, 0, 0];
-  const error = robotError ?? jog.error;
-  const bringupLabel = checking ? "Checking…" : robotError ? "Unavailable" : running ? "Running" : "Stopped";
-  const controlsDisabled = checking || !running;
+  const error = jog.error;
+  const robot = jog.state?.robot;
+  const running = !!robot?.ready;
+  const checking = !jog.connected;
+  const controlsDisabled = !jog.connected || !running;
 
   return <div className="jog-page h-full overflow-auto" style={{ color: "var(--vscode-foreground)", background: "var(--vscode-editor-background)" }}>
     <header className="sticky top-0 z-10 flex flex-wrap items-center justify-between gap-3 px-5 py-3 border-b" style={surface}>
-      <div><h1 className="text-lg font-semibold">Jog <span className="text-sm font-normal ml-2" style={secondary}>{robot?.toUpperCase() ?? "—"}</span></h1>
+      <div><h1 className="text-lg font-semibold">Jog <span className="text-sm font-normal ml-2" style={secondary}>{robot?.model?.toUpperCase()}</span></h1>
         <div className="flex items-center gap-2 text-xs mt-1" style={secondary}>
           <StatusBadge status={jog.connected} dotOnly label={jog.connected ? "Connected" : "Disconnected"} />
           {jog.connected ? "Server connected" : "Server disconnected"}
         </div>
         <div className="flex items-center gap-2 text-xs mt-1" style={secondary} aria-live="polite">
-          <StatusBadge status={!controlsDisabled} dotOnly label={bringupLabel} />
-          Robot bringup: {bringupLabel}
+          <StatusBadge status={running} dotOnly label="Robot bringup" />
+          Robot bringup: {checking ? "Checking…" : running ? "Running" : "Unavailable"}
         </div>
       </div>
       <div className="jog-actions flex flex-wrap items-center gap-3" style={surface}>
@@ -127,17 +97,18 @@ export default function JogPage() {
       </div>
     </header>
     {error && <div role="alert" className="m-4 p-3 border rounded text-sm" style={danger}>{error}</div>}
-    {!running && !checking && <div className="mx-5 mt-4 text-sm" style={secondary}>Start the robot from System to use Jog.</div>}
-    <div role="tablist" aria-label="Jog section" className="grid grid-cols-2 gap-2 p-2 md:hidden">
+    {!running && !checking && <div className="mx-5 mt-4 text-sm" style={secondary}>{robot?.reason ?? "Waiting for robot bringup."}</div>}
+    {running && joints.some(j => !j.topic) && <p className="px-5 mt-4 text-sm" style={secondary}>Some joints have no matching controller feedback for this robot profile.</p>}
+    <div role="tablist" aria-label="Jog section" className={`${manipulator ? "hidden" : "grid"} grid-cols-2 gap-2 p-2 md:hidden`}>
       {(["base", "joints"] as const).map(section => <button type="button" role="tab" key={section}
         aria-selected={mobileSection === section} disabled={controlsDisabled} className={btn}
         style={mobileSection === section ? { ...button, background: "var(--vscode-button-background)", color: "var(--vscode-button-foreground)" } : button}
         onClick={() => { stopMotion(); setMobileSection(section); }}>{section === "base" ? "Base" : "Joints"}</button>)}
     </div>
     <fieldset aria-label="Jog controls" disabled={controlsDisabled} inert={controlsDisabled}
-      className="grid grid-cols-1 lg:grid-cols-[minmax(260px,0.85fr)_minmax(300px,1.15fr)] gap-4 p-2 md:p-5 min-w-0 border-0"
+      className={`grid grid-cols-1 ${manipulator ? "" : "lg:grid-cols-[minmax(260px,0.85fr)_minmax(300px,1.15fr)]"} gap-4 p-2 md:p-5 min-w-0 border-0`}
       style={{ opacity: controlsDisabled ? 0.45 : 1 }}>
-      <section className={`${mobileSection === "base" ? "" : "hidden md:block"} p-4 md:p-5 rounded-lg border min-w-0`} style={surface}>
+      <section className={`${manipulator ? "hidden" : mobileSection === "base" ? "" : "hidden md:block"} p-4 md:p-5 rounded-lg border min-w-0`} style={surface}>
         <div className="flex justify-between items-start gap-2 mb-5"><h2 className="font-semibold">Mobile base</h2>{jog.state && !jog.state.base_supported && <span className="text-xs" style={secondary}>Not supported</span>}</div>
         <div role="tablist" aria-label="Base input mode" className="flex gap-2 mb-4">
           {(["joystick", "keyboard"] as const).map(mode => <button key={mode} type="button" role="tab"
@@ -177,19 +148,19 @@ export default function JogPage() {
           </div>}
         </div>
       </section>
-      <fieldset aria-label="Joint jog controls" disabled={!jointSupported} inert={!jointSupported}
-        className={`${mobileSection === "joints" ? "" : "hidden md:block"} @container p-4 md:p-5 rounded-lg border min-w-0`} style={{ ...surface, opacity: jointSupported ? 1 : 0.45 }}>
+      <fieldset aria-label="Joint jog controls"
+        className={`${manipulator || mobileSection === "joints" ? "" : "hidden md:block"} @container p-4 md:p-5 rounded-lg border min-w-0`} style={surface}>
         <div className="flex justify-between items-start gap-2 mb-4">
-          <div><h2 className="font-semibold">Joint jog</h2>{!jointSupported && <p className="text-xs mt-1" style={secondary}>Mobile bringup supports base jog only.</p>}</div>
+          <div><h2 className="font-semibold">Joint jog</h2></div>
           <span className="flex items-center gap-2 text-xs" style={secondary}>
-            {!jointSupported ? "Not supported" : <>
+            <>
               <StatusBadge status={!!jog.state?.feedback_fresh} dotOnly label={jog.state?.feedback_fresh ? "Receiving joint states" : "No fresh joint states"} />
               /joint_states
-            </>}
+            </>
           </span>
         </div>
-        <div className="flex flex-wrap gap-1.5 mb-4" aria-label="Joint groups">{tabs.map(tab => <button type="button" key={tab.id} className={btn} aria-pressed={currentTab.id === tab.id}
-          style={currentTab.id === tab.id ? { ...button, color: "var(--vscode-button-foreground)", background: "var(--vscode-button-background)" } : button}
+        <div className="flex flex-wrap gap-1.5 mb-4" aria-label="Joint groups">{tabs.map(tab => <button type="button" key={tab.id} className={`${btn} max-w-full break-all text-left`} aria-pressed={currentTab?.id === tab.id}
+          style={currentTab?.id === tab.id ? { ...button, color: "var(--vscode-button-foreground)", background: "var(--vscode-button-background)" } : button}
           onClick={() => { stopMotion(); setGroup(tab.id); }}>{tab.label}</button>)}</div>
         <div className="flex flex-wrap items-center justify-end gap-3 pb-3 border-b text-sm" style={{ borderColor: "var(--vscode-panel-border)" }}>
           <label className="flex flex-wrap items-center justify-end gap-2 min-w-0">Increment
@@ -202,9 +173,9 @@ export default function JogPage() {
             </select>
           </label>
         </div>
-        {jointSupported && visible.length === 0 && <div className="py-12 text-sm text-center" style={secondary}>{!running ? "Start the robot to load its joints." : !jog.state?.description_available ? "Waiting for robot description and joint limits…" : "No supported joints in this group."}</div>}
+        {visible.length === 0 && <div className="py-12 text-sm text-center" style={secondary}>{!running ? "Waiting for robot feedback." : !jog.state?.description_available ? "Waiting for robot description and joint limits…" : "No supported joints in this group."}</div>}
         <div className="mt-4 grid grid-cols-1 @min-[36rem]:grid-cols-2 gap-3">{visible.map(joint => (
-          <JointJogCard key={joint.name} joint={joint} enabled={jointSupported && enabled}
+          <JointJogCard key={joint.name} joint={joint} enabled={enabled}
             active={enabled && activeJoint === joint.name}
             onStart={direction => {
               setActiveJoint(joint.name);

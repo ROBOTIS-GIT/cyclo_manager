@@ -25,6 +25,8 @@ import shutil
 import threading
 import time
 
+from cyclo_manager.robot.catalog import catalog
+from cyclo_manager.robot.profiles import PROFILES
 from cyclo_manager.motion_guard import motion_lock
 from cyclo_manager.record_play.bags import BagStore
 from cyclo_manager.record_play.motion import (
@@ -34,10 +36,6 @@ from cyclo_manager.robot.interface import position_message, RobotInterface, TRAJ
 from cyclo_manager.subscriptions import subscribe_joint_feedback, SubscriptionOwner
 
 logger = logging.getLogger(__name__)
-GROUP_LABELS = {'arm_l': 'Left arm + gripper', 'arm_r': 'Right arm + gripper',
-                'head': 'Neck', 'lift': 'Lift', 'hand_l': 'Left hand', 'hand_r': 'Right hand'}
-ROBOT_TYPES = {'sg2', 'bg2', 'sh5', 'bh5', 'f1', 'f2', 'mobile'}
-BRINGUP_MAX_AGE = 3.0
 ARRIVAL_TIMEOUT = 10.0
 
 
@@ -48,16 +46,16 @@ class Cancelled(Exception):
 class RecordPlayService:
     """Serialize jobs across clients; keep bag I/O away from HTTP and ROS threads."""
 
-    def __init__(self, bridge, root, store=None):
+    def __init__(self, bridge, root, store=None, *, runtime=None):
         """Initialize job state without subscribing or publishing motion."""
         self.bridge = bridge
+        self.runtime = runtime
+        self._generation = None
         self.store = store or BagStore(root)
         self._lock = threading.RLock()
         self._commands = threading.Lock()
         self._thread = None
         self._cancel = threading.Event()
-        self._bringup = False
-        self._bringup_at = 0.0
         self._state = {'phase': 'idle', 'active': False, 'error': None, 'owner': None,
                        'recording_id': None, 'robot': None, 'cycle': 0, 'repeats': 1,
                        'elapsed': 0.0, 'duration': 0.0, 'return_duration': 0.0,
@@ -73,70 +71,51 @@ class RecordPlayService:
         with self._lock:
             return dict(self._state)
 
-    def set_bringup(self, running):
-        """Refresh independently monitored robot bringup health."""
-        with self._lock:
-            self._bringup, self._bringup_at = bool(running), time.monotonic()
-
-    def _connection(self, robot, subscriptions=None):
-        if robot not in ROBOT_TYPES or robot == 'mobile':
-            raise ValueError('This robot does not support joint recording/playback.')
+    def _connection(self, robot, subscriptions=None, command_topics=None):
         if subscriptions is not None:
             subscribe_joint_feedback(subscriptions)
-        connection = RobotInterface(self.bridge)
+        catalog(self.bridge, subscriptions)
+        connection = RobotInterface(
+            self.bridge, robot, command_topics=command_topics,
+            guard=(lambda: self.runtime.require(self._generation)) if self.runtime else None)
         connection.feedback()
         return connection
 
-    def _wait_for_feedback(self, connection, description_only=False):
+    def _wait_for_feedback(self, connection):
         # A job may start with no page/viewer holding these subscriptions open.
         deadline = time.monotonic() + 2
         while True:
-            if not description_only:
-                self._check()
+            self._check()
             try:
-                if description_only:
-                    connection.feedback()
-                    if not connection.joints:
-                        raise ValueError('Robot description is unavailable.')
-                else:
-                    connection.require_feedback()
+                connection.require_feedback()
                 return
             except ValueError:
                 if time.monotonic() >= deadline:
                     raise
-            time.sleep(.05)
+            self._cancel.wait(.05)
 
     def catalog(self, robot, subscriptions=None):
         """Read cached groups; only a connected observer registers subscriptions."""
-        if robot == 'mobile':
-            return []
-        connection = self._connection(robot, subscriptions)
-        groups = {}
-        for joint in connection.joints:
-            if joint.group not in groups:
-                if subscriptions is not None:
-                    subscriptions.subscribe(joint.topic, TRAJECTORY_TYPE,
-                                            {'reliability': 'best_effort',
-                                             'durability': 'volatile', 'depth': 100})
-                cached = self.bridge.get_topic_data(joint.topic)
-                groups[joint.group] = {
-                    'id': joint.group, 'label': GROUP_LABELS[joint.group],
-                    'topic': joint.topic,
-                    'receiving': bool(cached and time.time() - cached['received_at'] < 1),
-                }
-        return list(groups.values())
+        if subscriptions is not None:
+            subscribe_joint_feedback(subscriptions)
+        groups = catalog(self.bridge, subscriptions)
+        if self.runtime:
+            model = self.runtime.snapshot()['model']
+            profile = PROFILES.get(model)
+            for group in groups:
+                group['recommended'] = bool(profile and group['topic'] in profile.topics)
+        return sorted(groups, key=lambda group: (not group['recommended'], group['topic']))
 
     def _check(self):
         if self._cancel.is_set():
             raise Cancelled()
-        with self._lock:
-            now = time.monotonic()
-            if not self._bringup or now - self._bringup_at > BRINGUP_MAX_AGE:
-                raise ValueError('Robot bringup is stopped or unavailable.')
+        if self.runtime and self._generation is not None:
+            self.runtime.require(self._generation)
 
-    def _start(self, phase, robot, owner, work, **state):
+    def _start(self, phase, robot, owner, work, *, generation=None, **state):
         if self._thread and self._thread.is_alive():
             raise ValueError('A recording or playback job is already active.')
+        self._generation = generation
         self._cancel = threading.Event()
         self.update(phase=phase, active=True, error=None, owner=owner, robot=robot,
                     cycle=0, elapsed=0.0, return_duration=0.0, messages=0, **state)
@@ -157,13 +136,14 @@ class RecordPlayService:
 
     def record(self, name, robot, groups, owner):
         """Start receiving selected groups in a background recorder."""
-        with self._commands, SubscriptionOwner(self.bridge) as subscriptions:
-            connection = self._connection(robot, subscriptions)
-            self._wait_for_feedback(connection, description_only=True)
-            available = {joint.group: joint.topic for joint in connection.joints}
-            if not groups or set(groups) - available.keys():
-                raise ValueError('Choose available joint groups.')
-            group_topics = {group: available[group] for group in groups}
+        with self._commands:
+            available = self.catalog(robot)
+            choices = {g['id']: g['topic'] for g in available}
+            # Keep previously shipped group identifiers accepted by existing clients.
+            choices.update({g['alias']: g['topic'] for g in available if g['alias']})
+            if not groups or set(groups) - choices.keys():
+                raise ValueError('Choose discovered JointTrajectory topics.')
+            group_topics = {group: choices[group] for group in groups}
             self._start('recording', robot, owner,
                         lambda: self._record(name, robot, group_topics),
                         recording_id=None, repeats=1, duration=0.0, rate=1.0)
@@ -240,15 +220,16 @@ class RecordPlayService:
         self.store.save(recording_id, metadata)
         self.update(phase='idle', duration=metadata['duration'])
 
-    def motion(self, recording_id, robot, owner, rate=1.0, repeats=1):
+    def motion(self, recording_id, robot, owner, rate=1.0, repeats=1, generation=None):
         """Move to the start pose and replay as one interruptible server job."""
         with self._commands:
+            if self.runtime:
+                status = self.runtime.require(generation)
+                robot, generation = status['model'], status['generation']
             metadata = self.store.get(recording_id)
-            if metadata['robot'] != robot:
-                raise ValueError('Recording robot does not match the selected robot.')
             self._start('loading', robot, owner,
                         lambda: self._motion(recording_id, robot, rate, repeats),
-                        recording_id=recording_id, repeats=repeats,
+                        recording_id=recording_id, repeats=repeats, generation=generation,
                         duration=metadata['duration'], rate=rate)
 
     def _motion(self, recording_id, robot, rate, repeats):
@@ -261,13 +242,15 @@ class RecordPlayService:
             motion_lock.release()
 
     def _run_motion(self, recording_id, robot, rate, repeats, subscriptions):
-        connection = self._connection(robot, subscriptions)
+        recorded_topics = self.store.get(recording_id)['topics']
+        connection = self._connection(robot, subscriptions, command_topics=recorded_topics)
         plan = None
         attempted = False
         try:
             self._check()
             self._wait_for_feedback(connection)
             plan = MotionPlan(self.store, recording_id, connection.joints, self._check)
+            connection.pin_topics(plan.first)
             plan.latch(connection.require_feedback())
             topics = [(topic, TRAJECTORY_TYPE) for topic in plan.first]
             if not self.bridge.prepare_jog_publishers(topics):

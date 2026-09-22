@@ -57,6 +57,7 @@ RCLPY_NODE_NAME = 'cyclo_manager'
 class RequestKind:
     """Request types for spin thread queue."""
 
+    MOTION_GRAPH = 'motion_graph'
     INSPECT_PUBLISHERS = 'inspect_publishers'
     RUN_DISCOVERY = 'run_discovery'
     ACQUIRE_SUBSCRIPTION = 'acquire_subscription'
@@ -116,6 +117,10 @@ class Ros2Bridge:
         self._message_listeners: dict[str, set] = {}
         self._subscription_users: dict[str, set[str]] = {}
         self._subscription_types: dict[str, str] = {}
+
+        self._motion_graph_cache = {}
+        self._motion_graph_at = 0.0
+        self._motion_graph_lock = threading.Lock()
 
         self._request_queue: queue.Queue[RequestOp] = queue.Queue()
 
@@ -279,6 +284,14 @@ class Ros2Bridge:
     # Public API — discovery
     # ------------------------------------------------------------------
 
+    def motion_graph(self):
+        """Cache lightweight graph inspection; never read graph APIs from HTTP threads."""
+        with self._motion_graph_lock:
+            if time.monotonic() - self._motion_graph_at >= 2:
+                self._motion_graph_cache = self._enqueue_request(RequestKind.MOTION_GRAPH, timeout=0.3) or {}
+                self._motion_graph_at = time.monotonic()
+            return self._motion_graph_cache
+
     def inspect_publishers(self, topics: list[str]) -> dict[str, bool] | None:
         """Inspect graph endpoints without subscribing to their message streams."""
         if not self._is_running:
@@ -327,7 +340,13 @@ class Ros2Bridge:
             while True:
                 kind, payload = self._request_queue.get_nowait()
                 request_payload, response_queue = payload
-                if kind == RequestKind.INSPECT_PUBLISHERS:
+                if kind == RequestKind.MOTION_GRAPH:
+                    try:
+                        result = self._inspect_motion_graph()
+                    except Exception:
+                        logger.exception('Motion graph inspection failed')
+                        result = {}
+                elif kind == RequestKind.INSPECT_PUBLISHERS:
                     try:
                         result = {topic: self._rclpy_node.count_publishers(topic) > 0
                                   for topic in request_payload}
@@ -405,6 +424,21 @@ class Ros2Bridge:
     # ------------------------------------------------------------------
     # Spin thread — request handlers
     # ------------------------------------------------------------------
+
+    def _inspect_motion_graph(self):
+        types = {'trajectory_msgs/msg/JointTrajectory',
+                 'control_msgs/msg/JointTrajectoryControllerState', 'geometry_msgs/msg/Twist'}
+        result = {}
+        def endpoints(items):
+            return [f'{item.node_namespace.rstrip("/")}/{item.node_name}' for item in items
+                    if item.node_name != RCLPY_NODE_NAME]
+        for topic, topic_types in self._rclpy_node.get_topic_names_and_types():
+            if len(topic_types) != 1 or topic_types[0] not in types:
+                continue
+            result[topic] = {'type': topic_types[0],
+                             'publishers': endpoints(self._rclpy_node.get_publishers_info_by_topic(topic)),
+                             'subscribers': endpoints(self._rclpy_node.get_subscriptions_info_by_topic(topic))}
+        return result
 
     def _handle_run_discovery(self) -> bool:
         try:

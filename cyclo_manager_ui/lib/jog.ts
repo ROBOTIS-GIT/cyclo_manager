@@ -14,6 +14,8 @@
 //
 // Author: Hyungyu Kim
 
+import type { RobotRuntime } from "@/lib/robotRuntime";
+
 // UI labels and the resolution type come from the same increment list.
 // Values must match JOINT_INCREMENTS in cyclo_manager/jog.py.
 export const JOINT_INCREMENTS = [
@@ -29,7 +31,6 @@ export const JOINT_HOLD_DELAY_MS = 350;
 export const COMMAND_MIN_INTERVAL_MS = 90;
 export const JOG_POLL_INTERVAL_MS = 100;
 export const FEEDBACK_TIMEOUT_MS = 700;
-export const BRINGUP_POLL_INTERVAL_MS = 2000;
 export const BASE_TRANSLATION = { min: 0.05, max: 0.3, step: 0.05, initial: 0.1 };
 export const BASE_ROTATION = { min: 0.1, max: 0.6, step: 0.1, initial: 0.2 };
 
@@ -45,7 +46,9 @@ export type JogJoint = {
   lower: number; upper: number;
   position: number | null; target: number | null; available: boolean;
 };
+export type JogController = { topic: string; label: string; joints: string[]; subscribed: boolean };
 export type JogState = {
+  controllers: JogController[]; robot: RobotRuntime;
   robot_type: string; base_supported: boolean; feedback_fresh: boolean;
   feedback_age: number | null; description_available: boolean;
   base: [number, number, number]; joints: JogJoint[]; wheels: Record<string, number>;

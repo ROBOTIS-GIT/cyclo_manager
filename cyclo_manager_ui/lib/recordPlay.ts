@@ -15,6 +15,7 @@
 // Author: Hyungyu Kim
 
 import { request } from "@/lib/api";
+import type { RobotRuntime } from "@/lib/robotRuntime";
 
 export type Recording = {
   id: string; name: string; robot: string; groups: string[]; topics: string[];
@@ -28,13 +29,13 @@ export type RecordPlayState = {
   return_duration: number; messages: number;
   rate?: number;
 };
-export type RecordingGroup = { id: string; label: string; topic: string; receiving: boolean };
+export type RecordingGroup = { id: string; label: string; topic: string; receiving: boolean; recommended: boolean };
 export type RecordPlayOverview = {
   state: RecordPlayState; groups: RecordingGroup[]; recordings: Recording[];
-  bringup: boolean; storage: string;
+  feedback_ready: boolean; storage: string; robot: RobotRuntime;
 };
 export const GROUP_LABELS: Record<string, string> = {
-  arm_l: "Left arm + gripper", arm_r: "Right arm + gripper", head: "Neck", lift: "Lift",
+  arm: "Arm + gripper", arm_l: "Left arm + gripper", arm_r: "Right arm + gripper", head: "Neck", lift: "Lift",
   hand_l: "Left hand", hand_r: "Right hand",
 };
 export const PHASE_LABELS: Record<RecordPlayState["phase"], string> = {
@@ -46,8 +47,8 @@ export function recordingTime(seconds: number) {
   const value = Math.max(0, seconds);
   return `${Math.floor(value / 60).toString().padStart(2, "0")}:${(value % 60).toFixed(1).padStart(4, "0")}`;
 }
-export const getRecordPlay = (robot: string) => request<RecordPlayOverview>({
-  url: "/record-play", params: { robot }, timeout: 5000,
+export const getRecordPlay = () => request<RecordPlayOverview>({
+  url: "/record-play", timeout: 5000,
 });
 export const getRecordPlayStatus = () => request<RecordPlayState>({ url: "/record-play/status", timeout: 5000 });
 export const recordPlayCommand = (action: "record" | "play" | "stop", data?: object) =>

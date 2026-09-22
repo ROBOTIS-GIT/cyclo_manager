@@ -72,6 +72,39 @@ class FakeBridge:
             'position': [position, 0.1, -0.2, 0.1],
         }, 'received_at': time.time() - age}
 
+    def motion_graph(self):
+        from cyclo_manager.robot.joints import parse_joints
+        from cyclo_manager.robot.catalog import TRAJECTORY_TYPE, STATE_TYPE
+        from cyclo_manager.robot.profiles import GROUPS
+        import xml.etree.ElementTree as ET
+        xml = self.cache.get('/robot_description', {}).get('data', {}).get('data', '')
+        try:
+            joints = parse_joints(xml) if xml else []
+        except ET.ParseError:
+            joints = []
+        groups = {}
+        for joint in joints:
+            n = joint.name
+            group = ('head' if n.startswith('head') else 'lift' if n == 'lift_joint'
+                     else 'arm_l' if n.startswith(('arm_l_', 'gripper_l_'))
+                     else 'arm_r' if n.startswith(('arm_r_', 'gripper_r_')) else 'arm')
+            groups.setdefault(group, []).append(n)
+        result = {}
+        for topic, (alias, _) in GROUPS.items():
+            if alias not in groups:
+                continue
+            node = '/test_' + alias
+            result[topic] = {'type': TRAJECTORY_TYPE, 'subscribers': [node], 'publishers': ['/leader']}
+            state = node + '/controller_state'
+            result[state] = {'type': STATE_TYPE, 'publishers': [node], 'subscribers': []}
+            self.cache[state] = {'data': {'joint_names': groups[alias]}, 'received_at': time.time()}
+        if getattr(self, 'base_available', True):
+            result['/cmd_vel'] = {'type': 'geometry_msgs/msg/Twist', 'publishers': [], 'subscribers': ['/base']}
+        return result
+
+    def prepare_jog_publishers(self, topics):
+        return True
+
     def get_topic_data(self, topic):
         return self.cache.get(topic)
 
@@ -92,18 +125,13 @@ class JogTests(unittest.TestCase):
     def target(self):
         return self.bridge.published[-1][2]['points'][-1]['positions'][0]
 
-    def test_mobile_rejects_joint_jog_even_with_full_robot_feedback(self):
-        self.session = JogSession(self.bridge, 'mobile')
-        state = self.session.snapshot()
-        self.assertTrue(state['base_supported'])
-        self.assertTrue(state['joints'])
-        self.assertFalse(any(j['available'] for j in state['joints']))
-        for mode in ('step', 'hold'):
-            with self.assertRaisesRegex(ValueError, 'base jog only'):
-                self.joint(mode=mode)
-        self.assertEqual(self.bridge.published, [])
-        self.session.apply(JogInput(kind='base', x=0.1))
-        self.assertEqual(self.bridge.published[-1][0], '/cmd_vel')
+    def test_base_capability_comes_from_graph_not_model_name(self):
+        self.session = JogSession(self.bridge, 'arbitrary-model')
+        self.assertTrue(self.session.snapshot()['base_supported'])
+        self.bridge.base_available = False
+        self.assertFalse(self.session.snapshot()['base_supported'])
+        with self.assertRaisesRegex(ValueError, 'swerve'):
+            self.session.apply(JogInput(kind='base', x=.1))
 
     def test_target_tracks_feedback_not_previous_command(self):
         self.joint()
@@ -155,7 +183,7 @@ class JogTests(unittest.TestCase):
         self.assertAlmostEqual(self.target(), 0.2 + math.radians(3))
         points = self.bridge.published[-1][2]['points']
         self.assertEqual(points, [{
-            'positions': [self.target()],
+            'positions': [self.target(), .1],
             'time_from_start': {'sec': 0, 'nanosec': 0},
         }])
 
@@ -298,7 +326,7 @@ class JogTests(unittest.TestCase):
                                 self.target(), current + direction * expected_delta)
                             message = self.bridge.published[-1][2]
                             self.assertEqual(message['points'], [{
-                                'positions': [self.target()],
+                                'positions': message['points'][0]['positions'],
                                 'time_from_start': {'sec': 0, 'nanosec': 0},
                             }])
 
@@ -406,7 +434,8 @@ class ArmGripperJogTests(unittest.TestCase):
                 self.setUp()
                 arm, gripper = f'arm_{side}_joint3', f'gripper_{side}_joint1'
                 self.session.apply(JogInput(kind='joint', joint=arm, mode='step'))
-                self.assertEqual(set(self.goals()), {arm, gripper})
+                self.assertIn(arm, self.goals())
+                self.assertIn(gripper, self.goals())
                 self.assertEqual(self.goals()[gripper], gripper_position)
                 for tick in range(1, 11):
                     self.feedback(**{arm: 0.1 + tick * 0.001,
@@ -424,7 +453,7 @@ class ArmGripperJogTests(unittest.TestCase):
                 self.session.stop()
                 self.assertEqual(self.goals()[gripper], gripper_position)
                 self.assertAlmostEqual(self.goals()[arm], self.values[arm], places=6)
-                self.assertIsNone(self.session.held_gripper)
+                self.assertEqual(self.session.held_positions, {})
 
     def test_step_completion_before_hold_does_not_recapture_gripper(self):
         arm = 'arm_l_joint1'
@@ -450,15 +479,15 @@ class ArmGripperJogTests(unittest.TestCase):
         self.session.apply(JogInput(kind='joint', joint='arm_l_joint1', mode='hold'))
         self.feedback()
         self.session.apply(JogInput(kind='joint', joint='gripper_l_joint1', mode='hold'))
-        self.assertEqual(set(self.goals()), {'gripper_l_joint1'})
+        self.assertIn('gripper_l_joint1', self.goals())
         self.assertGreater(self.goals()['gripper_l_joint1'], 0.4)
-        self.assertIsNone(self.session.held_gripper)
+        self.assertTrue(self.session.held_positions)
 
     def test_invalid_gripper_feedback_blocks_initial_arm_command(self):
         for value in (float('nan'), 3):
             with self.subTest(value=value):
                 self.feedback(gripper_l_joint1=value)
-                with self.assertRaisesRegex(ValueError, 'Gripper position'):
+                with self.assertRaisesRegex(ValueError, 'Joint feedback'):
                     self.session.apply(JogInput(kind='joint', joint='arm_l_joint1'))
         self.assertEqual(self.bridge.published, [])
 

@@ -16,11 +16,10 @@
 #
 # Author: Hyungyu Kim
 
-"""Commanded joint definitions and controller topics from the active URDF."""
+"""Bounded position-command joint definitions from the active URDF."""
 
 from dataclasses import dataclass
 import math
-import re
 import xml.etree.ElementTree as ET
 
 
@@ -36,22 +35,6 @@ class RobotJoint:
     upper: float
 
 
-def joint_group(name: str) -> tuple[str, str] | None:
-    """Resolve the existing follower controller input for a known joint."""
-    if re.fullmatch(r'head_joint[12]', name):
-        return 'head', '/leader/joystick_controller_left/joint_trajectory'
-    if name == 'lift_joint':
-        return 'lift', '/leader/joystick_controller_right/joint_trajectory'
-    for side, label in [('l', 'left'), ('r', 'right')]:
-        if re.fullmatch(rf'(arm_{side}_joint[1-7]|gripper_{side}_joint1)', name):
-            topic = f'/leader/joint_trajectory_command_broadcaster_{label}/joint_trajectory'
-            return f'arm_{side}', topic
-        if re.fullmatch(rf'finger_{side}_joint\d+', name):
-            topic = f'/leader/joint_trajectory_command_broadcaster_{label}_hand/joint_trajectory'
-            return f'hand_{side}', topic
-    return None
-
-
 def parse_joints(description: str) -> list[RobotJoint]:
     """Extract bounded, non-mimic position joints from expanded URDF."""
     root = ET.fromstring(description)
@@ -62,9 +45,8 @@ def parse_joints(description: str) -> list[RobotJoint]:
     result = []
     for joint in root.findall('./joint'):
         name = joint.attrib.get('name', '')
-        group = joint_group(name)
         limit = joint.find('limit')
-        if (not group or name not in commanded or limit is None
+        if (name not in commanded or limit is None
                 or joint.find('mimic') is not None
                 or joint.attrib.get('type') not in ('revolute', 'prismatic')):
             continue
@@ -77,6 +59,6 @@ def parse_joints(description: str) -> list[RobotJoint]:
                 or lower >= upper or velocity <= 0):
             continue
         linear = joint.attrib['type'] == 'prismatic'
-        result.append(RobotJoint(name, *group, 'm' if linear else 'rad', lower, upper))
+        result.append(RobotJoint(name, 'unassigned', '', 'm' if linear else 'rad', lower, upper))
     return result
 

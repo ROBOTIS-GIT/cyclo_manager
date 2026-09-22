@@ -14,19 +14,10 @@
 //
 // Author: Hyungyu Kim
 
-export const ROBOTS = ["sg2", "bg2", "sh5", "bh5", "f1", "f2", "mobile"];
-
-export function storedRobot() {
-  if (typeof window === "undefined") return "sg2";
-  const value = localStorage.getItem("robot_type_ai_worker") ?? "sg2";
-  return ROBOTS.includes(value) ? value : "sg2";
-}
-
-export function subscribeRobot(refresh: () => void) {
-  window.addEventListener("focus", refresh);
-  window.addEventListener("storage", refresh);
-  return () => {
-    window.removeEventListener("focus", refresh);
-    window.removeEventListener("storage", refresh);
-  };
-}
+export type RobotRuntime = {
+  ready: boolean;
+  model: string | null;
+  container: string | null;
+  generation: string | null;
+  reason: string | null;
+};

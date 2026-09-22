@@ -25,6 +25,7 @@ import tempfile
 import threading
 import time
 from types import SimpleNamespace
+from robot_runtime_fixture import ready_runtime
 import unittest
 from unittest.mock import MagicMock, patch
 
@@ -49,6 +50,7 @@ class SubscriptionTests(unittest.TestCase):
         self.bridge._handle_get_publisher_qos = lambda _: {}
         module.message_to_dict = lambda raw, _: raw
         self.source = FakeBridge()
+        self.bridge.motion_graph = self.source.motion_graph
         self.feed = False
         self.published = []
         self.bridge.prepare_jog_publishers = lambda _: True
@@ -61,7 +63,8 @@ class SubscriptionTests(unittest.TestCase):
         self.store = MemoryStore(self.tmp.name)
         self.manager = RecordPlayService(self.bridge, self.tmp.name, self.store)
         self.fake_state = SimpleNamespace(
-            get_ros2_bridge_or_none=lambda: self.bridge, record_play=self.manager)
+            get_ros2_bridge_or_none=lambda: self.bridge, record_play=self.manager,
+            robot_runtime=ready_runtime())
         self.app = FastAPI()
         for name in ('websocket_ros2', 'websocket_jog', 'record_play', 'ros2'):
             path = Path(__file__).parents[1] / f'cyclo_manager/routers/{name}.py'
@@ -317,10 +320,9 @@ class SubscriptionTests(unittest.TestCase):
             'id': recording_id, 'robot': 'f2', 'duration': 2,
             'groups': ['head'], 'topics': [TOPIC], 'messages': 2})
         with self.client.websocket_connect('/record-play/watch/f2'):
-            self.wait(lambda: TOPIC in self.bridge._subs)
+            self.wait(lambda: '/test_head/controller_state' in self.bridge._subs)
             with self.client.websocket_connect('/ws/ros2/topics//joint_states') as viewer:
                 receive_data(viewer)
-                self.manager.set_bringup(True)
                 self.manager.motion(recording_id, 'f2', 'browser')
                 self.wait(lambda: bool(self.published))
                 self.assertEqual(len(self.users()), 3)
@@ -360,7 +362,7 @@ class SubscriptionTests(unittest.TestCase):
 
         self.bridge.publish_jog = checked_publish
         with self.client.websocket_connect('/ws/jog/f2') as jog:
-            self.wait(lambda: self.bridge.get_topic_data('/joint_states') is not None)
+            self.wait(lambda: self.bridge.get_topic_data('/test_head/controller_state') is not None)
             jog.send_json({'kind': 'joint', 'joint': 'head_joint1', 'mode': 'hold'})
             self.assertIsNone(receive_data(jog)['error'])
         self.wait(lambda: not self.bridge._subs)
@@ -370,10 +372,10 @@ class SubscriptionTests(unittest.TestCase):
     def test_recording_keeps_input_subscription_after_catalog_closes(self):
         self.feed = True
         with self.client.websocket_connect('/record-play/watch/f2'):
-            self.wait(lambda: TOPIC in self.bridge._subs)
+            self.wait(lambda: '/test_head/controller_state' in self.bridge._subs)
             self.manager.record('recording', 'f2', ['head'], 'browser')
             self.wait(lambda: TOPIC in self.bridge._message_listeners)
-            self.assertEqual(len(self.users(TOPIC)), 2)
+            self.assertEqual(len(self.users(TOPIC)), 1)
         self.wait(lambda: len(self.users(TOPIC)) == 1)
         for listener in tuple(self.bridge._message_listeners[TOPIC]):
             listener(TOPIC, trajectory(.2), time.time_ns())
@@ -386,7 +388,7 @@ class SubscriptionTests(unittest.TestCase):
     def test_catalog_only_observer_releases_every_subscription_when_closed(self):
         self.feed = True
         with self.client.websocket_connect('/record-play/watch/f2'):
-            self.wait(lambda: TOPIC in self.bridge._subs)
+            self.wait(lambda: '/test_head/controller_state' in self.bridge._subs)
         self.wait(lambda: not self.bridge._subs)
         self.assertFalse(self.bridge._msg_cache)
 

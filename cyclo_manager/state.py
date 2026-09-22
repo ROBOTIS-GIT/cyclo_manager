@@ -46,6 +46,7 @@ class AppState:
         self._ros2_bridge: Optional[Ros2Bridge] = None
         self._terminal_session_manager: Optional[TerminalSessionManager] = None
         self.record_play = None
+        self.robot_runtime = None
 
     def set_terminal_session_manager(self, manager: TerminalSessionManager) -> None:
         self._terminal_session_manager = manager

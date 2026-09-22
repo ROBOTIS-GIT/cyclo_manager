@@ -32,11 +32,12 @@ from typing import Literal
 from cyclo_manager.robot.interface import (
     FEEDBACK_MAX_AGE, position_message, RobotInterface, TRAJECTORY_TYPE,
 )
-from cyclo_manager.robot.joints import joint_group, RobotJoint
+from cyclo_manager.robot.catalog import base_topics, catalog
+from cyclo_manager.robot.joints import RobotJoint
+from cyclo_manager.robot.profiles import PROFILES
 from cyclo_manager.subscriptions import subscribe_joint_feedback, SubscriptionOwner
 from pydantic import BaseModel, ConfigDict, Field
 
-BASE_MODELS = {'sg2', 'sh5', 'f2', 'mobile'}
 BASE_LINEAR_MAX = 0.3  # m/s
 BASE_ANGULAR_MAX = 0.6  # rad/s
 BASE_LINEAR_ACCELERATION = 0.3  # m/s²
@@ -66,86 +67,97 @@ class JogInput(BaseModel):
 class JogSession(RobotInterface):
     """Track only this connection's jog commands and stop them on release."""
 
-    def __init__(self, bridge, robot_type: str):
+    def __init__(self, bridge, robot_type='ros', command_topic=None, base_topic='/cmd_vel',
+                 *, command_topics=None, guard=None):
         """Initialize an idle session without publishing any commands."""
-        super().__init__(bridge)
+        super().__init__(bridge, robot_type, command_topic,
+                         command_topics=command_topics, guard=guard)
+        profile = PROFILES.get(robot_type)
+        self.hidden_joint_suffixes = profile.hidden_jog_joint_suffixes if profile else ()
+        self.base_topic = base_topic
         self.subscriptions = SubscriptionOwner(bridge)
-        self.robot_type = robot_type
         self.targets: dict[str, float] = {}
         self.active_joint: str | None = None
         self.base = [0.0, 0.0, 0.0]
         self.last_tick = time.monotonic()
         self.last_joint_sample: float | None = None
         self.active_increment: tuple[str, int, str] | None = None
-        self.held_gripper: tuple[str, str, float] | None = None
+        self.held_positions: dict[str, float] = {}
+        self.active_topic = None
+        self.held_joint = None
         self.holding = False
+        self.prepared_topics = set()
 
     def setup(self):
         """Prepare topic connections without sending motion."""
-        topics = [('/cmd_vel', 'geometry_msgs/msg/Twist')]
-        for name in ('head_joint1', 'lift_joint', 'arm_l_joint1', 'arm_r_joint1',
-                     'finger_l_joint1', 'finger_r_joint1'):
-            group = joint_group(name)
-            if group:
-                topics.append((group[1], TRAJECTORY_TYPE))
-        if not self.bridge.prepare_jog_publishers(topics):
-            raise ValueError('Cannot prepare ROS jog publishers')
         subscribe_joint_feedback(self.subscriptions)
+        self.refresh_controllers()
+
+    def refresh_controllers(self):
+        controllers = catalog(self.bridge, self.subscriptions)
+        topics = [(c['topic'], TRAJECTORY_TYPE) for c in controllers if c['joints']
+                  and (self.command_topics is None or c['topic'] in self.command_topics)]
+        if self.base_topic in base_topics(self.bridge):
+            topics.append((self.base_topic, 'geometry_msgs/msg/Twist'))
+        missing = set(topics) - self.prepared_topics
+        if missing:
+            if not self.bridge.prepare_jog_publishers(list(missing)):
+                raise ValueError('Cannot prepare ROS jog publishers')
+            self.prepared_topics.update(missing)
 
     def snapshot(self):
         """Return display state without sending robot commands."""
+        self.refresh_controllers()
         positions, age, _ = self.feedback()
         fresh = age is not None and age <= FEEDBACK_MAX_AGE
         return {
             'robot_type': self.robot_type,
-            'base_supported': self.robot_type in BASE_MODELS,
+            'base_supported': self.base_topic in base_topics(self.bridge),
+            'controllers': self.controllers,
             'feedback_fresh': fresh,
             'feedback_age': age,
             'description_available': bool(self.joints),
             'base': self.base,
             'joints': [dict(asdict(j), position=positions.get(j.name),
                             target=self.targets.get(j.name),
-                            available=self.robot_type != 'mobile' and fresh
+                            available=bool(j.topic) and fresh
                             and j.name in positions)
-                       for j in self.joints],
+                       for j in self.joints if not j.name.endswith(self.hidden_joint_suffixes)],
             'wheels': {name: pos for name, pos in positions.items() if 'wheel_steer' in name},
         }
 
     def publish_base(self, values):
         """Publish forward, lateral and yaw velocity."""
-        self.publish('/cmd_vel', 'geometry_msgs/msg/Twist', {
+        self.publish(self.base_topic, 'geometry_msgs/msg/Twist', {
             'linear': dict(x=values[0], y=values[1], z=0.0),
             'angular': dict(x=0.0, y=0.0, z=values[2]),
         })
 
     def trajectory(self, joint: RobotJoint, target: float):
         """Send one immediate position target, without timed interpolation."""
-        goals = {joint.name: target}
-        if self.held_gripper and self.held_gripper[0] == joint.name:
-            _, gripper, position = self.held_gripper
-            goals[gripper] = position
+        if not joint.topic or (self.active_topic and joint.topic != self.active_topic):
+            raise ValueError('Controller mapping changed. Reconnect before moving.')
+        goals = {joint.name: target, **self.held_positions}
+        controller = next((c for c in self.controllers if c['topic'] == joint.topic), None)
+        if not controller or set(controller['joints']) != set(goals):
+            raise ValueError('Controller joint membership changed. Reconnect before moving.')
         self.publish(joint.topic, TRAJECTORY_TYPE, position_message(goals))
         self.targets.update(goals)
 
-    def retain_gripper(self, joint: RobotJoint, positions: dict[str, float], mode: str):
-        """Latch measured gripper position once per arm press, not per update."""
-        if not joint.name.startswith('arm_'):
-            self.held_gripper = None
+    def retain_controller(self, joint, positions, mode):
+        """Latch every other controller joint once per press, including unknown grippers."""
+        if mode == 'hold' and self.held_joint == joint.name and self.held_positions:
             return
-        gripper = next((j for j in self.joints if j.topic == joint.topic
-                        and j.name.startswith('gripper_')), None)
-        if gripper is None:  # Hand-equipped models have a separate controller.
-            self.held_gripper = None
-            return
-        if (mode == 'hold' and self.held_gripper
-                and self.held_gripper[:2] == (joint.name, gripper.name)):
-            position = self.held_gripper[2]
-        else:
-            position = positions.get(gripper.name)
-        if position is None or not gripper.lower <= position <= gripper.upper:
-            raise ValueError(
-                'Gripper position is unavailable or outside URDF limits. Jog stopped.')
-        self.held_gripper = (joint.name, gripper.name, position)
+        held = {}
+        for other in self.joints:
+            if other.topic != joint.topic or other.name == joint.name:
+                continue
+            position = positions.get(other.name)
+            if position is None or not other.lower <= position <= other.upper:
+                raise ValueError(f'Joint feedback unavailable or outside limits: {other.name}')
+            held[other.name] = position
+        self.held_positions = held
+        self.held_joint = joint.name
 
     def stop(self):
         """Stop this session's motion without reusing stale joint positions."""
@@ -174,7 +186,9 @@ class JogSession(RobotInterface):
         self.last_joint_sample = None
         if errors:
             raise ValueError('; '.join(errors))
-        self.held_gripper = None
+        self.held_positions = {}
+        self.active_topic = None
+        self.held_joint = None
         self.holding = False
 
     def _target_reached(self, joint: RobotJoint, position: float) -> bool:
@@ -184,6 +198,9 @@ class JogSession(RobotInterface):
 
     def apply(self, command: JogInput):
         """Apply one validated input, using measured position for joint goals."""
+        if self.guard is not None and (command.kind in ('base', 'joint')
+                                       or any(self.base) or self.active_joint):
+            self.guard()
         now = time.monotonic()
         dt = min(max(now - self.last_tick, BASE_TICK_MIN), BASE_TICK_MAX)
         self.last_tick = now
@@ -215,7 +232,7 @@ class JogSession(RobotInterface):
 
     def _apply_base(self, command: JogInput, dt: float):
         """Apply bounded base velocity with the existing slew limit."""
-        if self.robot_type not in BASE_MODELS:
+        if self.base_topic not in base_topics(self.bridge):
             raise ValueError('This robot does not support swerve jog.')
         if self.active_joint:
             self.stop()
@@ -232,15 +249,16 @@ class JogSession(RobotInterface):
 
     def _apply_joint(self, command: JogInput):
         """Publish a selected-size offset from fresh measured joint position."""
-        if self.robot_type == 'mobile':
-            raise ValueError('Mobile bringup supports base jog only.')
-        if any(self.base) or (self.active_joint and self.active_joint != command.joint):
+        # A completed tap retains held positions for the tap-to-hold transition.
+        # Starting a different joint ends that press, even after active_joint cleared.
+        previous_joint = self.active_joint or self.held_joint
+        if any(self.base) or (previous_joint and previous_joint != command.joint):
             self.stop()
         positions, age, sample = self.feedback()
         if age is None or age > FEEDBACK_MAX_AGE:
             raise ValueError('Joint feedback is stale. Jog stopped.')
         joint = next((j for j in self.joints if j.name == command.joint), None)
-        if joint is None or joint.name not in positions:
+        if joint is None or not joint.topic or joint.name not in positions:
             raise ValueError('Joint or URDF limits are unavailable.')
         current = positions[joint.name]
         if not joint.lower <= current <= joint.upper:
@@ -255,7 +273,9 @@ class JogSession(RobotInterface):
             reached = self._target_reached(joint, current)
             if not reached:
                 return
-        self.retain_gripper(joint, positions, command.mode)
+        if self.active_topic and self.active_topic != joint.topic:
+            raise ValueError('Controller mapping changed. Reconnect before moving.')
+        self.retain_controller(joint, positions, command.mode)
         millimetres, degrees = JOINT_INCREMENTS[command.resolution]
         delta = millimetres / 1000 if joint.unit == 'm' else math.radians(degrees)
         target = max(joint.lower, min(joint.upper, current + command.direction * delta))
@@ -263,5 +283,6 @@ class JogSession(RobotInterface):
         # Track attempted motion before publishing so a failed send also stops.
         self.active_increment = increment
         self.active_joint = joint.name
+        self.active_topic = joint.topic
         self.holding = command.mode == 'hold'
         self.trajectory(joint, target)

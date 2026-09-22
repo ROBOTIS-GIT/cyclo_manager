@@ -24,6 +24,7 @@ import logging
 from anyio import CancelScope, to_thread
 from cyclo_manager.jog import JogInput, JogSession
 from cyclo_manager.motion_guard import motion_lock
+from cyclo_manager.robot.profiles import PROFILES
 from cyclo_manager.routers.websocket_utils import release_subscription_owner
 from cyclo_manager.state import app_state
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
@@ -33,19 +34,35 @@ from starlette.websockets import WebSocketState
 router = APIRouter()
 logger = logging.getLogger(__name__)
 INPUT_TIMEOUT = 0.4
-ROBOT_TYPES = {'sg2', 'bg2', 'sh5', 'bh5', 'f1', 'f2', 'mobile'}
 
 
+@router.websocket('/ws/jog')
 @router.websocket('/ws/jog/{robot_type}')
-async def websocket_jog(websocket: WebSocket, robot_type: str):
+async def websocket_jog(websocket: WebSocket, robot_type: str = 'ros'):
     """Process ordered jog inputs and stop when the input stream ends."""
     await websocket.accept()
     bridge = app_state.get_ros2_bridge_or_none()
-    if bridge is None or robot_type not in ROBOT_TYPES:
+    if bridge is None:
         await websocket.send_json({'error': 'ROS bridge or robot model unavailable.'})
         await websocket.close(code=1008)
         return
-    session = JogSession(bridge, robot_type)
+    runtime = app_state.robot_runtime
+    if runtime is None:
+        await websocket.send_json({'error': 'Robot bringup monitoring unavailable.'})
+        await websocket.close(code=1013)
+        return
+
+    def new_session(status):
+        profile = PROFILES.get(status['model']) if status['ready'] else None
+        generation = status['generation']
+        return JogSession(
+            bridge, profile.model if profile else 'ros',
+            base_topic=profile.base_topic if profile else None,
+            command_topics=profile.topics if profile else (),
+            guard=lambda: runtime.require(generation))
+
+    robot = runtime.snapshot()
+    session = new_session(robot)
     watchdog_armed = False
     owns_motion = False
     try:
@@ -67,6 +84,16 @@ async def websocket_jog(websocket: WebSocket, robot_type: str):
                 break
             error = None
             try:
+                current = runtime.snapshot()
+                if current['generation'] != robot['generation']:
+                    # Never apply a command from the old UI to a newly started robot.
+                    if command.kind in ('base', 'joint') or owns_motion:
+                        raise ValueError('Robot bringup changed. Reconnect and enable Jog again.')
+                    await asyncio.to_thread(session.stop)
+                    await release_subscription_owner(session.subscriptions)
+                    robot = current
+                    session = new_session(robot)
+                    await asyncio.to_thread(session.setup)
                 if command.kind in ('base', 'joint') and not owns_motion:
                     if not motion_lock.acquire(blocking=False):
                         raise ValueError('Another manager motion is active. Stop it before Jog.')
@@ -88,6 +115,7 @@ async def websocket_jog(websocket: WebSocket, robot_type: str):
             elif not any(session.base) and session.active_joint is None:
                 watchdog_armed = False
             state = await asyncio.to_thread(session.snapshot)
+            state['robot'] = runtime.snapshot()
             await asyncio.wait_for(
                 websocket.send_json({'state': state, 'error': error}), INPUT_TIMEOUT)
             if error:

@@ -21,8 +21,8 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { getRecordPlay, getRecordPlayStatus, recordPlayCommand } from "@/lib/recordPlay";
 import type { RecordPlayOverview, RecordPlayState } from "@/lib/recordPlay";
 
-export function useRecordPlay(robot: string | null) {
-  const [overview, setOverview] = useState<{ robot: string; value: RecordPlayOverview } | null>(null);
+export function useRecordPlay() {
+  const [overview, setOverview] = useState<RecordPlayOverview | null>(null);
   const [state, setState] = useState<RecordPlayState | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [connectionError, setConnectionError] = useState<string | null>(null);
@@ -34,9 +34,8 @@ export function useRecordPlay(robot: string | null) {
   const update = useCallback((value: RecordPlayState) => { setState(value); }, []);
 
   useEffect(() => {
-    if (!robot) return;
     const closeObserver = maintainWebSocket(() => new WebSocket(
-      `${getWebSocketBaseUrl()}/record-play/watch/${encodeURIComponent(robot)}`
+      `${getWebSocketBaseUrl()}/record-play/watch`
     ));
     mounted.current = true;
     // Identify the originating page; server jobs do not depend on page lifetime.
@@ -49,8 +48,8 @@ export function useRecordPlay(robot: string | null) {
       if (polling) return;
       polling = true;
       try {
-        const value = await getRecordPlay(robot);
-        if (!disposed) { setOverview({ robot, value }); update(value.state); setConnected(true); setConnectionError(null); }
+        const value = await getRecordPlay();
+        if (!disposed) { setOverview(value); update(value.state); setConnected(true); setConnectionError(null); }
       } catch (err) {
         if (!disposed) { setConnected(false); setConnectionError(err instanceof Error ? err.message : "Server unavailable"); }
       } finally { polling = false; lastOverview = Date.now(); }
@@ -73,7 +72,7 @@ export function useRecordPlay(robot: string | null) {
       closeObserver();
       disposed = true; mounted.current = false; refresh.current = null; clearInterval(timer);
     };
-  }, [robot, update]);
+  }, [update]);
 
   const action = useCallback(async (kind: "record" | "play" | "stop", data?: object) => {
     const commandOwner = owner.current;
@@ -89,7 +88,7 @@ export function useRecordPlay(robot: string | null) {
   }, [update]);
 
   return {
-    overview: overview?.robot === robot ? overview.value : null,
+    overview,
     state, error: error || connectionError, connected,
     busy: busyOwner !== null && busyOwner === owner.current, action, owner: owner.current,
   };

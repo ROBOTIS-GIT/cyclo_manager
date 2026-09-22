@@ -16,11 +16,10 @@
 
 "use client";
 
-import { useState, useSyncExternalStore } from "react";
+import { useState } from "react";
 import StatusBadge from "@/components/StatusBadge";
 import { surface, secondary, button as neutral, danger, btn } from "@/components/ui/controlStyles";
 import { useRecordPlay } from "@/hooks/useRecordPlay";
-import { storedRobot, subscribeRobot } from "@/lib/robotSelection";
 import { GROUP_LABELS, PHASE_LABELS, recordingTime } from "@/lib/recordPlay";
 
 const border = { borderColor: "var(--vscode-panel-border)" };
@@ -36,17 +35,16 @@ function TransportIcon({ stop = false }: { stop?: boolean }) {
 type RepeatMode = "once" | "repeat" | "infinite";
 
 export default function RecordPlayPage() {
-  const robot = useSyncExternalStore(subscribeRobot, storedRobot, () => null);
-  const api = useRecordPlay(robot);
+  const api = useRecordPlay();
   const [tab, setTab] = useState<"play" | "record">("play");
   const [selected, setSelected] = useState("");
   const [name, setName] = useState("");
-  const [groups, setGroups] = useState<string[]>(["arm_l", "arm_r"]);
+  const [groups, setGroups] = useState<string[]>([]);
   const [rate, setRate] = useState(1);
   const [repeatMode, setRepeatMode] = useState<RepeatMode>("once");
   const [repeats, setRepeats] = useState(5);
   const { overview, state } = api;
-  const recordings = overview?.recordings.filter(item => item.robot === robot) ?? [];
+  const recordings = overview?.recordings ?? [];
   const activeRecording = overview?.recordings.find(item => item.id === state?.recording_id);
   const activeMotion = !!state?.active && state.phase !== "recording";
   const recording = (activeMotion ? activeRecording : undefined)
@@ -55,8 +53,10 @@ export default function RecordPlayPage() {
   const chosen = groups.filter(group => supportedGroups.some(item => item.id === group));
   const active = !!state?.active;
   const locked = active || api.busy;
-  const available = api.connected && overview?.bringup && robot !== "mobile";
-  const sameRecording = !!recording && state?.recording_id === recording.id && state?.robot === recording.robot;
+  const available = api.connected;
+  const robot = overview?.robot;
+  const canPlay = available && !!robot?.ready;
+  const sameRecording = !!recording && state?.recording_id === recording.id;
   const shownRate = activeMotion ? state.rate ?? 1 : rate;
   const shownMode = activeMotion ? state.repeats === 0 ? "infinite" : state.repeats === 1 ? "once" : "repeat" : repeatMode;
   const shownRepeats = activeMotion && state.repeats > 0 ? state.repeats : repeats;
@@ -68,7 +68,7 @@ export default function RecordPlayPage() {
   const transitioning = sameRecording && activeMotion && (state.phase === "preparing" || state.phase === "returning");
   const error = api.error || state?.error;
   const isRecording = active && state?.phase === "recording";
-  const command = { robot, recording_id: recording?.id, rate, repeats: repeatMode === "infinite" ? 0 : repeatMode === "repeat" ? repeats : 1 };
+  const command = { generation: robot?.generation, recording_id: recording?.id, rate, repeats: repeatMode === "infinite" ? 0 : repeatMode === "repeat" ? repeats : 1 };
 
   async function save() {
     const result = await api.action("stop");
@@ -85,20 +85,21 @@ export default function RecordPlayPage() {
   return <div className="h-full overflow-auto min-w-0" style={{ color: "var(--vscode-foreground)", background: "var(--vscode-editor-background)" }}>
     <header className="sticky top-0 z-10 flex flex-wrap items-center justify-between gap-3 px-5 py-3 border-b" style={surface}>
       <div>
-        <h1 className="text-lg font-semibold">Record & Play <span className="text-sm font-normal ml-2" style={secondary}>{robot?.toUpperCase() ?? "—"}</span></h1>
+        <h1 className="text-lg font-semibold">Record & Play <span className="text-sm font-normal ml-2" style={secondary}>{robot?.model?.toUpperCase()}</span></h1>
         <div className="flex items-center gap-2 text-xs mt-1" style={secondary}>
           <StatusBadge status={api.connected} dotOnly label={api.connected ? "Connected" : "Disconnected"} />
           {api.connected ? "Server connected" : "Server disconnected"}
         </div>
         <div className="flex items-center gap-2 text-xs mt-1" style={secondary} aria-live="polite">
-          <StatusBadge status={!!overview?.bringup} dotOnly label="Robot bringup" />
-          Robot bringup: {overview ? overview.bringup ? "Running" : "Stopped" : "Checking…"}
+          <StatusBadge status={!!robot?.ready} dotOnly label="Robot bringup" />
+          Robot bringup: {overview ? robot?.ready ? "Running" : "Unavailable" : "Checking…"}
         </div>
       </div>
     </header>
 
     {error && <div role="alert" className="m-4 break-words rounded border p-3 text-sm" style={danger}>{error}</div>}
-    {robot === "mobile" && <p className="mx-5 mt-4 text-sm" style={secondary}>Mobile bringup does not provide joint trajectories.</p>}
+
+    {!robot?.ready && robot?.reason && <p className="mx-5 mt-4 text-sm" style={secondary}>{robot.reason}</p>}
 
     <div className="p-2 md:p-5">
       <div role="tablist" aria-label="Record & Play mode" className="flex gap-2 mb-4">
@@ -165,7 +166,7 @@ export default function RecordPlayPage() {
                   <div className="h-full transition-[width] duration-300" style={{ width: `${progress}%`, background: "var(--vscode-focusBorder)" }} />
                 </div>
                 <div className="mt-5 grid grid-cols-[minmax(0,1fr)_auto] gap-2">
-                  <button type="button" className={button} style={primary} disabled={!available || locked}
+                  <button type="button" className={button} style={primary} disabled={!canPlay || locked}
                     onClick={() => void api.action("play", command)}><TransportIcon />Play</button>
                   {stopButton}
                 </div>
@@ -223,15 +224,15 @@ export default function RecordPlayPage() {
             <label className="block text-sm font-medium">Recording name
               <input className={`${field} mt-2`} style={control} value={name} maxLength={80} disabled={locked} placeholder="pick-and-place-01" onChange={event => setName(event.target.value)} />
             </label>
-            <div className="mb-3 mt-6 flex justify-between text-sm"><h2 className="font-medium">Joint groups</h2><span className="text-xs" style={secondary}>{chosen.length} selected</span></div>
+            <div className="mb-3 mt-6 flex justify-between text-sm"><h2 className="font-medium">Trajectory topics</h2><span className="text-xs" style={secondary}>{chosen.length} selected</span></div>
             <div className="grid gap-2 sm:grid-cols-2">
               {supportedGroups.map(group => <div key={group.id} className="min-w-0 rounded-lg border px-3 py-2" style={chosen.includes(group.id) ? { ...border, background: "var(--vscode-editor-background)" } : border}>
                 <label className="flex min-h-10 items-center gap-2.5 text-sm">
                   <input type="checkbox" checked={chosen.includes(group.id)} disabled={locked} onChange={event => setGroups(previous => event.target.checked ? [...previous, group.id] : previous.filter(value => value !== group.id))} />
-                  {group.label}
+                  <span className="break-all">{group.label}{group.recommended && <small className="ml-2" style={secondary}>Recommended</small>}</span>
                 </label>
                 <div className="flex flex-wrap items-start justify-between gap-x-3 text-xs" style={secondary}>
-                  <span className="flex min-h-8 items-center gap-1.5"><StatusBadge status={group.receiving} dotOnly label={group.receiving ? "Receiving" : "No data"} />{group.receiving ? "Receiving" : "No data"}</span>
+                  <span className="flex min-h-8 items-center gap-1.5"><StatusBadge status={group.receiving} dotOnly label={group.receiving ? "Publisher detected" : "No publisher"} />{group.receiving ? "Publisher detected" : "No publisher"}</span>
                   <details className="min-w-0 max-w-full basis-full">
                     <summary className="min-h-8 cursor-pointer py-1.5" aria-label={`Topic for ${group.label}`}>Topic</summary>
                     <code className="block select-text break-all pb-2">{group.topic}</code>
@@ -239,14 +240,14 @@ export default function RecordPlayPage() {
                 </div>
               </div>)}
             </div>
-            {!supportedGroups.length && <p className="rounded-lg border p-5 text-sm" style={{ ...border, ...secondary }}>Waiting for robot joint information.</p>}
+            {!supportedGroups.length && <p className="rounded-lg border p-5 text-sm" style={{ ...border, ...secondary }}>No JointTrajectory topics discovered.</p>}
           </section>
           <section className="order-1 min-w-0 rounded-lg border p-4 md:p-5 lg:order-2" style={surface} aria-label="Recording controls">
             <p className="flex items-center gap-2 text-xs" style={secondary}>{isRecording && <span className="h-2 w-2 rounded-full bg-red-500" />} {isRecording ? "Recording" : "Ready to record"}</p>
             <div className="mt-4 text-4xl font-medium tabular-nums tracking-tight">{recordingTime(isRecording ? state.elapsed : 0)}</div>
-            <p className="mt-2 text-xs tabular-nums" style={secondary}>{isRecording ? `${state.messages.toLocaleString("en-US")} messages` : `${chosen.length} joint groups`}</p>
+            <p className="mt-2 text-xs tabular-nums" style={secondary}>{isRecording ? `${state.messages.toLocaleString("en-US")} messages` : `${chosen.length} topics`}</p>
             <div className="mt-6 flex flex-col gap-2">
-              <button type="button" className={button} style={primary} disabled={!available || locked || !chosen.length || !name.trim()} onClick={() => void api.action("record", { robot, name: name.trim(), groups: chosen })}><span aria-hidden="true">●</span>recording start</button>
+              <button type="button" className={button} style={primary} disabled={!available || locked || !chosen.length || !name.trim()} onClick={() => void api.action("record", { name: name.trim(), groups: chosen })}><span aria-hidden="true">●</span>recording start</button>
               <button type="button" className={button} style={danger} disabled={!isRecording || api.busy} onClick={() => void save()}><TransportIcon stop />stop and save</button>
             </div>
           </section>

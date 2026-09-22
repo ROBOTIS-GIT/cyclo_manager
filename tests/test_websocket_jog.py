@@ -29,6 +29,7 @@ from unittest.mock import patch
 from fastapi import WebSocketDisconnect
 from starlette.websockets import WebSocketState
 from test_jog import FakeBridge
+from robot_runtime_fixture import ready_runtime
 
 
 class FakeSocket:
@@ -70,11 +71,11 @@ class FakeSocket:
 
 
 class WebsocketJogTests(unittest.IsolatedAsyncioTestCase):
-    async def run_socket(self, inputs):
+    async def run_socket(self, inputs, runtime=None):
         bridge = FakeBridge()
         bridge.prepare_jog_publishers = lambda *args: True
         fake_state = SimpleNamespace(app_state=SimpleNamespace(
-            get_ros2_bridge_or_none=lambda: bridge))
+            get_ros2_bridge_or_none=lambda: bridge, robot_runtime=runtime or ready_runtime()))
         path = Path(__file__).parents[1] / 'cyclo_manager/routers/websocket_jog.py'
         spec = importlib.util.spec_from_file_location('isolated_jog_router', path)
         module = importlib.util.module_from_spec(spec)
@@ -83,6 +84,21 @@ class WebsocketJogTests(unittest.IsolatedAsyncioTestCase):
         socket = FakeSocket(inputs)
         await module.websocket_jog(socket, 'sg2')
         return bridge, socket
+
+    async def test_old_client_model_does_not_override_actual_profile(self):
+        bridge, socket = await self.run_socket(
+            [{'kind': 'base', 'x': .1}], ready_runtime('omy'))
+        self.assertEqual(bridge.published, [])
+        self.assertIn('does not support', socket.output[0]['error'])
+
+    async def test_bringup_down_keeps_status_connected_but_blocks_motion(self):
+        runtime = ready_runtime()
+        runtime._state.update(ready=False, model=None, generation=None, reason='Bringup down')
+        bridge, socket = await self.run_socket(
+            [{'kind': 'idle'}, {'kind': 'joint', 'joint': 'head_joint1'}], runtime)
+        self.assertFalse(socket.output[0]['state']['robot']['ready'])
+        self.assertIn('Bringup down', socket.output[1]['error'])
+        self.assertEqual(bridge.published, [])
 
     async def test_disconnect_stops_base(self):
         bridge, socket = await self.run_socket([{'kind': 'base', 'y': 0.1}, 'disconnect'])
@@ -105,7 +121,7 @@ class WebsocketJogTests(unittest.IsolatedAsyncioTestCase):
         bridge, socket = await self.run_socket([
             {'kind': 'joint', 'joint': 'head_joint1', 'mode': 'hold'}, 'timeout'])
         self.assertGreater(bridge.published[0][2]['points'][-1]['positions'][0], 0.2)
-        self.assertEqual(bridge.published[-1][2]['points'][-1]['positions'], [0.2])
+        self.assertEqual(bridge.published[-1][2]['points'][-1]['positions'], [0.2, 0.1])
         self.assertTrue(socket.closed)
 
     async def test_joint_hold_disconnect_holds_measured_position(self):
@@ -113,7 +129,7 @@ class WebsocketJogTests(unittest.IsolatedAsyncioTestCase):
             {'kind': 'joint', 'joint': 'head_joint1', 'mode': 'hold'}, 'disconnect'])
         self.assertGreater(bridge.published[0][2]['points'][-1]['positions'][0], 0.2)
         point = bridge.published[-1][2]['points'][-1]
-        self.assertEqual(point['positions'], [0.2])
+        self.assertEqual(point['positions'], [0.2, 0.1])
         self.assertEqual(point['time_from_start'], {'sec': 0, 'nanosec': 0})
         self.assertNotIn('velocities', point)
         self.assertTrue(socket.closed)
@@ -141,7 +157,7 @@ class WebsocketJogTests(unittest.IsolatedAsyncioTestCase):
             {'kind': 'idle'}, (0.6, {'kind': 'idle'})])
         self.assertEqual(len(socket.output), 2)
         self.assertTrue(socket.closed)
-        self.assertEqual(bridge.published[-1][2]['points'][-1]['positions'], [0.2])
+        self.assertEqual(bridge.published[-1][2]['points'][-1]['positions'], [0.2, 0.1])
 
     async def test_invalid_input_stops_preceding_motion(self):
         bridge, socket = await self.run_socket([

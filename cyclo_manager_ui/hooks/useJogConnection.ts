@@ -23,7 +23,7 @@ import {
 import type { JogCommand, JogResolution, JogState } from "@/lib/jog";
 import { getWebSocketBaseUrl } from "@/lib/websocketUtils";
 
-export function useJogConnection(robot: string | null, running: boolean) {
+export function useJogConnection() {
   const [state, setState] = useState<JogState | null>(null);
   const [connected, setConnected] = useState(false);
   const [enabled, setEnabledState] = useState(false);
@@ -52,14 +52,14 @@ export function useJogConnection(robot: string | null, running: boolean) {
   }, [cancelJointPress]);
 
   const command = useCallback((value: JogCommand) => {
-    if (!running || !enabledRef.current) return;
+    if (!enabledRef.current) return;
     cancelJointPress();
     desired.current = value;
     pumpRef.current();
-  }, [cancelJointPress, running]);
+  }, [cancelJointPress]);
 
   const pressJoint = useCallback((joint: string, direction: -1 | 1, resolution: JogResolution) => {
-    if (!running || !enabledRef.current) return;
+    if (!enabledRef.current) return;
     cancelJointPress();
     // Start with one bounded step, then repeat feedback-relative goals when
     // the button remains pressed. Never accumulate targets in the browser.
@@ -75,7 +75,7 @@ export function useJogConnection(robot: string | null, running: boolean) {
       }, JOINT_HOLD_DELAY_MS),
     };
     jointPress.current = press;
-  }, [cancelJointPress, running]);
+  }, [cancelJointPress]);
 
   const releaseJoint = useCallback(() => {
     // A tap completes its single step; releasing a hold stops repeated motion.
@@ -84,21 +84,20 @@ export function useJogConnection(robot: string | null, running: boolean) {
 
   const setEnabled = useCallback((value: boolean) => {
     if (!value) { stop(true); return; }
-    if (!connected || !running) return;
+    if (!connected || !state?.robot.ready) return;
     desired.current = { kind: "idle" };
     enabledRef.current = true;
     setEnabledState(true);
-  }, [connected, running, stop]);
+  }, [connected, state?.robot.ready, stop]);
 
   useEffect(() => {
-    // Hydration must read the saved robot before opening any connection.
-    if (robot === null) return;
     let disposed = false;
     let inFlight = false;
     let lastReply = performance.now();
     let lastSend = -Infinity;
     let hidden = document.hidden;
     let pending: JogCommand | null = null;
+    let generation: string | null = null;
     let ws: WebSocket | null = null;
     const disarm = () => {
       cancelJointPress();
@@ -124,7 +123,7 @@ export function useJogConnection(robot: string | null, running: boolean) {
     // connection creation so that pass can cancel before opening a socket.
     const connectTimer = setTimeout(() => {
       if (disposed) return;
-      const socket = new WebSocket(`${getWebSocketBaseUrl()}/ws/jog/${robot}`);
+      const socket = new WebSocket(`${getWebSocketBaseUrl()}/ws/jog`);
       ws = socket;
       socket.onopen = () => {
         if (disposed) return;
@@ -145,7 +144,16 @@ export function useJogConnection(robot: string | null, running: boolean) {
             socket.close();
             return;
           }
-          if (message.state) { setState(message.state); setConnected(true); }
+          if (message.state) {
+            if (generation !== message.state.robot.generation || !message.state.robot.ready) {
+              cancelJointPress();
+              enabledRef.current = false;
+              setEnabledState(false);
+              desired.current = { kind: "idle" };
+            }
+            generation = message.state.robot.generation;
+            setState(message.state); setConnected(true);
+          }
           const sent = pending;
           if (sent === desired.current && (sent?.kind === "stop" || (sent?.kind === "joint" && sent.mode === "step"))) {
             desired.current = { kind: "idle" };
@@ -218,11 +226,11 @@ export function useJogConnection(robot: string | null, running: boolean) {
       if (ws?.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ kind: "stop" }));
       ws?.close();
     };
-  }, [robot, attempt, stop, cancelJointPress, releaseJoint]);
+  }, [attempt, stop, cancelJointPress, releaseJoint]);
 
   return {
     state, connected,
-    enabled: running && connected && enabled, error, command, pressJoint, releaseJoint, stop, setEnabled,
+    enabled: connected && !!state?.robot.ready && enabled, error, command, pressJoint, releaseJoint, stop, setEnabled,
     reconnect: () => { stop(true); setState(null); setConnected(false); setAttempt(n => n + 1); },
   };
 }

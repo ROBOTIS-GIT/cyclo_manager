@@ -72,7 +72,7 @@ class DockerClient:
                     'id': container.id,
                     'name': container.name,
                     'status': container.status,
-                    'image': container.image.tags[0] if container.image.tags else '',
+                    'image': self._container_image_name(container),
                     'created': container.attrs['Created'],
                 }
                 for container in containers
@@ -80,6 +80,26 @@ class DockerClient:
         except DockerException as e:
             logger.error(f'Failed to list containers: {e}')
             raise
+
+    def get_robot_type(self, container_id: str) -> str:
+        """Read the existing bringup type setting; never inspect or change processes."""
+        container = self.get_container(container_id)
+        result = container.exec_run(['cat', '/run/robot_type'])
+        if result.exit_code != 0:
+            raise ValueError('Cannot read /run/robot_type. Select a robot type and start bringup.')
+        return (result.output or b'').decode('utf-8').strip().lower()
+
+    @staticmethod
+    def _container_image_name(container) -> str:
+        """Keep listing containers even when their image can no longer be inspected."""
+        try:
+            tags = container.image.tags
+            if tags:
+                return tags[0]
+        except DockerException as exc:
+            logger.debug('Cannot inspect image for container %s: %s', container.name, exc)
+        config = container.attrs.get('Config') or {}
+        return config.get('Image') or container.attrs.get('Image') or ''
 
     def _image_usage_map(self) -> dict[str, list[str]]:
         """Map image IDs to container names that reference them."""

@@ -130,3 +130,17 @@ shared API client, navigation, robot-control boundaries and validation commands.
 Camera status shows **Active** when ROS graph inspection finds a publisher, or
 **—** when none is found or status is unavailable. It does not subscribe to images
 or check frame delivery.
+
+### Motion pages
+
+Jog and Record & Play show Server connected and Robot bringup separately. The
+server chooses an AI Worker, OMY or OMX profile from the container's `/run/robot_type`
+and existing s6 bringup status API. The s6-agent does not need updating. Jog routes commands through the profile automatically; it has no
+Automatic/command-topic selector. Joint cards and limits still come from URDF and
+live controller feedback. Restart/model changes disarm Jog.
+
+Record & Play recommends the running profile's topics and also lists other discovered
+JointTrajectory topics for manual capture. Recording needs neither bringup nor an
+active publisher. Playback requires verified bringup, fresh feedback, valid URDF limits
+and verified controller routing. Stop remains available when bringup is unavailable.
+See [Record & Play](../docs/record-play.md) for profile selection and supported interfaces.

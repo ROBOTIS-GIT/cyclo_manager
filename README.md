@@ -109,7 +109,7 @@ Bundled copy for pip installs: `cyclo_manager_cli/cyclo_manager_cli/config/confi
 | Apps hub | `/app` | Links to Cyclo Manager (dashboard) and Cyclo Intelligence (port 7080) |
 | Dashboard | `/dashboard` | Host stats, Docker containers/images, logs, bashrc, version management (host git repos + s6 agent compatibility) |
 | System | `/{container}/system` | s6 bringup, launch args, URDF viewer, streaming service logs (download/clear), robot status |
-| Jog | `/jog` | `/cmd_vel` teleop for supported robot models (SG2, SH5, F2, Mobile) |
+| Jog | `/jog` | Running robot profile + dynamic URDF/controller feedback; automatic command routing |
 | Topics | `/topics` | ROS 2 topic browser; live data via WebSocket |
 | Terminal | `/terminal` | Multi-tab bash into running containers (`?container={name}` optional) |
 | Files | `/files` | Host file browser and text editor (scoped to host agent file root; see Security) |
@@ -171,6 +171,12 @@ Interactive docs: `http://<host>:8081/docs`
 | WebSocket | `/ws/{container}/services/{service}/logs` | Live s6 logs (agent NDJSON stream → browser) |
 | | `/ws/ros2/topics/{topic}` | Live topic data (see below) |
 | | `/ws/ros2/system-status` | Repeated `battery` and `camera` query parameters; battery percentages and camera publisher presence every 2 s; no camera image subscriptions |
+
+**Motion robot selection:** The manager checks existing s6 service status and reads
+`/run/robot_type` from the running container through Docker. That bringup type selects
+the AI Worker, OMY or OMX profile. Jog uses its command routes; Record & Play recommends
+its topics and still allows other discovered trajectory topics. No s6-agent update or
+new endpoint is required. See [motion profiles](docs/record-play.md#robot-profiles).
 
 **Service logs:** Live logs are streamed over WebSocket (not polled). Opening a new browser session re-tails recent lines from the agent, then follows new output. Download returns the current `/var/log/{service}/current` file with ANSI codes removed.
 
