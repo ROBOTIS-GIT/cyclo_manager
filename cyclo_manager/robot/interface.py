@@ -45,6 +45,7 @@ class RobotInterface:
         self.controllers = []
         self.expected_bindings = None
         self.joints: list[RobotJoint] = []
+        self.feedback_received_at: float | None = None
 
     def feedback(self):
         """Read finite positions, sample age and runtime joint limits."""
@@ -77,7 +78,7 @@ class RobotInterface:
 
     def require_feedback(self):
         """Require fresh measured positions and usable robot limits."""
-        positions, age, _ = self.feedback()
+        positions, age, received_at = self.feedback()
         if age is None or age > FEEDBACK_MAX_AGE or not any(j.topic for j in self.joints):
             raise ValueError('Fresh joint feedback and robot description are required.')
         if self.command_topics is not None and not self.command_topics.issubset(
@@ -88,6 +89,7 @@ class RobotInterface:
             current = {j.name: j.topic for j in self.joints if j.topic in topics}
             if current != self.expected_bindings or self.description != self.expected_description:
                 raise ValueError('Controller mapping changed during playback.')
+        self.feedback_received_at = received_at
         return positions
 
     def pin_topics(self, topics):

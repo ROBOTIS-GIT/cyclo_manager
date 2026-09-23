@@ -20,7 +20,7 @@ import { useState } from "react";
 import StatusBadge from "@/components/StatusBadge";
 import { surface, secondary, button as neutral, danger, btn } from "@/components/ui/controlStyles";
 import { useRecordPlay } from "@/hooks/useRecordPlay";
-import { GROUP_LABELS, PHASE_LABELS, recordingTime } from "@/lib/recordPlay";
+import { GROUP_LABELS, PHASE_LABELS, recordingTime, type Recording } from "@/lib/recordPlay";
 
 const border = { borderColor: "var(--vscode-panel-border)" };
 const control = neutral;
@@ -43,6 +43,7 @@ export default function RecordPlayPage() {
   const [rate, setRate] = useState(1);
   const [repeatMode, setRepeatMode] = useState<RepeatMode>("once");
   const [repeats, setRepeats] = useState(5);
+  const [arrivalTolerance, setArrivalTolerance] = useState(0.5);
   const { overview, state } = api;
   const recordings = overview?.recordings ?? [];
   const activeRecording = overview?.recordings.find(item => item.id === state?.recording_id);
@@ -59,6 +60,7 @@ export default function RecordPlayPage() {
   const shownRate = activeMotion ? state.rate ?? 1 : rate;
   const shownMode = activeMotion ? state.repeats === 0 ? "infinite" : state.repeats === 1 ? "once" : "repeat" : repeatMode;
   const shownRepeats = activeMotion && state.repeats > 0 ? state.repeats : repeats;
+  const shownArrivalTolerance = activeMotion ? state.arrival_tolerance_deg ?? 0.5 : arrivalTolerance;
   const showProgress = sameRecording && (activeMotion || (state?.phase === "completed" && rate === (state.rate ?? 1)));
   const elapsed = showProgress ? state?.elapsed ?? 0 : 0;
   const duration = sameRecording && active && state?.duration ? state.duration : (recording?.duration ?? 0) / shownRate;
@@ -67,12 +69,20 @@ export default function RecordPlayPage() {
   const transitioning = sameRecording && activeMotion && (state.phase === "preparing" || state.phase === "returning");
   const error = api.error || state?.error;
   const isRecording = active && state?.phase === "recording";
-  const command = { recording_id: recording?.id, rate, repeats: repeatMode === "infinite" ? 0 : repeatMode === "repeat" ? repeats : 1 };
+  const command = { recording_id: recording?.id, rate, repeats: repeatMode === "infinite" ? 0 : repeatMode === "repeat" ? repeats : 1,
+    arrival_tolerance_deg: arrivalTolerance };
 
   async function save() {
     const result = await api.action("stop");
     if (result?.recording_id && result.phase !== "error") {
       setSelected(result.recording_id); setTab("play"); setName("");
+    }
+  }
+
+  async function removeRecording(item: Recording) {
+    if (!window.confirm(`Delete "${item.name}"? This permanently deletes the recording and its rosbag files.`)) return;
+    if (await api.removeRecording(item.id)) {
+      setSelected(current => current === item.id ? "" : current);
     }
   }
 
@@ -122,16 +132,29 @@ export default function RecordPlayPage() {
               <span className="text-xs tabular-nums" style={secondary}>{recordings.length}</span>
             </div>
             <div className="max-h-80 overflow-y-auto p-2 lg:max-h-[32rem]">
-              {recordings.map(item => <button type="button" key={item.id} aria-pressed={item.id === recording?.id} disabled={locked}
-                className="mb-1 block w-full min-w-0 rounded-lg border px-3 py-3 text-left transition-colors last:mb-0 disabled:cursor-not-allowed"
-                style={{ ...(item.id === recording?.id ? { ...border, background: "var(--vscode-editor-background)", borderColor: "var(--vscode-focusBorder)" } : border), opacity: locked && item.id !== recording?.id ? .5 : 1 }}
-                onClick={() => setSelected(item.id)}>
-                <span className="block break-words text-sm font-medium">{item.name}</span>
-                <span className="mt-1.5 flex items-start justify-between gap-3 text-xs" style={secondary}>
-                  <span className="min-w-0 break-words">{item.groups.map(group => GROUP_LABELS[group] ?? group).join(" · ")}</span>
-                  <span className="shrink-0 tabular-nums">{recordingTime(item.duration)}</span>
-                </span>
-              </button>)}
+              {recordings.map(item => <div key={item.id}
+                className="mb-1 flex w-full min-w-0 items-start rounded-lg border transition-colors last:mb-0"
+                style={item.id === recording?.id ? { ...border, background: "var(--vscode-editor-background)", borderColor: "var(--vscode-focusBorder)" } : border}>
+                <button type="button" aria-pressed={item.id === recording?.id} disabled={locked}
+                  className="min-w-0 flex-1 rounded-lg px-3 py-3 text-left disabled:cursor-not-allowed"
+                  style={{ opacity: locked && item.id !== recording?.id ? .5 : 1 }}
+                  onClick={() => setSelected(item.id)}>
+                  <span className="block break-words text-sm font-medium">{item.name}</span>
+                  <span className="mt-1.5 flex items-start justify-between gap-3 text-xs" style={secondary}>
+                    <span className="min-w-0 break-words">{item.groups.map(group => GROUP_LABELS[group] ?? group).join(" · ")}</span>
+                    <span className="shrink-0 tabular-nums">{recordingTime(item.duration)}</span>
+                  </span>
+                </button>
+                <button type="button" aria-label={`Delete recording ${item.name}`} title={`Delete ${item.name}`}
+                  className="mr-2 mt-2 inline-flex shrink-0 items-center gap-1 rounded border px-2 py-1.5 text-xs hover:opacity-80 disabled:cursor-not-allowed disabled:opacity-40"
+                  style={neutral} disabled={!available || locked}
+                  onClick={() => void removeRecording(item)}>
+                  <svg aria-hidden="true" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M3 6h18M9 6V4h6v2M5 6l1 14h12l1-14M10 10v6M14 10v6" />
+                  </svg>
+                  Delete
+                </button>
+              </div>)}
               {!recordings.length && <p className="px-3 py-6 text-center text-sm" style={secondary}>No recordings yet</p>}
             </div>
           </section>
@@ -139,10 +162,7 @@ export default function RecordPlayPage() {
           <section className="order-1 min-w-0 lg:order-2" aria-label="Playback controls">
             {recording ? <div className="overflow-hidden rounded-lg border" style={surface}>
               <div className="border-b p-4 md:p-5" style={border}>
-                <div className="flex flex-wrap items-start justify-between gap-2">
-                  <h2 className="min-w-0 break-words font-semibold">{recording.name}</h2>
-                  <span className="rounded-md border px-2 py-1 text-xs" style={{ ...border, ...secondary }}>{recording.robot.toUpperCase()}</span>
-                </div>
+                <h2 className="min-w-0 break-words font-semibold">{recording.name}</h2>
                 <p className="mt-1.5 text-xs leading-relaxed" style={secondary}>{recording.groups.map(group => GROUP_LABELS[group] ?? group).join(" · ")}</p>
               </div>
 
@@ -188,6 +208,13 @@ export default function RecordPlayPage() {
                   <input aria-label="Total plays" type="number" min={1} max={10000} className="w-24 rounded border p-1.5 text-sm tabular-nums" style={control} value={shownRepeats}
                     onChange={event => setRepeats(Math.max(1, Math.min(10000, Math.trunc(Number(event.target.value)) || 1)))} />
                 </label>}
+                <label className="col-span-2 flex flex-wrap items-center justify-between gap-3 text-xs" style={secondary}>
+                  <span>Arrival tolerance<span className="mt-1 block">Linear joints: 1 mm</span></span>
+                  <select aria-label="Arrival tolerance" className="w-24 rounded border p-1.5 text-sm disabled:opacity-50" style={control}
+                    value={shownArrivalTolerance} onChange={event => setArrivalTolerance(Number(event.target.value))}>
+                    <option value={0.5}>0.5°</option><option value={1}>1°</option><option value={2}>2°</option><option value={3}>3°</option>
+                  </select>
+                </label>
                 {shownMode !== "once" && <p className="col-span-2 text-xs leading-relaxed" style={secondary}>Returns to the start pose between plays.</p>}
               </fieldset>
 

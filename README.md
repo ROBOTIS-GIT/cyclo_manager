@@ -201,8 +201,9 @@ Interactive docs: `http://<host>:8081/docs`
 | Record & Play | `GET /record-play` | Shared job state, discovered trajectory groups, saved recordings, controller feedback availability and storage path |
 | | `GET /record-play/status` | Read-only job status |
 | | `POST /record-play/record` | Start recording selected topics; bringup and active publishers are not required |
-| | `POST /record-play/play` | Validate ROS feedback, controller routes and bag, move to start pose, then play at 1× or 0.5×; `repeats` is total passes, 0 for infinite |
+| | `POST /record-play/play` | Validate ROS feedback, controller routes and bag, move to start pose, then play at 1× or 0.5×; `repeats` is total passes, 0 for infinite; `arrival_tolerance_deg` is 0.5 (default), 1, 2 or 3, with 0.3 s in tolerance required at each arrival |
 | | `POST /record-play/stop` | Stop/save the active job; optional owner-scoped request |
+| | `DELETE /record-play/recordings/{recording_id}` | Permanently delete a saved recording and its rosbag files; reject deletion while any recording/playback job is active |
 | Host | `GET /host/repos`, `GET /host/repos/updates` | Managed host git repos |
 | | `GET /host/repos/{name}/branch`, `GET /host/repos/{name}/status` | Branch check and local-change status |
 | | `POST /host/repos/{name}/update` | git pull workflow |

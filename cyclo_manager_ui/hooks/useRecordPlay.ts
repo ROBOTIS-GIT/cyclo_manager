@@ -18,7 +18,7 @@
 
 import { getWebSocketBaseUrl, maintainWebSocket } from "@/lib/websocketUtils";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { getRecordPlay, getRecordPlayStatus, recordPlayCommand } from "@/lib/recordPlay";
+import { deleteRecording, getRecordPlay, getRecordPlayStatus, recordPlayCommand } from "@/lib/recordPlay";
 import type { RecordPlayOverview, RecordPlayState } from "@/lib/recordPlay";
 
 export function useRecordPlay() {
@@ -41,20 +41,27 @@ export function useRecordPlay() {
     // Identify the originating page; server jobs do not depend on page lifetime.
     owner.current = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
     let disposed = false;
-    let polling = false;
+    let polling: Promise<void> | null = null;
     let checkingStatus = false;
     let lastOverview = 0;
-    const load = async () => {
-      if (polling) return;
-      polling = true;
-      try {
-        const value = await getRecordPlay();
-        if (!disposed) { setOverview(value); update(value.state); setConnected(true); setConnectionError(null); }
-      } catch (err) {
-        if (!disposed) { setConnected(false); setConnectionError(err instanceof Error ? err.message : "Server unavailable"); }
-      } finally { polling = false; lastOverview = Date.now(); }
+    const load = () => {
+      if (polling) return polling;
+      polling = (async () => {
+        try {
+          const value = await getRecordPlay();
+          if (!disposed) { setOverview(value); update(value.state); setConnected(true); setConnectionError(null); }
+        } catch (err) {
+          if (!disposed) { setConnected(false); setConnectionError(err instanceof Error ? err.message : "Server unavailable"); }
+        } finally { lastOverview = Date.now(); }
+      })().finally(() => { polling = null; });
+      return polling;
     };
-    refresh.current = load;
+    refresh.current = async () => {
+      // A request started before a mutation may still contain the deleted bag.
+      // Finish it, then fetch an overview that reflects the completed command.
+      await polling;
+      if (!disposed) await load();
+    };
     const tick = async () => {
       if (checkingStatus) return;
       checkingStatus = true;
@@ -74,12 +81,19 @@ export function useRecordPlay() {
     };
   }, [update]);
 
-  const action = useCallback(async (kind: "record" | "play" | "stop", data?: object) => {
+  const mutate = useCallback(async (
+    operation: (commandOwner: string) => Promise<RecordPlayState>,
+    onSuccess?: () => void,
+  ) => {
     const commandOwner = owner.current;
     setBusyOwner(commandOwner); setError(null);
     try {
-      const value = await recordPlayCommand(kind, kind === "stop" ? undefined : { ...data, owner: commandOwner });
-      if (mounted.current && owner.current === commandOwner) { update(value); await refresh.current?.(); }
+      const value = await operation(commandOwner);
+      if (mounted.current && owner.current === commandOwner) {
+        update(value);
+        await refresh.current?.();
+        if (mounted.current && owner.current === commandOwner) onSuccess?.();
+      }
       return value;
     } catch (err) {
       if (mounted.current && owner.current === commandOwner) setError(err instanceof Error ? err.message : "Command failed");
@@ -87,9 +101,21 @@ export function useRecordPlay() {
     } finally { if (mounted.current && owner.current === commandOwner) setBusyOwner(null); }
   }, [update]);
 
+  const action = useCallback((kind: "record" | "play" | "stop", data?: object) => mutate(
+    commandOwner => recordPlayCommand(kind, kind === "stop" ? undefined : { ...data, owner: commandOwner }),
+  ), [mutate]);
+
+  const removeRecording = useCallback((recordingId: string) => mutate(
+    () => deleteRecording(recordingId),
+    // Keep confirmed deletions out of the UI even if the refresh failed.
+    () => setOverview(current => current ? {
+      ...current, recordings: current.recordings.filter(item => item.id !== recordingId),
+    } : current),
+  ), [mutate]);
+
   return {
     overview,
     state, error: error || connectionError, connected,
-    busy: busyOwner !== null && busyOwner === owner.current, action, owner: owner.current,
+    busy: busyOwner !== null && busyOwner === owner.current, action, removeRecording, owner: owner.current,
   };
 }

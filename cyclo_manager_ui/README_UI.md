@@ -16,7 +16,7 @@ Next.js web interface for **cyclo_manager** (ROS 2 robot containers, s6 services
   - **Robot Status** panel: one `/ws/ros2/system-status` connection sends battery percentages and camera publisher presence every 2 s. Only battery topics are subscribed automatically. Cameras show **Active** when a publisher exists and **—** otherwise, without subscribing to image messages.
 - **Topics** (`/topics`): Discover topics (`GET /ros2/topics`) and stream message JSON via WebSocket (`/ws/ros2/topics/{topic}`); optional **Info** tab (`GET /ros2/topics/{topic}/info`)
 - **Jog** (`/{container}/jog`): Uses the same container selection as System. Enable/stop controls, joystick or keyboard base input, and joint buttons that update targets continuously while pressed. Joint-button release leaves the last target in place; explicit stop holds the measured position of an active gesture. The server resolves the selected container's profile; joint metadata comes from URDF and ROS feedback. See [Jog](../docs/jog.md).
-- **Record & Play** (`/record-play`): **New recording** selects trajectory topics; **Playback** contains the saved recording list, automatic start-pose transition, speed selection, repetition and stop. Server jobs continue after page navigation. See [Record & Play](../docs/record-play.md).
+- **Record & Play** (`/record-play`): **New recording** selects trajectory topics; **Playback** contains the saved recording list, deletion with confirmation, automatic start-pose transition, speed selection, repetition and stop. Deletion removes the bag and metadata and is available when no recording/playback job is active. Server jobs continue after page navigation. See [Record & Play](../docs/record-play.md).
 - **Terminal** (`/terminal`, optional `?container={name}`): Multi-tab xterm.js shells into running containers, process list with kill; links from Dashboard when a container is running
 - **Files** (`/files`): Browse/search host files, upload by file picker or drag-and-drop, edit UTF-8 text and inspect diffs; create, rename and delete files/directories, with optional hidden files and unsaved-edit/conflict checks
 - **noVNC** (`/novnc`): Start/stop `novnc-server` and open the remote desktop viewer
@@ -52,6 +52,10 @@ name. Recording needs neither bringup nor an active publisher. Playback requires
 fresh joint/controller feedback, valid URDF limits and verified controller routing,
 without Docker/s6 bringup checks. Stop remains available when feedback is unavailable,
 although publishing a pose hold still requires valid feedback and unchanged routes.
+Playback **Arrival tolerance** offers 0.5° (default), 1°, 2° and 3° for angular joints;
+linear joints use 1 mm. Start, repeat-return and final poses require 0.3 seconds
+continuously within tolerance. While a job is active, the selector shows the server's
+setting and cannot be changed. Timeout errors include joint targets and measured errors.
 See [motion profiles](../docs/record-play.md#robot-profiles) for supported types and
 runtime checks.
 
@@ -153,6 +157,7 @@ The UI calls the cyclo_manager **REST API** and **WebSockets**:
 | Recording catalog | `WebSocket /record-play/watch` — scoped subscriptions for the page; closing it does not stop a recording/playback job |
 | Record & Play status | `GET /record-play` for catalog/library/controller feedback about every 2 s, `GET /record-play/status` for job status every 500 ms |
 | Record & Play commands | `POST /record-play/record`, `/record-play/play`, `/record-play/stop` |
+| Delete saved recording | `DELETE /record-play/recordings/{recording_id}` — permanently remove bag files and metadata; an active recording/playback job returns a conflict |
 | Container terminal | `WebSocket /terminal/{name}/ws?session_id=...` |
 | Host files | `GET /host/files/tree`, `/read`, `/search`, `/diff`; `POST /host/files/write`, `/create`, `/rename`, `/upload`; `DELETE /host/files` |
 

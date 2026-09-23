@@ -21,13 +21,14 @@
 import asyncio
 from typing import Literal
 
+from cyclo_manager.record_play.bags import RecordingNotFoundError
 from cyclo_manager.routers.websocket_utils import (
     _close_websocket_ignoring_error, _send_websocket_error,
     release_subscription_owner, run_until_disconnect, send_subscription_ready,
 )
 from cyclo_manager.state import app_state
 from cyclo_manager.subscriptions import SubscriptionOwner
-from fastapi import APIRouter, HTTPException, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, HTTPException, Path, WebSocket, WebSocketDisconnect
 from pydantic import BaseModel, ConfigDict, Field
 
 router = APIRouter(prefix='/record-play', tags=['record-play'])
@@ -51,12 +52,13 @@ class RecordInput(OwnerInput):
 
 
 class PlaybackInput(OwnerInput):
-    """Configure total passes and time scaling for a stored bag."""
+    """Configure total passes, time scaling and angular arrival tolerance."""
 
     recording_id: str = Field(pattern=r'^[0-9a-f]{32}$')
     robot: Robot = 'ros'
     rate: Literal[0.5, 1.0] = 1.0
     repeats: int = Field(default=1, ge=0, le=10000)
+    arrival_tolerance_deg: Literal[0.5, 1.0, 2.0, 3.0] = 0.5
 
 
 def service():
@@ -70,6 +72,8 @@ async def execute(function, *args, **kwargs):
     """Run blocking job commands outside the API event loop."""
     try:
         await asyncio.to_thread(function, *args, **kwargs)
+    except RecordingNotFoundError as exc:
+        raise HTTPException(404, str(exc)) from exc
     except ValueError as exc:
         raise HTTPException(409, str(exc)) from exc
     except (OSError, ImportError) as exc:
@@ -111,7 +115,8 @@ async def play(body: PlaybackInput):
     """Move to the start pose, then replay with optional synchronized returns."""
     manager = service()
     return await execute(manager.motion, body.recording_id, body.robot, body.owner,
-                         rate=body.rate, repeats=body.repeats)
+                         rate=body.rate, repeats=body.repeats,
+                         arrival_tolerance_deg=body.arrival_tolerance_deg)
 
 
 @router.post('/stop')
@@ -119,6 +124,12 @@ async def stop(body: OwnerInput | None = None):
     """Stop even when ROS feedback or the original client are unavailable."""
     # Stop remains available even after feedback/client status fails.
     return await execute(service().stop, owner=body.owner if body else None)
+
+
+@router.delete('/recordings/{recording_id}')
+async def delete_recording(recording_id: str = Path(pattern=r'^[0-9a-f]{32}$')):
+    """Delete one saved recording and return the current server job state."""
+    return await execute(service().delete, recording_id)
 
 
 @router.websocket('/watch')

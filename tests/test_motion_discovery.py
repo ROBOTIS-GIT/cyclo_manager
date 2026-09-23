@@ -35,8 +35,9 @@ NAMES = ['shoulder', 'tool_claw']
 
 
 class DiscoveredBridge(FakeBridge):
-    def __init__(self):
+    def __init__(self, *, streaming=False):
         super().__init__()
+        self.streaming = streaming
         self.listeners = {}
         self.graph = {
             COMMAND: {'type': TRAJECTORY_TYPE, 'subscribers': ['/workcell/controller'], 'publishers': []},
@@ -54,6 +55,13 @@ class DiscoveredBridge(FakeBridge):
 
     def motion_graph(self):
         return self.graph
+
+    def get_topic_data(self, topic):
+        cached = super().get_topic_data(topic)
+        # Playback arrival requires continuing joint and controller samples.
+        if self.streaming and cached is not None and topic in ('/joint_states', STATE):
+            cached['received_at'] = time.time()
+        return cached
 
     def add_message_listener(self, topic, listener):
         self.listeners[topic] = listener
@@ -83,6 +91,7 @@ class MotionDiscoveryTests(unittest.TestCase):
         self.assertTrue(all(j.topic == COMMAND for j in chosen.joints))
 
     def test_playback_uses_recorded_topic_when_an_alternative_route_exists(self):
+        self.bridge.streaming = True
         self.bridge.graph['/other_input'] = self.bridge.graph[COMMAND]
         self.bridge.jog_publishers_ready = lambda topics: True
         with tempfile.TemporaryDirectory() as root:

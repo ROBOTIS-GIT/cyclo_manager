@@ -280,7 +280,7 @@ class ProfileMotionTests(unittest.TestCase):
         self.assertEqual(bridge.published, [])
 
     def test_playback_uses_ros_routes_without_a_runtime_or_profile(self):
-        bridge = DiscoveredBridge()
+        bridge = DiscoveredBridge(streaming=True)
         bridge.jog_publishers_ready = lambda _: True
         with tempfile.TemporaryDirectory() as root:
             store = MemoryStore(root)
@@ -298,7 +298,7 @@ class ProfileMotionTests(unittest.TestCase):
             self.assertEqual(bridge.published[0][0], COMMAND)
 
     def test_ros_mapping_change_during_playback_stops_later_commands(self):
-        bridge = DiscoveredBridge()
+        bridge = DiscoveredBridge(streaming=True)
         bridge.jog_publishers_ready = lambda _: True
         original_publish = bridge.publish_jog
         def publish(*args):

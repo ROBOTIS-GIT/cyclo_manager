@@ -29,13 +29,18 @@ from cyclo_manager.robot.catalog import catalog
 from cyclo_manager.motion_guard import motion_lock
 from cyclo_manager.record_play.bags import BagStore
 from cyclo_manager.record_play.motion import (
-    arrived, interpolate, MotionPlan, return_duration,
+    arrival_errors, arrived, interpolate, MotionPlan, return_duration,
 )
 from cyclo_manager.robot.interface import position_message, RobotInterface, TRAJECTORY_TYPE
 from cyclo_manager.subscriptions import subscribe_joint_feedback, SubscriptionOwner
 
 logger = logging.getLogger(__name__)
 ARRIVAL_TIMEOUT = 10.0
+ARRIVAL_STABLE_TIME = 0.3
+IDLE_STATE = {'phase': 'idle', 'active': False, 'error': None, 'owner': None,
+              'recording_id': None, 'robot': None, 'cycle': 0, 'repeats': 1,
+              'elapsed': 0.0, 'duration': 0.0, 'return_duration': 0.0,
+              'messages': 0, 'rate': 1.0, 'arrival_tolerance_deg': 0.5}
 
 
 class Cancelled(Exception):
@@ -53,10 +58,7 @@ class RecordPlayService:
         self._commands = threading.Lock()
         self._thread = None
         self._cancel = threading.Event()
-        self._state = {'phase': 'idle', 'active': False, 'error': None, 'owner': None,
-                       'recording_id': None, 'robot': None, 'cycle': 0, 'repeats': 1,
-                       'elapsed': 0.0, 'duration': 0.0, 'return_duration': 0.0,
-                       'messages': 0, 'rate': 1.0}
+        self._state = dict(IDLE_STATE)
 
     def update(self, **values):
         """Publish an atomic state update to HTTP readers."""
@@ -134,7 +136,8 @@ class RecordPlayService:
             group_topics = {group: choices[group] for group in groups}
             self._start('recording', robot, owner,
                         lambda: self._record(name, robot, group_topics),
-                        recording_id=None, repeats=1, duration=0.0, rate=1.0)
+                        recording_id=None, repeats=1, duration=0.0, rate=1.0,
+                        arrival_tolerance_deg=0.5)
 
     def _record(self, name, robot, group_topics):
         with SubscriptionOwner(self.bridge) as subscriptions:
@@ -208,25 +211,30 @@ class RecordPlayService:
         self.store.save(recording_id, metadata)
         self.update(phase='idle', duration=metadata['duration'])
 
-    def motion(self, recording_id, robot, owner, rate=1.0, repeats=1):
+    def motion(self, recording_id, robot, owner, rate=1.0, repeats=1,
+               arrival_tolerance_deg=0.5):
         """Move to the start pose and replay as one interruptible server job."""
         with self._commands:
             metadata = self.store.get(recording_id)
             self._start('loading', robot, owner,
-                        lambda: self._motion(recording_id, robot, rate, repeats),
+                        lambda: self._motion(recording_id, robot, rate, repeats,
+                                             arrival_tolerance_deg),
                         recording_id=recording_id, repeats=repeats,
-                        duration=metadata['duration'], rate=rate)
+                        duration=metadata['duration'], rate=rate,
+                        arrival_tolerance_deg=arrival_tolerance_deg)
 
-    def _motion(self, recording_id, robot, rate, repeats):
+    def _motion(self, recording_id, robot, rate, repeats, arrival_tolerance_deg):
         if not motion_lock.acquire(blocking=False):
             raise ValueError('Jog is moving. Stop Jog before playback.')
         try:
             with SubscriptionOwner(self.bridge) as subscriptions:
-                self._run_motion(recording_id, robot, rate, repeats, subscriptions)
+                self._run_motion(recording_id, robot, rate, repeats, subscriptions,
+                                 arrival_tolerance_deg)
         finally:
             motion_lock.release()
 
-    def _run_motion(self, recording_id, robot, rate, repeats, subscriptions):
+    def _run_motion(self, recording_id, robot, rate, repeats, subscriptions,
+                    arrival_tolerance_deg):
         recorded_topics = self.store.get(recording_id)['topics']
         connection = self._connection(robot, subscriptions, command_topics=recorded_topics)
         plan = None
@@ -250,7 +258,7 @@ class RecordPlayService:
             connection.require_feedback()
             self.update(duration=plan.duration / rate)
             attempted = True
-            self._return(connection, plan, 'preparing')
+            self._return(connection, plan, 'preparing', arrival_tolerance_deg)
             cycle = 0
             while repeats == 0 or cycle < repeats:
                 self._check()
@@ -267,9 +275,9 @@ class RecordPlayService:
                     self.update(elapsed=offset)
                 self._wait_until(start + plan.duration / rate, connection)
                 self.update(phase='settling', elapsed=plan.duration / rate)
-                self._arrive(connection, plan, plan.goals(end=True))
+                self._arrive(connection, plan, plan.goals(end=True), arrival_tolerance_deg)
                 if repeats == 0 or cycle < repeats:
-                    self._return(connection, plan, 'returning')
+                    self._return(connection, plan, 'returning', arrival_tolerance_deg)
             self.update(phase='completed')
         finally:
             # EOF is not a stop. On cancellation/failure replace any pending timed goal.
@@ -309,21 +317,47 @@ class RecordPlayService:
                 return
             self._cancel.wait(min(0.05, remaining))
 
-    def _arrive(self, connection, plan, goals):
+    def _arrive(self, connection, plan, goals, arrival_tolerance_deg):
         deadline = time.monotonic() + ARRIVAL_TIMEOUT
+        stable_since = None
+        stable_sample_since = None
+        last_errors = []
         while True:
             self._check()
-            if arrived(goals, connection.require_feedback(), plan.joints):
-                return
-            if time.monotonic() > deadline:
-                raise ValueError('Joint target arrival timed out; playback stopped.')
+            errors = arrival_errors(goals, connection.require_feedback(), plan.joints,
+                                    arrival_tolerance_deg)
+            now = time.monotonic()
+            sample_at = connection.feedback_received_at
+            if errors:
+                stable_since = None
+                stable_sample_since = None
+                last_errors = errors
+            else:
+                if stable_since is None or sample_at < stable_sample_since:
+                    stable_since = now
+                    stable_sample_since = sample_at
+                # A cached sample remains fresh for 0.5 s. It must not alone
+                # establish a 0.3 s stable arrival when feedback stops arriving.
+                if (now - stable_since >= ARRIVAL_STABLE_TIME
+                        and sample_at - stable_sample_since >= ARRIVAL_STABLE_TIME):
+                    return
+            if now > deadline:
+                detail = '; '.join(errors)
+                if not errors:
+                    detail = (f'Targets are within tolerance now, but did not remain within '
+                              f'tolerance for {ARRIVAL_STABLE_TIME:.1f} s continuously.')
+                    if last_errors:
+                        detail += ' Last outside tolerance: ' + '; '.join(last_errors)
+                raise ValueError('Joint target arrival timed out; playback stopped. ' + detail)
             self._cancel.wait(0.1)
 
-    def _return(self, connection, plan, phase):
+    def _return(self, connection, plan, phase, arrival_tolerance_deg):
         self._check()
         positions = connection.require_feedback()
         goals = plan.goals()
-        if arrived(goals, positions, plan.joints):
+        self.update(phase=phase, return_duration=0.0)
+        if arrived(goals, positions, plan.joints, arrival_tolerance_deg):
+            self._arrive(connection, plan, goals, arrival_tolerance_deg)
             return
         duration = return_duration(goals, positions, plan.joints, connection.description)
         self.update(phase=phase, return_duration=duration)
@@ -336,7 +370,19 @@ class RecordPlayService:
             if fraction >= 1:
                 break
             self._cancel.wait(0.1)
-        self._arrive(connection, plan, goals)
+        self._arrive(connection, plan, goals, arrival_tolerance_deg)
+
+    def delete(self, recording_id):
+        """Delete a saved bag only while recording and playback are fully idle."""
+        with self._commands:
+            state = self.status()
+            if state['active'] or (self._thread and self._thread.is_alive()):
+                raise ValueError('Cannot delete recordings while recording or playback is active. '
+                                 'Stop it first.')
+            self.store.delete(recording_id)
+            if state['recording_id'] == recording_id:
+                self.update(**IDLE_STATE)
+            return self.status()
 
     def stop(self, owner=None):
         """Cancel motion or finalize recording, optionally scoped to its originating page."""

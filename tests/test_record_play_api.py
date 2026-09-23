@@ -25,6 +25,7 @@ from types import SimpleNamespace
 import unittest
 from unittest.mock import AsyncMock, MagicMock, patch
 
+from cyclo_manager.record_play.bags import RecordingNotFoundError
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
@@ -67,8 +68,29 @@ class RecordPlayAPITests(unittest.TestCase):
         response = self.client.post(
             '/record-play/play', json={**self.play, 'repeats': 0, 'rate': .5})
         self.assertEqual(response.status_code, 200)
-        self.manager.motion.assert_called_once_with('a' * 32, 'f2', 'browser', rate=.5, repeats=0)
+        self.manager.motion.assert_called_once_with(
+            'a' * 32, 'f2', 'browser', rate=.5, repeats=0, arrival_tolerance_deg=.5)
         self.agent.get_service_status.assert_not_awaited()
+
+    def test_arrival_tolerance_choices_are_forwarded_without_bringup_lookup(self):
+        for tolerance in (.5, 1, 2, 3):
+            with self.subTest(tolerance=tolerance):
+                self.manager.motion.reset_mock()
+                response = self.client.post('/record-play/play', json={
+                    **self.play, 'arrival_tolerance_deg': tolerance})
+                self.assertEqual(response.status_code, 200)
+                self.manager.motion.assert_called_once_with(
+                    'a' * 32, 'f2', 'browser', rate=1, repeats=1,
+                    arrival_tolerance_deg=tolerance)
+        self.agent.get_service_status.assert_not_awaited()
+
+    def test_invalid_arrival_tolerance_never_starts_motion(self):
+        for tolerance in (-1, 0, 2.5, 4, '2', 'NaN', None):
+            with self.subTest(tolerance=tolerance):
+                response = self.client.post('/record-play/play', json={
+                    **self.play, 'arrival_tolerance_deg': tolerance})
+                self.assertEqual(response.status_code, 422)
+        self.manager.motion.assert_not_called()
 
     def test_overview_reads_ros_catalog_without_runtime(self):
         self.manager.catalog.return_value = [{'joints': ['joint1']}]
@@ -95,6 +117,31 @@ class RecordPlayAPITests(unittest.TestCase):
         response = self.client.post('/record-play/stop', json={'owner': 'old-browser'})
         self.assertEqual(response.status_code, 200)
         self.manager.stop.assert_called_once_with(owner='old-browser')
+
+    def test_delete_returns_current_job_state(self):
+        response = self.client.delete(f'/record-play/recordings/{"a" * 32}')
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json(), self.manager.status.return_value)
+        self.manager.delete.assert_called_once_with('a' * 32)
+        self.agent.get_service_status.assert_not_awaited()
+
+    def test_delete_validates_id_before_calling_service(self):
+        for recording_id in ('invalid', 'A' * 32, 'a' * 31, 'a' * 33):
+            with self.subTest(recording_id=recording_id):
+                response = self.client.delete(f'/record-play/recordings/{recording_id}')
+                self.assertEqual(response.status_code, 422)
+        self.manager.delete.assert_not_called()
+
+    def test_delete_reports_missing_active_and_storage_failure_separately(self):
+        cases = ((RecordingNotFoundError('missing recording'), 404),
+                 (ValueError('active recording'), 409),
+                 (PermissionError('storage denied'), 503))
+        for error, status_code in cases:
+            with self.subTest(status_code=status_code):
+                self.manager.delete.side_effect = error
+                response = self.client.delete(f'/record-play/recordings/{"a" * 32}')
+                self.assertEqual(response.status_code, status_code)
+                self.assertIn(str(error), response.json()['detail'])
 
 
 if __name__ == '__main__':

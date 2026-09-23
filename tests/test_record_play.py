@@ -19,6 +19,7 @@
 """Exercise recording, timed playback and loop return without ROS or hardware."""
 
 from copy import deepcopy
+from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutureTimeout
 import tempfile
 import threading
 import time
@@ -141,7 +142,10 @@ class RecordPlayTests(unittest.TestCase):
         self.assertEqual(persisted.get(self.recording_id)['name'], 'test')
 
     def test_record_captures_every_callback_and_persists_on_stop(self):
+        self.assertEqual(self.service.status()['arrival_tolerance_deg'], .5)
+        self.service.update(arrival_tolerance_deg=3)
         self.service.record('new', 'f2', ['head'], 'owner')
+        self.assertEqual(self.service.status()['arrival_tolerance_deg'], .5)
         self.wait(lambda: TOPIC in self.bridge.listeners)
         for index in range(10):
             self.bridge.listeners[TOPIC](TOPIC, trajectory(index / 100), time.time_ns())
@@ -282,9 +286,11 @@ class RecordPlayTests(unittest.TestCase):
 
     def test_loop_returns_before_second_cycle_and_keeps_duration_zero(self):
         with patch('cyclo_manager.record_play.service.return_duration', return_value=.01):
-            self.service.motion(self.recording_id, 'f2', 'owner', repeats=2)
+            self.service.motion(self.recording_id, 'f2', 'owner', repeats=2,
+                                arrival_tolerance_deg=1)
             self.finish()
         self.assertEqual(self.service.status()['phase'], 'completed')
+        self.assertEqual(self.service.status()['arrival_tolerance_deg'], 1)
         self.assertEqual(self.service.status()['cycle'], 2)
         values = [data['points'][0]['positions'][0] for _, _, data in self.bridge.published]
         self.assertEqual(values[0], .2)
@@ -394,7 +400,8 @@ class RecordPlayTests(unittest.TestCase):
 
     def test_joint_not_reaching_target_aborts_without_starting_next_cycle(self):
         self.bridge.follow = False
-        with patch('cyclo_manager.record_play.service.ARRIVAL_TIMEOUT', .02):
+        # Initial measured start must pass its 0.3 s dwell before final arrival fails.
+        with patch('cyclo_manager.record_play.service.ARRIVAL_TIMEOUT', .4):
             with self.assertLogs('cyclo_manager.record_play.service', level='ERROR'):
                 self.service.motion(self.recording_id, 'f2', 'owner', repeats=2)
                 self.finish()
@@ -410,6 +417,110 @@ class RecordPlayTests(unittest.TestCase):
         self.bridge.listeners[TOPIC](TOPIC, trajectory(.2), time.time_ns())
         self.service.stop(owner='new-owner')
         self.finish()
+
+    def test_delete_completed_playback_clears_its_inactive_state(self):
+        self.service.motion(self.recording_id, 'f2', 'owner')
+        self.finish()
+        self.assertEqual(self.service.status()['phase'], 'completed')
+        state = self.service.delete(self.recording_id)
+        self.assertEqual(state['phase'], 'idle')
+        self.assertIsNone(state['recording_id'])
+        self.assertIsNone(state['owner'])
+        self.assertIsNone(state['error'])
+        self.assertEqual(state['cycle'], 0)
+        self.assertEqual(state['duration'], 0)
+        self.assertFalse(self.store.path(self.recording_id).exists())
+
+    def test_delete_active_playback_is_rejected_without_stopping_it(self):
+        self.store.messages[self.recording_id][1] = (TOPIC, trajectory(.3), 5000000000)
+        self.service.motion(self.recording_id, 'f2', 'owner')
+        self.wait(lambda: self.service.status()['phase'] == 'playing')
+        with self.assertRaisesRegex(ValueError, 'Cannot delete recordings'):
+            self.service.delete(self.recording_id)
+        self.assertTrue(self.service.status()['active'])
+        self.assertFalse(self.service._cancel.is_set())
+        self.assertTrue(self.store.path(self.recording_id).exists())
+        self.service.stop()
+        self.finish()
+
+    def test_recording_blocks_deleting_its_own_or_another_bag_without_stopping(self):
+        self.service.record('ongoing', 'f2', ['head'], 'owner')
+        self.wait(lambda: TOPIC in self.bridge.listeners)
+        active_id = self.service.status()['recording_id']
+        for recording_id in (active_id, self.recording_id):
+            with self.assertRaisesRegex(ValueError, 'Cannot delete recordings'):
+                self.service.delete(recording_id)
+        state = self.service.status()
+        self.assertTrue(state['active'])
+        self.assertEqual(state['phase'], 'recording')
+        self.assertEqual(state['recording_id'], active_id)
+        self.assertEqual(state['owner'], 'owner')
+        self.assertTrue(self.store.path(self.recording_id).exists())
+        self.assertFalse(self.service._cancel.is_set())
+        self.bridge.listeners[TOPIC](TOPIC, trajectory(.2), time.time_ns())
+        self.service.stop()
+        self.finish()
+        self.assertEqual(self.store.get(active_id)['messages'], 1)
+
+    def test_delete_waits_for_worker_exit_even_after_active_is_cleared(self):
+        finishing, release = threading.Event(), threading.Event()
+
+        def finish_later():
+            self.service.update(phase='completed', active=False)
+            finishing.set()
+            release.wait(3)
+
+        self.service._start('loading', 'f2', 'owner', finish_later,
+                            recording_id=self.recording_id)
+        try:
+            self.assertTrue(finishing.wait(1))
+            with self.assertRaisesRegex(ValueError, 'Cannot delete recordings'):
+                self.service.delete(self.recording_id)
+            self.assertTrue(self.store.path(self.recording_id).exists())
+        finally:
+            release.set()
+            self.service._thread.join(timeout=1)
+        self.service.delete(self.recording_id)
+        self.assertFalse(self.store.path(self.recording_id).exists())
+
+    def test_failed_deletion_keeps_state_and_saved_recording(self):
+        self.service.update(phase='completed', recording_id=self.recording_id, duration=5)
+        before = self.service.status()
+        with patch.object(self.store, 'delete', side_effect=PermissionError('denied')):
+            with self.assertRaises(PermissionError):
+                self.service.delete(self.recording_id)
+        self.assertEqual(self.service.status(), before)
+        self.assertTrue(self.store.path(self.recording_id).exists())
+
+    def test_playback_cannot_start_while_its_bag_is_being_deleted(self):
+        deleting, release, starting = threading.Event(), threading.Event(), threading.Event()
+        delete = self.store.delete
+
+        def delayed_delete(recording_id):
+            deleting.set()
+            release.wait(3)
+            delete(recording_id)
+
+        def start_motion():
+            starting.set()
+            self.service.motion(self.recording_id, 'f2', 'owner')
+
+        with patch.object(self.store, 'delete', side_effect=delayed_delete):
+            with ThreadPoolExecutor(max_workers=2) as executor:
+                deletion = executor.submit(self.service.delete, self.recording_id)
+                try:
+                    self.assertTrue(deleting.wait(1))
+                    motion = executor.submit(start_motion)
+                    self.assertTrue(starting.wait(1))
+                    with self.assertRaises(FutureTimeout):
+                        motion.result(timeout=.1)
+                finally:
+                    release.set()
+                deletion.result(timeout=1)
+                with self.assertRaisesRegex(ValueError, 'missing or incomplete'):
+                    motion.result(timeout=1)
+        self.assertEqual(self.bridge.published, [])
+        self.assertFalse(self.service.status()['active'])
 
 
 if __name__ == '__main__':

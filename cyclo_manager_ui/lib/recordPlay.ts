@@ -27,6 +27,7 @@ export type RecordPlayState = {
   robot: string | null; cycle: number; repeats: number; elapsed: number; duration: number;
   return_duration: number; messages: number;
   rate?: number;
+  arrival_tolerance_deg?: number;
 };
 export type RecordingGroup = { id: string; label: string; topic: string; receiving: boolean; recommended: boolean };
 export type RecordPlayOverview = {
@@ -52,3 +53,6 @@ export const getRecordPlay = () => request<RecordPlayOverview>({
 export const getRecordPlayStatus = () => request<RecordPlayState>({ url: "/record-play/status", timeout: 5000 });
 export const recordPlayCommand = (action: "record" | "play" | "stop", data?: object) =>
   request<RecordPlayState>({ method: "POST", url: `/record-play/${action}`, data, timeout: 10000 });
+export const deleteRecording = (recordingId: string) => request<RecordPlayState>({
+  method: "DELETE", url: `/record-play/recordings/${encodeURIComponent(recordingId)}`, timeout: 10000,
+});

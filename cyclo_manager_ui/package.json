@@ -8,6 +8,7 @@
     "start": "next start",
     "lint": "eslint",
     "test:observers": "node --test tests/websocketUtils.test.cjs",
+    "test:record-play": "node --test tests/recordPlay.test.cjs",
     "test:jog": "node --test tests/jogConnection.test.cjs tests/navigation.test.cjs"
   },
   "dependencies": {

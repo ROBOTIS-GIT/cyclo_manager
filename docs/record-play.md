@@ -59,6 +59,11 @@ The saved recording list is inside **Playback**. Expanding **Topic** in a record
 group shows the actual ROS topic name. Publisher presence is informational and
 does not prevent starting a capture.
 
+Use **Delete** beside a saved recording and confirm deletion to permanently remove
+its rosbag files and metadata from storage. Stop/save the active recording or stop
+playback before deleting recordings. Deletion does not require robot feedback.
+Incomplete captures are not shown in this list.
+
 ## Playback and repetition
 
 Stop leader publishing before playing. There is no leader control
@@ -88,10 +93,22 @@ calculated from displacement, URDF velocity limits and conservative return
 limits (10°/s and 20°/s²; lift 10 mm/s and 20 mm/s²). Duration accounts for quintic
 peak speed and acceleration and is limited to 120 seconds. Position commands
 have `time_from_start=0`. These bound the generated targets, not the controller's
-physical motion. Arrival tolerance is 0.5° or 1 mm; failure to arrive within ten
-seconds after the planned interval aborts playback. Joint feedback must be at
+physical motion. **Arrival tolerance** selects the angular tolerance for each
+playback job: 0.5° (default), 1°, 2° or 3°. Linear joints use 1 mm. The same setting
+applies to the start pose, repeat returns and final pose, including held joints.
+All involved joints must stay within tolerance for 0.3 seconds before proceeding,
+even if the initial pose is already within tolerance. An out-of-range observation
+restarts that interval. Failure to settle within ten seconds after the planned
+interval aborts playback; the error reports the affected joints, targets, measured
+positions, errors and tolerances in degrees or millimeters. Joint feedback must be at
 most 500 ms old throughout movement. More than 500 ms of playback lag aborts
 instead of bursting overdue messages.
+
+The option is sent as `arrival_tolerance_deg` in `POST /record-play/play` and
+reported in job status so other browser clients show the running job's setting.
+Choose a tolerance that meets the task's accuracy needs and the robot's measured
+tracking error across poses and loads. This setting does not depend on the saved
+recording's robot label or Docker bringup status.
 
 The return is a joint-space transition, not collision avoidance. For contact or
 grasping tasks, record the release and safe return path as part of the motion;
@@ -151,7 +168,8 @@ definitions without depending on Jog state or publishing commands.
 ## Validation
 
 `python -m unittest discover -s tests -v` covers filesystem IDs, recording
-capture/finalization, validation before publishing, rate scaling, held joints,
+capture/finalization, deletion and active-job protection, validation before
+publishing, rate scaling, held joints,
 quintic transitions, finite/infinite loops, stops, ownership, feedback/discovery
 failures and HTTP validation with fake robot feedback. A separate integration
 check should write/read a temporary MCAP using the installed ROS packages.

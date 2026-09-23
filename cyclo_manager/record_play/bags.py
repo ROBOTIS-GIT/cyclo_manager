@@ -21,9 +21,14 @@
 import json
 from pathlib import Path
 import re
+import shutil
 import uuid
 
 from cyclo_manager.robot.interface import TRAJECTORY_TYPE
+
+
+class RecordingNotFoundError(LookupError):
+    """The requested completed recording does not exist."""
 
 
 class BagStore:
@@ -74,6 +79,17 @@ class BagStore:
                 except ValueError:
                     continue
         return sorted(records, key=lambda item: item['created_at'], reverse=True)
+
+    def delete(self, recording_id):
+        """Remove one completed recording, including its bag and metadata."""
+        path = self.path(recording_id)
+        try:
+            # A directory without finalized metadata is not a saved recording.
+            json.loads((path / 'recording.json').read_text())
+        except (FileNotFoundError, NotADirectoryError, json.JSONDecodeError) as exc:
+            raise RecordingNotFoundError('Recording is missing or incomplete.') from exc
+        # rmtree unlinks nested symlinks instead of following them outside this bag.
+        shutil.rmtree(path)
 
     def writer(self, recording_id, topics):
         """Open an MCAP writer for the selected trajectory topics."""

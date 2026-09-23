@@ -24,7 +24,6 @@ import xml.etree.ElementTree as ET
 
 RETURN_SPEED = {'rad': math.radians(10), 'm': 0.01}
 RETURN_ACCELERATION = {'rad': math.radians(20), 'm': 0.02}
-ARRIVAL_TOLERANCE = {'rad': math.radians(0.5), 'm': 0.001}
 
 
 def duration_seconds(point):
@@ -133,10 +132,30 @@ class MotionPlan:
         return result
 
 
-def arrived(goals, positions, joints):
-    """Compare each commanded joint against its measured position."""
-    return all(name in positions and abs(positions[name] - target) <= ARRIVAL_TOLERANCE[
-        joints[name].unit] for group in goals.values() for name, target in group.items())
+def arrival_errors(goals, positions, joints, arrival_tolerance_deg=0.5):
+    """Describe missed targets in operator units; linear tolerance stays at 1 mm."""
+    errors = []
+    for group in goals.values():
+        for name, target in group.items():
+            linear = joints[name].unit == 'm'
+            tolerance = 0.001 if linear else math.radians(arrival_tolerance_deg)
+            scale, unit = (1000, 'mm') if linear else (180 / math.pi, 'deg')
+            current = positions.get(name)
+            measured = current is not None and math.isfinite(current)
+            error = abs(current - target) if measured else None
+            if measured and error <= tolerance:
+                continue
+            current_text = f'{current * scale:.3f} {unit}' if measured else 'unavailable'
+            error_text = f'{error * scale:.3f} {unit}' if measured else 'unavailable'
+            errors.append(f'{name}: target={target * scale:.3f} {unit}, '
+                          f'current={current_text}, error={error_text}, '
+                          f'tolerance={tolerance * scale:.3f} {unit}')
+    return errors
+
+
+def arrived(goals, positions, joints, arrival_tolerance_deg=0.5):
+    """Compare every commanded joint using this playback's angular tolerance."""
+    return not arrival_errors(goals, positions, joints, arrival_tolerance_deg)
 
 
 def return_duration(goals, positions, joints, description):
