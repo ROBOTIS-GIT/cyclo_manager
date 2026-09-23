@@ -208,8 +208,8 @@ export default function RecordPlayPage() {
                   <input aria-label="Total plays" type="number" min={1} max={10000} className="w-24 rounded border p-1.5 text-sm tabular-nums" style={control} value={shownRepeats}
                     onChange={event => setRepeats(Math.max(1, Math.min(10000, Math.trunc(Number(event.target.value)) || 1)))} />
                 </label>}
-                <label className="col-span-2 flex flex-wrap items-center justify-between gap-3 text-xs" style={secondary}>
-                  <span>Arrival tolerance<span className="mt-1 block">Linear joints: 1 mm</span></span>
+                <label className="col-span-2 flex flex-wrap items-center justify-end gap-3 text-xs" style={secondary}>
+                  <span className="text-right">Arrival tolerance<span className="mt-1 block">Linear joints: 1 mm</span></span>
                   <select aria-label="Arrival tolerance" className="w-24 rounded border p-1.5 text-sm disabled:opacity-50" style={control}
                     value={shownArrivalTolerance} onChange={event => setArrivalTolerance(Number(event.target.value))}>
                     <option value={0.5}>0.5°</option><option value={1}>1°</option><option value={2}>2°</option><option value={3}>3°</option>
@@ -233,7 +233,6 @@ export default function RecordPlayPage() {
               <p className="mt-2 text-sm" style={secondary}>{activeMotion ? PHASE_LABELS[state.phase] : "Capture joint motion, then replay it here."}</p>
               <div className="mt-5">{activeMotion ? stopButton : <button className={button} style={primary} onClick={() => setTab("record")}>New recording</button>}</div>
             </div>}
-            <p className="mt-3 px-1 text-xs leading-relaxed" style={secondary}>Stop leader publishing before playback. Playback continues when you leave this page.</p>
           </section>
         </div>
       </div>

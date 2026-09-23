@@ -36,7 +36,7 @@ export function useRecordPlay() {
 
   useEffect(() => {
     const closeObserver = maintainWebSocket(() => new WebSocket(
-      `${getWebSocketBaseUrl()}/record-play/watch`
+      `${getWebSocketBaseUrl()}/record_play/watch`
     ));
     mounted.current = true;
     // Identify the originating page; server jobs do not depend on page lifetime.

@@ -48,11 +48,11 @@ export function recordingTime(seconds: number) {
   return `${Math.floor(value / 60).toString().padStart(2, "0")}:${(value % 60).toFixed(1).padStart(4, "0")}`;
 }
 export const getRecordPlay = () => request<RecordPlayOverview>({
-  url: "/record-play", timeout: 5000,
+  url: "/record_play", timeout: 5000,
 });
-export const getRecordPlayStatus = () => request<RecordPlayState>({ url: "/record-play/status", timeout: 5000 });
+export const getRecordPlayStatus = () => request<RecordPlayState>({ url: "/record_play/status", timeout: 5000 });
 export const recordPlayCommand = (action: "record" | "play" | "stop", data?: object) =>
-  request<RecordPlayState>({ method: "POST", url: `/record-play/${action}`, data, timeout: 10000 });
+  request<RecordPlayState>({ method: "POST", url: `/record_play/${action}`, data, timeout: 10000 });
 export const deleteRecording = (recordingId: string) => request<RecordPlayState>({
-  method: "DELETE", url: `/record-play/recordings/${encodeURIComponent(recordingId)}`, timeout: 10000,
+  method: "DELETE", url: `/record_play/recordings/${encodeURIComponent(recordingId)}`, timeout: 10000,
 });

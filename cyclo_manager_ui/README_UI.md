@@ -154,10 +154,10 @@ The UI calls the cyclo_manager **REST API** and **WebSockets**:
 | System telemetry | `WebSocket /ws/ros2/system-status?battery=...&camera=...` — repeated query parameters, battery subscriptions only; camera graph inspection |
 | Jog | `WebSocket /ws/jog?container={container}` — operator intent refreshed at 10 Hz, server ROS publishing at 20 Hz, independent status at about 10 Hz; closes on page unmount or container change |
 | Jog bringup | `GET /{container}/bringup_status` — page-owned polling every 2 s, no overlapping requests; per-container observations expire after 4 s |
-| Recording catalog | `WebSocket /record-play/watch` — scoped subscriptions for the page; closing it does not stop a recording/playback job |
-| Record & Play status | `GET /record-play` for catalog/library/controller feedback about every 2 s, `GET /record-play/status` for job status every 500 ms |
-| Record & Play commands | `POST /record-play/record`, `/record-play/play`, `/record-play/stop` |
-| Delete saved recording | `DELETE /record-play/recordings/{recording_id}` — permanently remove bag files and metadata; an active recording/playback job returns a conflict |
+| Recording catalog | `WebSocket /record_play/watch` — scoped subscriptions for the page; closing it does not stop a recording/playback job |
+| Record & Play status | `GET /record_play` for catalog/library/controller feedback about every 2 s, `GET /record_play/status` for job status every 500 ms |
+| Record & Play commands | `POST /record_play/record`, `/record_play/play`, `/record_play/stop` |
+| Delete saved recording | `DELETE /record_play/recordings/{recording_id}` — permanently remove bag files and metadata; an active recording/playback job returns a conflict |
 | Container terminal | `WebSocket /terminal/{name}/ws?session_id=...` |
 | Host files | `GET /host/files/tree`, `/read`, `/search`, `/diff`; `POST /host/files/write`, `/create`, `/rename`, `/upload`; `DELETE /host/files` |
 

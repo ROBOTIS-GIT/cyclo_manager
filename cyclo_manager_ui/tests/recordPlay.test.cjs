@@ -46,8 +46,8 @@ function fixture({ recordings = [bag('a', 'First motion'), bag('b', 'Second moti
     calls.push(config);
     if (config.method === 'DELETE') return f.remove(decodeURIComponent(config.url.split('/').at(-1)));
     if (config.method === 'POST') return f.command(config);
-    if (config.url === '/record-play/status') return f.status();
-    if (config.url === '/record-play') return f.load();
+    if (config.url === '/record_play/status') return f.status();
+    if (config.url === '/record_play') return f.load();
     return f.state;
   };
   const jsx = (type, props) => ({ type, props });
@@ -101,7 +101,7 @@ test('delete removes disk API target, selects remaining row and clears last-row 
   f.deleteButton('First motion').props.onClick(); await flush(); f.render();
   assert.equal(f.deleteButton('First motion'), undefined);
   assert.ok(f.nodes().some(node => node.type === 'h2' && node.props.children === 'Second motion'));
-  assert.equal(f.calls.find(item => item.method === 'DELETE').url, '/record-play/recordings/a');
+  assert.equal(f.calls.find(item => item.method === 'DELETE').url, '/record_play/recordings/a');
   f.deleteButton('Second motion').props.onClick(); await flush(); f.render();
   assert.ok(f.details());
   assert.equal(f.nodes().filter(node => node.type === 'button' && String(node.props['aria-label']).startsWith('Delete recording')).length, 0);
@@ -171,7 +171,7 @@ test('Play sends the default or selected arrival tolerance as a number', async (
     const play = f.nodes().find(node => node.type === 'button' && Array.isArray(node.props.children) && node.props.children.includes('Play'));
     assert.equal(play.props.disabled, false);
     play.props.onClick(); await flush();
-    const command = f.calls.find(item => item.method === 'POST' && item.url === '/record-play/play');
+    const command = f.calls.find(item => item.method === 'POST' && item.url === '/record_play/play');
     assert.equal(command.data.arrival_tolerance_deg, value);
     assert.equal(typeof command.data.arrival_tolerance_deg, 'number');
   }

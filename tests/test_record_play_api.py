@@ -50,7 +50,7 @@ class RecordPlayAPITests(unittest.TestCase):
 
     def test_robot_name_is_metadata_only_and_recording_needs_no_runtime(self):
         for robot in ('omy', 'omx'):
-            response = self.client.post('/record-play/record', json={
+            response = self.client.post('/record_play/record', json={
                 'name': 'Arm motion', 'robot': robot, 'groups': ['arm'], 'owner': 'browser'})
             self.assertEqual(response.status_code, 200)
             self.agent.get_service_status.assert_not_awaited()
@@ -60,13 +60,13 @@ class RecordPlayAPITests(unittest.TestCase):
         for change in ({'repeats': -1}, {'rate': 10}, {'recording_id': '../escape'},
                        {'owner': ''}):
             response = self.client.post(
-                '/record-play/play', json={**self.play, **change})
+                '/record_play/play', json={**self.play, **change})
             self.assertEqual(response.status_code, 422)
         self.manager.motion.assert_not_called()
 
     def test_repeat_zero_means_infinite_and_rate_is_forwarded(self):
         response = self.client.post(
-            '/record-play/play', json={**self.play, 'repeats': 0, 'rate': .5})
+            '/record_play/play', json={**self.play, 'repeats': 0, 'rate': .5})
         self.assertEqual(response.status_code, 200)
         self.manager.motion.assert_called_once_with(
             'a' * 32, 'f2', 'browser', rate=.5, repeats=0, arrival_tolerance_deg=.5)
@@ -76,7 +76,7 @@ class RecordPlayAPITests(unittest.TestCase):
         for tolerance in (.5, 1, 2, 3):
             with self.subTest(tolerance=tolerance):
                 self.manager.motion.reset_mock()
-                response = self.client.post('/record-play/play', json={
+                response = self.client.post('/record_play/play', json={
                     **self.play, 'arrival_tolerance_deg': tolerance})
                 self.assertEqual(response.status_code, 200)
                 self.manager.motion.assert_called_once_with(
@@ -87,7 +87,7 @@ class RecordPlayAPITests(unittest.TestCase):
     def test_invalid_arrival_tolerance_never_starts_motion(self):
         for tolerance in (-1, 0, 2.5, 4, '2', 'NaN', None):
             with self.subTest(tolerance=tolerance):
-                response = self.client.post('/record-play/play', json={
+                response = self.client.post('/record_play/play', json={
                     **self.play, 'arrival_tolerance_deg': tolerance})
                 self.assertEqual(response.status_code, 422)
         self.manager.motion.assert_not_called()
@@ -95,7 +95,7 @@ class RecordPlayAPITests(unittest.TestCase):
     def test_overview_reads_ros_catalog_without_runtime(self):
         self.manager.catalog.return_value = [{'joints': ['joint1']}]
         self.manager.store.list.return_value = []
-        response = self.client.get('/record-play')
+        response = self.client.get('/record_play')
         self.assertEqual(response.status_code, 200)
         self.assertTrue(response.json()['feedback_ready'])
         self.assertNotIn('robot', response.json())
@@ -103,7 +103,7 @@ class RecordPlayAPITests(unittest.TestCase):
 
     def test_recording_does_not_require_agent_bringup(self):
         self.agent.get_service_status.return_value = {'is_up': False}
-        response = self.client.post('/record-play/record', json={
+        response = self.client.post('/record_play/record', json={
             'name': 'Topic capture', 'groups': ['/custom/trajectory'], 'owner': 'browser'})
         self.assertEqual(response.status_code, 200)
         self.agent.get_service_status.assert_not_awaited()
@@ -111,15 +111,15 @@ class RecordPlayAPITests(unittest.TestCase):
 
     def test_busy_operation_returns_conflict(self):
         self.manager.motion.side_effect = ValueError('already active')
-        self.assertEqual(self.client.post('/record-play/play', json=self.play).status_code, 409)
+        self.assertEqual(self.client.post('/record_play/play', json=self.play).status_code, 409)
 
     def test_optional_owner_scoped_stop(self):
-        response = self.client.post('/record-play/stop', json={'owner': 'old-browser'})
+        response = self.client.post('/record_play/stop', json={'owner': 'old-browser'})
         self.assertEqual(response.status_code, 200)
         self.manager.stop.assert_called_once_with(owner='old-browser')
 
     def test_delete_returns_current_job_state(self):
-        response = self.client.delete(f'/record-play/recordings/{"a" * 32}')
+        response = self.client.delete(f'/record_play/recordings/{"a" * 32}')
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json(), self.manager.status.return_value)
         self.manager.delete.assert_called_once_with('a' * 32)
@@ -128,7 +128,7 @@ class RecordPlayAPITests(unittest.TestCase):
     def test_delete_validates_id_before_calling_service(self):
         for recording_id in ('invalid', 'A' * 32, 'a' * 31, 'a' * 33):
             with self.subTest(recording_id=recording_id):
-                response = self.client.delete(f'/record-play/recordings/{recording_id}')
+                response = self.client.delete(f'/record_play/recordings/{recording_id}')
                 self.assertEqual(response.status_code, 422)
         self.manager.delete.assert_not_called()
 
@@ -139,7 +139,7 @@ class RecordPlayAPITests(unittest.TestCase):
         for error, status_code in cases:
             with self.subTest(status_code=status_code):
                 self.manager.delete.side_effect = error
-                response = self.client.delete(f'/record-play/recordings/{"a" * 32}')
+                response = self.client.delete(f'/record_play/recordings/{"a" * 32}')
                 self.assertEqual(response.status_code, status_code)
                 self.assertIn(str(error), response.json()['detail'])
 

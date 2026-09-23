@@ -319,7 +319,7 @@ class SubscriptionTests(unittest.TestCase):
         self.store.save(recording_id, {
             'id': recording_id, 'robot': 'f2', 'duration': 2,
             'groups': ['head'], 'topics': [TOPIC], 'messages': 2})
-        with self.client.websocket_connect('/record-play/watch/f2'):
+        with self.client.websocket_connect('/record_play/watch/f2'):
             self.wait(lambda: '/test_head/controller_state' in self.bridge._subs)
             with self.client.websocket_connect('/ws/ros2/topics//joint_states') as viewer:
                 receive_data(viewer)
@@ -371,7 +371,7 @@ class SubscriptionTests(unittest.TestCase):
 
     def test_recording_keeps_input_subscription_after_catalog_closes(self):
         self.feed = True
-        with self.client.websocket_connect('/record-play/watch/f2'):
+        with self.client.websocket_connect('/record_play/watch/f2'):
             self.wait(lambda: '/test_head/controller_state' in self.bridge._subs)
             self.manager.record('recording', 'f2', ['head'], 'browser')
             self.wait(lambda: TOPIC in self.bridge._message_listeners)
@@ -387,7 +387,7 @@ class SubscriptionTests(unittest.TestCase):
 
     def test_catalog_only_observer_releases_every_subscription_when_closed(self):
         self.feed = True
-        with self.client.websocket_connect('/record-play/watch/f2'):
+        with self.client.websocket_connect('/record_play/watch/f2'):
             self.wait(lambda: '/test_head/controller_state' in self.bridge._subs)
         self.wait(lambda: not self.bridge._subs)
         self.assertFalse(self.bridge._msg_cache)

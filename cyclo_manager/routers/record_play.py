@@ -31,7 +31,7 @@ from cyclo_manager.subscriptions import SubscriptionOwner
 from fastapi import APIRouter, HTTPException, Path, WebSocket, WebSocketDisconnect
 from pydantic import BaseModel, ConfigDict, Field
 
-router = APIRouter(prefix='/record-play', tags=['record-play'])
+router = APIRouter(prefix='/record_play', tags=['record_play'])
 Robot = str
 
 

@@ -64,7 +64,6 @@ export default function VSCodeLayout({
       <header className="mobile-header flex items-center gap-3 border-b px-3 md:hidden" style={{ background: "var(--vscode-sidebar-background)", borderColor: "var(--vscode-panel-border)" }}>
         <button type="button" onClick={openMenu} aria-label="Open navigation" aria-controls="mobile-navigation" aria-expanded={menuOpen} className="h-11 w-11 rounded text-xl">☰</button>
         <span className="font-semibold flex-1 truncate">{title}</span>
-        <span className="text-xs" style={{ color: "var(--vscode-descriptionForeground)" }}>Cyclo Manager</span>
       </header>
       <dialog ref={menu} id="mobile-navigation" aria-label="Navigation" className="mobile-navigation"
         onClose={() => setMenuOpen(false)} onClick={event => { if (event.target === event.currentTarget) closeMenu(); }}>

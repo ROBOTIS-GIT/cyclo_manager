@@ -104,7 +104,7 @@ positions, errors and tolerances in degrees or millimeters. Joint feedback must 
 most 500 ms old throughout movement. More than 500 ms of playback lag aborts
 instead of bursting overdue messages.
 
-The option is sent as `arrival_tolerance_deg` in `POST /record-play/play` and
+The option is sent as `arrival_tolerance_deg` in `POST /record_play/play` and
 reported in job status so other browser clients show the running job's setting.
 Choose a tolerance that meets the task's accuracy needs and the robot's measured
 tracking error across poses and loads. This setting does not depend on the saved
@@ -133,7 +133,7 @@ The last consumer's departure destroys the ROS subscription and clears its cache
 Duplicate registration or a late disconnect from an older connection cannot
 remove another consumer. Disconnect cleanup runs even for static or silent topics.
 
-Record & Play opens a separate `/record-play/watch` WebSocket for catalog
+Record & Play opens a separate `/record_play/watch` WebSocket for catalog
 monitoring; closing it releases only the page's subscriptions. HTTP overview,
 status and topic reads are read-only. The old global HTTP topic subscribe and
 unsubscribe endpoints have been removed. System uses `/ws/ros2/system-status`
@@ -205,7 +205,7 @@ using recordings for unattended motion.
   Choosing namespaced feedback sources, Action-only grippers, TwistStamped inputs,
   and controllers without JointTrajectoryControllerState are outside this version.
 
-New clients use `/ws/jog?container={container}` and `/record-play/watch`.
+New clients use `/ws/jog?container={container}` and `/record_play/watch`.
 Jog state and `GET /{container}/bringup_status`
 include `robot` status fields (`ready`, `model`, `container`, `generation`, `reason`);
 the GET returns those fields directly. Record & Play overview exposes controller

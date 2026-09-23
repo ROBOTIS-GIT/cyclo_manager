@@ -198,12 +198,12 @@ Interactive docs: `http://<host>:8081/docs`
 | | `GET /ros2/robot-description` | One-shot URDF; optional `topic` (default `/robot_description`); transient-local subscription released after receipt or 5 s timeout |
 | | `POST /ros2/cmd_vel` | Publish Twist (`linear_x`, `linear_y`, `angular_z`; optional `topic`); separate from the Jog session API |
 | Jog | `GET /{container}/bringup_status` | Selected container's bringup/profile status; Jog pages poll every 2 s, requests for the same container share a 1 s cache |
-| Record & Play | `GET /record-play` | Shared job state, discovered trajectory groups, saved recordings, controller feedback availability and storage path |
-| | `GET /record-play/status` | Read-only job status |
-| | `POST /record-play/record` | Start recording selected topics; bringup and active publishers are not required |
-| | `POST /record-play/play` | Validate ROS feedback, controller routes and bag, move to start pose, then play at 1× or 0.5×; `repeats` is total passes, 0 for infinite; `arrival_tolerance_deg` is 0.5 (default), 1, 2 or 3, with 0.3 s in tolerance required at each arrival |
-| | `POST /record-play/stop` | Stop/save the active job; optional owner-scoped request |
-| | `DELETE /record-play/recordings/{recording_id}` | Permanently delete a saved recording and its rosbag files; reject deletion while any recording/playback job is active |
+| Record & Play | `GET /record_play` | Shared job state, discovered trajectory groups, saved recordings, controller feedback availability and storage path |
+| | `GET /record_play/status` | Read-only job status |
+| | `POST /record_play/record` | Start recording selected topics; bringup and active publishers are not required |
+| | `POST /record_play/play` | Validate ROS feedback, controller routes and bag, move to start pose, then play at 1× or 0.5×; `repeats` is total passes, 0 for infinite; `arrival_tolerance_deg` is 0.5 (default), 1, 2 or 3, with 0.3 s in tolerance required at each arrival |
+| | `POST /record_play/stop` | Stop/save the active job; optional owner-scoped request |
+| | `DELETE /record_play/recordings/{recording_id}` | Permanently delete a saved recording and its rosbag files; reject deletion while any recording/playback job is active |
 | Host | `GET /host/repos`, `GET /host/repos/updates` | Managed host git repos |
 | | `GET /host/repos/{name}/branch`, `GET /host/repos/{name}/status` | Branch check and local-change status |
 | | `POST /host/repos/{name}/update` | git pull workflow |
@@ -226,7 +226,7 @@ Interactive docs: `http://<host>:8081/docs`
 | | `/ws/ros2/topics/{topic}` | Live topic data (see below) |
 | | `/ws/ros2/system-status` | Repeated `battery` and `camera` query parameters; battery percentages and camera publisher presence every 2 s; no camera image subscriptions |
 | | `/ws/jog?container={container}` | Ordered Jog input and feedback bound to the selected container; profile resolved by the server |
-| | `/record-play/watch` | Own the page's catalog/feedback subscriptions; job status is read over HTTP |
+| | `/record_play/watch` | Own the page's catalog/feedback subscriptions; job status is read over HTTP |
 
 **Jog robot selection:** The existing container router's `GET /{container}/bringup_status` checks only the selected
 container's existing s6 service status and
