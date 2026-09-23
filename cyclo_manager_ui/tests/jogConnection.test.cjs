@@ -19,9 +19,9 @@ vm.runInNewContext(compile('lib/jog.ts'), constants);
 
 // Drive the hook through browser events, server replies and a deterministic clock.
 // No network or robot is involved. Hook slots survive explicit renders.
-function fixture() {
+function fixture(statusRequest = () => Promise.resolve({ ready: true }), container = 'ai_worker') {
   let now = 0, timerId = 0, cursor = 0, value;
-  const timers = new Map(), slots = [], effects = [], sockets = [];
+  const timers = new Map(), slots = [], effects = [], sockets = [], statusRequests = [], statusContainers = [];
   const same = (a, b) => a && b && a.length === b.length && a.every((v, i) => Object.is(v, b[i]));
   const react = {
     useRef(initial) {
@@ -57,25 +57,33 @@ function fixture() {
     readyState = 0;
     bufferedAmount = 0;
     sent = [];
-    constructor() { sockets.push(this); }
+    constructor(url) { this.url = url; sockets.push(this); }
     send(message) { this.sent.push(JSON.parse(message)); }
     close() { this.readyState = 3; this.onclose?.(); }
   }
   const context = {
-    exports: {}, window, document, WebSocket: Socket, performance: { now: () => now },
+    exports: {}, window, document, WebSocket: Socket, AbortController, performance: { now: () => now },
     setTimeout: (fn, ms) => schedule(fn, ms), clearTimeout: id => timers.delete(id),
     setInterval: (fn, ms) => schedule(fn, ms, true), clearInterval: id => timers.delete(id),
     require: name => {
       if (name === 'react') return react;
       if (name === '@/lib/jog') return constants.exports;
       if (name === '@/lib/websocketUtils') return { getWebSocketBaseUrl: () => 'ws://mock' };
+      if (name === '@/hooks/usePolling') return polling.exports;
+      if (name === '@/lib/api') return { getBringupStatus: (selected, signal) => {
+        statusContainers.push(selected);
+        statusRequests.push(signal);
+        return statusRequest(signal);
+      } };
       throw new Error(`Unexpected import: ${name}`);
     },
   };
+  const polling = { ...context, exports: {} };
+  vm.runInNewContext(compile('hooks/usePolling.ts'), polling);
   vm.runInNewContext(source, context);
   const render = () => {
     cursor = 0;
-    value = context.exports.useJogConnection();
+    value = context.exports.useJogConnection(container);
     while (effects.length) effects.shift()();
     return value;
   };
@@ -102,7 +110,7 @@ function fixture() {
   };
   reply(); value.setEnabled(true); render(); advance(90);
   return {
-    get jog() { return value; }, socket, advance, reply, render,
+    get jog() { return value; }, socket, advance, reply, render, statusRequests, statusContainers,
     event: type => { window.dispatchEvent(new Event(type)); render(); },
     hide: () => { document.hidden = true; document.dispatchEvent(new Event('visibilitychange')); render(); },
     unmount: () => { for (const slot of slots) slot?.cleanup?.(); },
@@ -232,4 +240,44 @@ test('missing status closes and disarms even while inputs are still being sent',
   f.advance(1000);
   assert.equal(f.socket.sent.length, count);
   f.unmount();
+});
+
+test('bringup GET polls only while connected and is cancelled on unmount', async () => {
+  const f = fixture();
+  assert.equal(f.statusRequests.length, 1);
+  await new Promise(setImmediate);
+  for (let i = 0; i < 4; i++) { f.reply(); f.advance(500); }
+  assert.equal(f.statusRequests.length, 2);
+  f.unmount();
+  assert.ok(f.statusRequests.every(signal => signal.aborted));
+  f.advance(5000);
+  assert.equal(f.statusRequests.length, 2);
+});
+
+test('slow bringup GETs never overlap and failed requests can be retried', async () => {
+  let reject;
+  const f = fixture(() => new Promise((_, fail) => { reject = fail; }));
+  for (let i = 0; i < 10; i++) { f.reply(); f.advance(500); }
+  assert.equal(f.statusRequests.length, 1);
+  reject(new Error('Agent request timed out'));
+  await new Promise(setImmediate);
+  for (let i = 0; i < 2; i++) { f.reply(); f.advance(500); }
+  assert.equal(f.statusRequests.length, 2);
+  f.socket.close(); f.render();
+  assert.ok(f.statusRequests.every(signal => signal.aborted));
+  f.advance(5000);
+  assert.equal(f.statusRequests.length, 2);
+  f.unmount();
+});
+
+test('GET and WebSocket stay bound to the page container across independent windows', () => {
+  const left = fixture(undefined, 'ai_worker');
+  const right = fixture(undefined, 'open_manipulator');
+  assert.equal(left.socket.url, 'ws://mock/ws/jog?container=ai_worker');
+  assert.equal(right.socket.url, 'ws://mock/ws/jog?container=open_manipulator');
+  assert.deepEqual(left.statusContainers, ['ai_worker']);
+  assert.deepEqual(right.statusContainers, ['open_manipulator']);
+  left.unmount();
+  assert.equal(right.socket.readyState, 1);
+  right.unmount();
 });

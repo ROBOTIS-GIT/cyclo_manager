@@ -46,7 +46,7 @@ class AppState:
         self._ros2_bridge: Optional[Ros2Bridge] = None
         self._terminal_session_manager: Optional[TerminalSessionManager] = None
         self.record_play = None
-        self.robot_runtime = None
+        self.robot_runtimes = None
 
     def set_terminal_session_manager(self, manager: TerminalSessionManager) -> None:
         self._terminal_session_manager = manager
@@ -157,6 +157,16 @@ def get_validated_container(container: str, config: SystemConfig = Depends(get_c
             detail=f"Container '{container}' not found",
         )
     return container
+
+
+def get_robot_runtime(container: str):
+    """Resolve the selected Jog container for both HTTP and WebSocket requests."""
+    if app_state.robot_runtimes is None:
+        raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, 'Robot status unavailable.')
+    try:
+        return app_state.robot_runtimes.get(container)
+    except ValueError as exc:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, str(exc)) from exc
 
 
 def get_agent_client(container_name: str) -> AgentClient:

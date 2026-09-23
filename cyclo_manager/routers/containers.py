@@ -18,6 +18,8 @@
 
 """Container endpoints router."""
 
+import asyncio
+
 from cyclo_manager import __version__ as manager_version
 from cyclo_manager.agent_compat import (
     compare_s6_agent_version,
@@ -167,15 +169,16 @@ async def update_s6_agent(
     '',
     response_model=SupportedRobotContainersResponse,
     summary='List supported robot containers',
-    description='Retrieve robot containers that can open the System page.',
+    description='Retrieve robot containers for System/Jog, optionally only running containers.',
     response_description='List of supported robot container names',
 )
 async def list_supported_robot_containers(
+    running: bool = False,
     config=Depends(get_config),
     docker_client=Depends(get_docker_client),
 ) -> SupportedRobotContainersResponse:
     """
-    Get robot container names that can open the System page.
+    Get robot container names that can open System/Jog.
 
     These names are filtered from supported_robot_containers in config.yml to
     containers that exist on the local Docker host.
@@ -193,10 +196,10 @@ async def list_supported_robot_containers(
         ```
 
     """
-    existing_containers = {
-        container['name']
-        for container in docker_client.list_containers(all=True)
-    }
+    containers = (await asyncio.to_thread(
+        docker_client.running_robot_containers, config.supported_robot_containers)
+        if running else await asyncio.to_thread(docker_client.list_containers, all=True))
+    existing_containers = {container['name'] for container in containers}
     return SupportedRobotContainersResponse(
         supported_robot_containers=[
             container

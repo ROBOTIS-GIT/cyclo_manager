@@ -15,7 +15,6 @@
 // Author: Hyungyu Kim
 
 import { request } from "@/lib/api";
-import type { RobotRuntime } from "@/lib/robotRuntime";
 
 export type Recording = {
   id: string; name: string; robot: string; groups: string[]; topics: string[];
@@ -32,7 +31,7 @@ export type RecordPlayState = {
 export type RecordingGroup = { id: string; label: string; topic: string; receiving: boolean; recommended: boolean };
 export type RecordPlayOverview = {
   state: RecordPlayState; groups: RecordingGroup[]; recordings: Recording[];
-  feedback_ready: boolean; storage: string; robot: RobotRuntime;
+  feedback_ready: boolean; storage: string;
 };
 export const GROUP_LABELS: Record<string, string> = {
   arm: "Arm + gripper", arm_l: "Left arm + gripper", arm_r: "Right arm + gripper", head: "Neck", lift: "Lift",

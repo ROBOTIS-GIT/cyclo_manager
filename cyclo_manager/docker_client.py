@@ -81,6 +81,17 @@ class DockerClient:
             logger.error(f'Failed to list containers: {e}')
             raise
 
+    def running_robot_containers(self, names) -> list[dict]:
+        """Read running robot IDs in one list request, without inspecting images/containers."""
+        if not names:
+            return []
+        containers = self.client.api.containers(all=False, filters={'name': list(names)})
+        # Docker's name filter is a substring match; require an exact configured name.
+        return [dict(id=container['Id'], name=name)
+                for container in containers if container.get('State') == 'running'
+                for alias in container.get('Names', [])
+                if (name := alias.lstrip('/')) in names]
+
     def get_robot_type(self, container_id: str) -> str:
         """Read the existing bringup type setting; never inspect or change processes."""
         container = self.get_container(container_id)

@@ -8,14 +8,34 @@ controls.
 ## Robot selection and readiness
 
 **Server connected** indicates the Jog WebSocket connection to the manager.
-**Robot bringup** comes from the shared server runtime monitor. It checks
-configured, running Docker containers and the existing s6 status endpoints for
-`ai_worker_bringup` / `open_manipulator_bringup`, then reads `/run/robot_type`.
-Each polling pass is followed by a one-second delay; observations older than four
-seconds are unavailable. That configured bringup type selects the AI Worker,
-OMY or OMX profile. Browser-saved System settings do not select the Jog profile.
+The Jog menu uses the same running-container selection as System: one supported
+container opens directly, multiple containers offer a choice, and none shows an
+explanation. The selection is retained in `/{container}/jog`; `/jog` also resolves
+or asks for a container before opening a motion connection.
+Both entry points use `GET /containers?running=true`, which filters configured
+names on the server without loading container/image details.
+
+**Robot bringup** is refreshed by `GET /{container}/bringup_status` while the Jog page is
+connected, immediately and then every two seconds without overlapping requests.
+The endpoint belongs to the existing container router. HTTP and WebSocket requests
+use the same container validation; polling uses the shared `usePolling` hook.
+There is no background bringup monitor. The GET checks only the selected container
+with one filtered Docker list request (no container/image inspection), then its
+existing s6 status endpoints for `ai_worker_bringup` / `open_manipulator_bringup`.
+Concurrent pages for the same container share a one-second status cache; other
+containers have independent caches. An unavailable selection is never replaced
+by another running robot automatically.
+`/run/robot_type` is read when a bringup process is first observed, changes or
+returns after an observation gap, and reused while that process is unchanged.
+It selects the AI Worker, OMY or OMX profile. Browser-saved System settings do
+not select the Jog profile. Observations older than four seconds are unavailable;
+the WebSocket worker reads this expiring snapshot without issuing Docker/s6 requests.
 
 Until a single supported bringup is verified, the control area is disabled.
+Container selection does not isolate ROS traffic. Multiple publishers on the shared
+`/joint_states` or `/robot_description` topics disable Jog and block new commands;
+ambiguous controller mappings remain rejected. Other containers' s6 status is not
+polled to find or select a different robot.
 Restart, model change or unavailable status invalidates the current motion
 session and disarms the UI. Idle connections can adopt a new runtime profile;
 an active session encountering a changed run reports an error and closes.
@@ -65,7 +85,7 @@ distinction between configured bringup type and actual launch-process detection.
 
 ## ROS connection and feedback
 
-The UI sends the current operator intent to `/ws/jog`: a press starts the gesture,
+The UI sends the current operator intent to `/ws/jog?container={container}`: a press starts the gesture,
 held inputs refresh it about every 100 ms, and release/stop is sent immediately.
 These messages do not wait for status responses. A blocked browser transport skips
 held inputs and retains only the latest intent; release/stop is still sent.
@@ -82,8 +102,9 @@ guarantee when ROS or server processing is slow.
 Status is sampled about every 100 ms and includes server-owned robot status and
 cached joint/controller feedback. A slow sender keeps only the latest waiting
 snapshot instead of delaying ROS publishing or accumulating old display states.
-The UI connects without a robot selection.
-The legacy `/ws/jog/{robot_type}` route remains accepted, but its model and old
+The UI binds both HTTP status reads and the WebSocket to the container in the page URL.
+Both `/ws/jog` and the legacy `/ws/jog/{robot_type}` require the `container` query
+parameter. Missing/unsupported selections are rejected. The legacy model and old
 `topic` / `base_topic` query parameters cannot override the profile.
 
 Connection creation is deferred one timer turn so an immediate development-mode

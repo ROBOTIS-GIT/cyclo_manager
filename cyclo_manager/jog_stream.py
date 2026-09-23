@@ -50,11 +50,32 @@ class JogController:
     def new_session(self):
         profile = PROFILES.get(self.robot['model']) if self.robot['ready'] else None
         generation = self.robot['generation']
+
+        def guard():
+            self.runtime.require(generation)
+            error = self.feedback_conflict()
+            if error:
+                raise ValueError(error)
         return JogSession(
             self.bridge, profile.model if profile else 'ros',
             base_topic=profile.base_topic if profile else None,
             command_topics=profile.topics if profile else (),
-            guard=lambda: self.runtime.require(generation))
+            guard=guard)
+
+    def feedback_conflict(self):
+        """Selecting a Docker container does not isolate the shared ROS namespace."""
+        graph = self.bridge.motion_graph()
+        for topic in ('/robot_description', '/joint_states'):
+            if len(graph.get(topic, {}).get('publishers', [])) > 1:
+                return f'Multiple publishers on {topic}. Use one robot on this ROS connection.'
+        return None
+
+    def robot_status(self):
+        state = self.runtime.snapshot()
+        error = self.feedback_conflict()
+        if error:
+            state.update(ready=False, reason=error)
+        return state
 
     def update(self, command):
         """Receive intent only; heartbeats never directly publish ROS commands."""
@@ -126,7 +147,7 @@ class JogController:
 
                 if loop.time() >= next_status:
                     state = await finish_call(self.session.snapshot)
-                    state['robot'] = self.runtime.snapshot()
+                    state['robot'] = await finish_call(self.robot_status)
                     if self.states.full():
                         self.states.get_nowait()
                     self.states.put_nowait({'state': state, 'error': None})

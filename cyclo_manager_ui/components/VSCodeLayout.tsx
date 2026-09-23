@@ -54,9 +54,9 @@ export default function VSCodeLayout({
     };
   }, []);
   const pathname = usePathname();
-  const { navError, setNavError, systemChoices, setSystemChoices, handleSystemClick, handleJogClick, openSystemPage } = useNavigation(closeMenu);
+  const { navError, setNavError, selection, cancelSelection, handleSystemClick, handleJogClick, openRobotPage, handleNavigate } = useNavigation(closeMenu, pathname ?? "");
   const title = navigationItems.find(item => item.matches(pathname ?? ""))?.label ?? "Cyclo Manager";
-  const navigation = <SidebarNavigation pathname={pathname ?? ""} closeMenu={closeMenu}
+  const navigation = <SidebarNavigation pathname={pathname ?? ""} onNavigate={handleNavigate}
     onSystem={handleSystemClick} onJog={handleJogClick} />;
 
   return (
@@ -75,7 +75,7 @@ export default function VSCodeLayout({
           </div>
           <div className="mobile-menu-tools flex items-center justify-between gap-3 px-4 py-3 border-b shrink-0" style={{ borderColor: "var(--vscode-panel-border)" }}>
             <div className="w-[108px] shrink-0"><ThemeToggle rail buttonHeight={24} /></div>
-            <div className="flex items-center gap-1" onClick={event => { if ((event.target as HTMLElement).closest("a")) closeMenu(); }}>
+            <div className="flex items-center gap-1" onClick={event => { if ((event.target as HTMLElement).closest("a")) handleNavigate(); }}>
               <AppsHubButton variant="onSidebar" compact />
               <ManagerIntelligenceShortcuts variant="onSidebar" compact />
             </div>
@@ -106,7 +106,8 @@ export default function VSCodeLayout({
             className="border-t pt-2 w-full -mx-1.5 px-1.5"
             style={{ borderColor: "var(--vscode-sidebar-border)" }}
           >
-            <div className="flex justify-center w-full items-center gap-1 flex-nowrap">
+            <div className="flex justify-center w-full items-center gap-1 flex-nowrap"
+              onClick={event => { if ((event.target as HTMLElement).closest("a")) handleNavigate(); }}>
               <AppsHubButton variant="onSidebar" compact />
               <ManagerIntelligenceShortcuts variant="onSidebar" compact />
             </div>
@@ -164,7 +165,7 @@ export default function VSCodeLayout({
         </div>
       )}
 
-      {systemChoices.length > 0 && (
+      {selection && (
         <div
           className="fixed inset-0 z-50 flex items-center justify-center"
           style={{ backgroundColor: "rgba(0,0,0,0.4)" }}
@@ -177,14 +178,14 @@ export default function VSCodeLayout({
             }}
           >
             <div className="font-semibold text-sm" style={{ color: "var(--vscode-foreground)" }}>
-              Select Robot System
+              Select Robot for {selection.page === "jog" ? "Jog" : "System"}
             </div>
             <div className="flex flex-col gap-2">
-              {systemChoices.map((container) => (
+              {selection.containers.map((container) => (
                 <button
                   key={container}
                   type="button"
-                  onClick={() => openSystemPage(container)}
+                  onClick={() => openRobotPage(container)}
                   className="px-3 py-2 rounded text-sm font-semibold text-left transition-colors"
                   style={{
                     backgroundColor: "var(--vscode-button-secondaryBackground)",
@@ -205,7 +206,7 @@ export default function VSCodeLayout({
                 border: "none",
                 cursor: "pointer",
               }}
-              onClick={() => setSystemChoices([])}
+              onClick={cancelSelection}
             >
               Cancel
             </button>

@@ -54,8 +54,7 @@ export default function RecordPlayPage() {
   const active = !!state?.active;
   const locked = active || api.busy;
   const available = api.connected;
-  const robot = overview?.robot;
-  const canPlay = available && !!robot?.ready;
+  const canPlay = available && !!overview?.feedback_ready;
   const sameRecording = !!recording && state?.recording_id === recording.id;
   const shownRate = activeMotion ? state.rate ?? 1 : rate;
   const shownMode = activeMotion ? state.repeats === 0 ? "infinite" : state.repeats === 1 ? "once" : "repeat" : repeatMode;
@@ -68,7 +67,7 @@ export default function RecordPlayPage() {
   const transitioning = sameRecording && activeMotion && (state.phase === "preparing" || state.phase === "returning");
   const error = api.error || state?.error;
   const isRecording = active && state?.phase === "recording";
-  const command = { generation: robot?.generation, recording_id: recording?.id, rate, repeats: repeatMode === "infinite" ? 0 : repeatMode === "repeat" ? repeats : 1 };
+  const command = { recording_id: recording?.id, rate, repeats: repeatMode === "infinite" ? 0 : repeatMode === "repeat" ? repeats : 1 };
 
   async function save() {
     const result = await api.action("stop");
@@ -85,21 +84,19 @@ export default function RecordPlayPage() {
   return <div className="h-full overflow-auto min-w-0" style={{ color: "var(--vscode-foreground)", background: "var(--vscode-editor-background)" }}>
     <header className="sticky top-0 z-10 flex flex-wrap items-center justify-between gap-3 px-5 py-3 border-b" style={surface}>
       <div>
-        <h1 className="text-lg font-semibold">Record & Play <span className="text-sm font-normal ml-2" style={secondary}>{robot?.model?.toUpperCase()}</span></h1>
+        <h1 className="text-lg font-semibold">Record & Play</h1>
         <div className="flex items-center gap-2 text-xs mt-1" style={secondary}>
           <StatusBadge status={api.connected} dotOnly label={api.connected ? "Connected" : "Disconnected"} />
           {api.connected ? "Server connected" : "Server disconnected"}
         </div>
         <div className="flex items-center gap-2 text-xs mt-1" style={secondary} aria-live="polite">
-          <StatusBadge status={!!robot?.ready} dotOnly label="Robot bringup" />
-          Robot bringup: {overview ? robot?.ready ? "Running" : "Unavailable" : "Checking…"}
+          <StatusBadge status={!!overview?.feedback_ready} dotOnly label="Controller feedback" />
+          Controller feedback: {overview ? overview.feedback_ready ? "Available" : "Unavailable" : "Checking…"}
         </div>
       </div>
     </header>
 
     {error && <div role="alert" className="m-4 break-words rounded border p-3 text-sm" style={danger}>{error}</div>}
-
-    {!robot?.ready && robot?.reason && <p className="mx-5 mt-4 text-sm" style={secondary}>{robot.reason}</p>}
 
     <div className="p-2 md:p-5">
       <div role="tablist" aria-label="Record & Play mode" className="flex gap-2 mb-4">

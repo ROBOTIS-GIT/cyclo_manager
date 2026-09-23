@@ -22,8 +22,10 @@ import {
 } from "@/lib/jog";
 import type { JogCommand, JogResolution, JogState } from "@/lib/jog";
 import { getWebSocketBaseUrl } from "@/lib/websocketUtils";
+import { getBringupStatus } from "@/lib/api";
+import { usePolling } from "@/hooks/usePolling";
 
-export function useJogConnection() {
+export function useJogConnection(container: string) {
   const [state, setState] = useState<JogState | null>(null);
   const [connected, setConnected] = useState(false);
   const [enabled, setEnabledState] = useState(false);
@@ -66,6 +68,15 @@ export function useJogConnection() {
     setEnabledState(true);
   }, [connected, state?.robot.ready, stop]);
 
+  usePolling(async (_, signal) => {
+    try {
+      // Refresh the shared snapshot carried by Jog feedback and checked before motion.
+      await getBringupStatus(container, signal);
+    } catch {
+      // The snapshot expires after four seconds, including when HTTP requests fail.
+    }
+  }, 2000, { enabled: connected, resetKey: container, skipIfRunning: true });
+
   useEffect(() => {
     let disposed = false;
     let lastReply = performance.now();
@@ -107,7 +118,7 @@ export function useJogConnection() {
     // connection creation so that pass can cancel before opening a socket.
     const connectTimer = setTimeout(() => {
       if (disposed) return;
-      const socket = new WebSocket(`${getWebSocketBaseUrl()}/ws/jog`);
+      const socket = new WebSocket(`${getWebSocketBaseUrl()}/ws/jog?container=${encodeURIComponent(container)}`);
       ws = socket;
       socket.onopen = () => {
         if (disposed) return;
@@ -199,7 +210,7 @@ export function useJogConnection() {
       if (ws?.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ kind: "stop" }));
       ws?.close();
     };
-  }, [attempt, releaseJoint, stop]);
+  }, [attempt, container, releaseJoint, stop]);
 
   return {
     state, connected,

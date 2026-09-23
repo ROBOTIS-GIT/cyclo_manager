@@ -24,14 +24,13 @@ import math
 from pathlib import Path
 import sys
 import time
-from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
 
 from fastapi import WebSocketDisconnect
 from starlette.websockets import WebSocketState
 from test_jog import FakeBridge
-from robot_runtime_fixture import ready_runtime
+from robot_runtime_fixture import ready_runtime, ready_runtimes, runtime_state
 
 
 class FakeSocket:
@@ -79,19 +78,26 @@ class FakeSocket:
 
 
 class WebsocketJogTests(unittest.IsolatedAsyncioTestCase):
-    async def run_socket(self, inputs, runtime=None, bridge=None, send_delay=0):
+    async def run_socket(self, inputs, runtime=None, bridge=None, send_delay=0, container='test-container'):
         bridge = bridge or FakeBridge()
         bridge.prepare_jog_publishers = lambda *args: True
-        fake_state = SimpleNamespace(app_state=SimpleNamespace(
-            get_ros2_bridge_or_none=lambda: bridge, robot_runtime=runtime or ready_runtime()))
+        fake_state = runtime_state(ready_runtimes(runtime), get_ros2_bridge_or_none=lambda: bridge)
         path = Path(__file__).parents[1] / 'cyclo_manager/routers/websocket_jog.py'
         spec = importlib.util.spec_from_file_location('isolated_jog_router', path)
         module = importlib.util.module_from_spec(spec)
         with patch.dict(sys.modules, {'cyclo_manager.state': fake_state}):
             spec.loader.exec_module(module)
         socket = FakeSocket(inputs, send_delay)
-        await module.websocket_jog(socket, 'sg2')
+        await module.websocket_jog(socket, 'sg2', container=container)
         return bridge, socket
+
+    async def test_unselected_or_unknown_container_cannot_open_motion_session(self):
+        for container in (None, '', 'unknown'):
+            bridge, socket = await self.run_socket([{'kind': 'base', 'x': .1}], container=container)
+            self.assertIn('supported robot container', socket.output[-1]['error'])
+            self.assertTrue(socket.closed)
+            self.assertEqual(bridge.published, [])
+            self.assertFalse(bridge.subscription_users)
 
     async def test_old_client_model_does_not_override_actual_profile(self):
         bridge, socket = await self.run_socket(

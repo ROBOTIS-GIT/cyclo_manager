@@ -16,18 +16,19 @@
 
 import { useEffect, useRef } from "react";
 
-type PollingCallback = (isActive: () => boolean) => void | Promise<void>;
+type PollingCallback = (isActive: () => boolean, signal: AbortSignal) => void | Promise<void>;
 
 interface PollingOptions {
   enabled?: boolean;
   immediate?: boolean;
   resetKey?: unknown;
+  skipIfRunning?: boolean;
 }
 
 export function usePolling(
   callback: PollingCallback,
   intervalMs: number,
-  { enabled = true, immediate = true, resetKey }: PollingOptions = {}
+  { enabled = true, immediate = true, resetKey, skipIfRunning = false }: PollingOptions = {}
 ) {
   const callbackRef = useRef(callback);
 
@@ -39,19 +40,28 @@ export function usePolling(
     if (!enabled) return;
 
     let active = true;
+    let pending = false;
+    const controller = new AbortController();
     const isActive = () => active;
-    const run = () => {
-      void callbackRef.current(isActive);
+    const run = async () => {
+      if (skipIfRunning && pending) return;
+      pending = true;
+      try {
+        await callbackRef.current(isActive, controller.signal);
+      } finally {
+        pending = false;
+      }
     };
 
     if (immediate) {
-      run();
+      void run();
     }
 
-    const interval = setInterval(run, intervalMs);
+    const interval = setInterval(() => void run(), intervalMs);
     return () => {
       active = false;
+      controller.abort();
       clearInterval(interval);
     };
-  }, [enabled, immediate, intervalMs, resetKey]);
+  }, [enabled, immediate, intervalMs, resetKey, skipIfRunning]);
 }

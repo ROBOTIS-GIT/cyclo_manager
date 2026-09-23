@@ -26,7 +26,6 @@ import threading
 import time
 
 from cyclo_manager.robot.catalog import catalog
-from cyclo_manager.robot.profiles import PROFILES
 from cyclo_manager.motion_guard import motion_lock
 from cyclo_manager.record_play.bags import BagStore
 from cyclo_manager.record_play.motion import (
@@ -46,11 +45,9 @@ class Cancelled(Exception):
 class RecordPlayService:
     """Serialize jobs across clients; keep bag I/O away from HTTP and ROS threads."""
 
-    def __init__(self, bridge, root, store=None, *, runtime=None):
+    def __init__(self, bridge, root, store=None):
         """Initialize job state without subscribing or publishing motion."""
         self.bridge = bridge
-        self.runtime = runtime
-        self._generation = None
         self.store = store or BagStore(root)
         self._lock = threading.RLock()
         self._commands = threading.Lock()
@@ -76,8 +73,7 @@ class RecordPlayService:
             subscribe_joint_feedback(subscriptions)
         catalog(self.bridge, subscriptions)
         connection = RobotInterface(
-            self.bridge, robot, command_topics=command_topics,
-            guard=(lambda: self.runtime.require(self._generation)) if self.runtime else None)
+            self.bridge, robot, command_topics=command_topics)
         connection.feedback()
         return connection
 
@@ -99,23 +95,15 @@ class RecordPlayService:
         if subscriptions is not None:
             subscribe_joint_feedback(subscriptions)
         groups = catalog(self.bridge, subscriptions)
-        if self.runtime:
-            model = self.runtime.snapshot()['model']
-            profile = PROFILES.get(model)
-            for group in groups:
-                group['recommended'] = bool(profile and group['topic'] in profile.topics)
-        return sorted(groups, key=lambda group: (not group['recommended'], group['topic']))
+        return groups
 
     def _check(self):
         if self._cancel.is_set():
             raise Cancelled()
-        if self.runtime and self._generation is not None:
-            self.runtime.require(self._generation)
 
-    def _start(self, phase, robot, owner, work, *, generation=None, **state):
+    def _start(self, phase, robot, owner, work, **state):
         if self._thread and self._thread.is_alive():
             raise ValueError('A recording or playback job is already active.')
-        self._generation = generation
         self._cancel = threading.Event()
         self.update(phase=phase, active=True, error=None, owner=owner, robot=robot,
                     cycle=0, elapsed=0.0, return_duration=0.0, messages=0, **state)
@@ -220,16 +208,13 @@ class RecordPlayService:
         self.store.save(recording_id, metadata)
         self.update(phase='idle', duration=metadata['duration'])
 
-    def motion(self, recording_id, robot, owner, rate=1.0, repeats=1, generation=None):
+    def motion(self, recording_id, robot, owner, rate=1.0, repeats=1):
         """Move to the start pose and replay as one interruptible server job."""
         with self._commands:
-            if self.runtime:
-                status = self.runtime.require(generation)
-                robot, generation = status['model'], status['generation']
             metadata = self.store.get(recording_id)
             self._start('loading', robot, owner,
                         lambda: self._motion(recording_id, robot, rate, repeats),
-                        recording_id=recording_id, repeats=repeats, generation=generation,
+                        recording_id=recording_id, repeats=repeats,
                         duration=metadata['duration'], rate=rate)
 
     def _motion(self, recording_id, robot, rate, repeats):

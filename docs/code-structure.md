@@ -16,7 +16,9 @@ robot selection, or polling interval.
   Existing consumers can import from `@/lib/api`; the index exports the same API.
 - `config/navigation.ts`: the flat menu order and route matching.
 - `components/layout/SidebarNavigation.tsx`: shared desktop/mobile menu rendering.
-- `hooks/useNavigation.ts`: container checks for System; motion pages open directly and display server runtime status.
+- `hooks/useNavigation.ts` and `lib/robotContainers.ts`: shared running-container selection for System and Jog; Record & Play opens directly.
+- `hooks/usePolling.ts`: shared polling lifecycle; Jog opts into overlap prevention and uses its abort signal on cleanup.
+- `components/jog/JogPage.tsx`: Jog controls mounted by `app/[container]/jog`; the container is part of the URL and connection lifetime.
 - `components/ui/controlStyles.ts`: shared control styles, independent of Jog.
 - `hooks/useAnsiConverter.ts`: theme-aware log rendering, including HTML escaping.
 
@@ -30,7 +32,8 @@ host agent's moving average of the latest three one-second samples.
 ## Robot control
 
 - `robot/profiles.py`: bringup types/services, command topics, labels and base support.
-- `robot/runtime.py`: lifespan-owned existing service status/type observations and generation guards.
+- `robot/runtime.py` and `routers/container.py`: independent request-driven status/type caches per selected container, with generation guards; no background monitor.
+- `state.get_robot_runtime`: common container resolution for the HTTP route and Jog WebSocket.
 - `robot/joints.py`: bounded position-command joints and limits parsed from URDF.
 - `robot/catalog.py`: command topics and controller membership matched by ROS endpoint node identity.
 - `robot/interface.py`: shared cached feedback access and command publication.
@@ -43,10 +46,16 @@ host agent's moving average of the latest three one-second samples.
 
 The shared robot interface does not acquire subscriptions. Jog connections and
 record/play jobs keep ownership in their existing lifecycle scopes. Constructing
-an interface does not publish a command. Profiles choose Jog routes and Record &
-Play recommendations; discovery validates actual controller joint membership.
-The runtime monitor uses existing s6 status endpoints and Docker reads of
-`/run/robot_type`, without new agent endpoints. See [Jog](jog.md) and
+an interface does not publish a command. Profiles choose Jog routes; discovery
+validates controller membership and supplies Record & Play groups, with known
+topics recommended independently of bringup. Jog pages poll `GET /{container}/bringup_status`
+every two seconds. Requests use existing s6 status endpoints and cache Docker
+reads of `/run/robot_type` only in the selected container, without new agent endpoints
+or an always-running task. The WebSocket requires the same container selection.
+System and Jog use `GET /containers?running=true` for navigation, reusing the same
+lightweight Docker query as runtime checks. Service reads use the existing `AgentClient`.
+Jog also rejects multiple publishers on shared feedback topics in the ROS graph.
+Record & Play has no dependency on Docker/s6 bringup. See [Jog](jog.md) and
 [Record & Play](record-play.md) for timing, validation and stop behavior.
 
 ## Host agent

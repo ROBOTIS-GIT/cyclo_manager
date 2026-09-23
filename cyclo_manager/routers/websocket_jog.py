@@ -24,8 +24,8 @@ import logging
 from anyio import CancelScope
 from cyclo_manager.jog import JogInput
 from cyclo_manager.jog_stream import JogController, INPUT_TIMEOUT
-from cyclo_manager.state import app_state
-from fastapi import APIRouter, WebSocket, WebSocketDisconnect
+from cyclo_manager.state import app_state, get_robot_runtime
+from fastapi import APIRouter, HTTPException, WebSocket, WebSocketDisconnect
 from pydantic import ValidationError
 from starlette.websockets import WebSocketState
 
@@ -35,7 +35,7 @@ logger = logging.getLogger(__name__)
 
 @router.websocket('/ws/jog')
 @router.websocket('/ws/jog/{robot_type}')
-async def websocket_jog(websocket: WebSocket, robot_type: str = 'ros'):
+async def websocket_jog(websocket: WebSocket, robot_type: str = 'ros', container: str | None = None):
     """Receive current intent and stream status independently of ROS publishing."""
     await websocket.accept()
     bridge = app_state.get_ros2_bridge_or_none()
@@ -43,10 +43,11 @@ async def websocket_jog(websocket: WebSocket, robot_type: str = 'ros'):
         await websocket.send_json({'error': 'ROS bridge or robot model unavailable.'})
         await websocket.close(code=1008)
         return
-    runtime = app_state.robot_runtime
-    if runtime is None:
-        await websocket.send_json({'error': 'Robot bringup monitoring unavailable.'})
-        await websocket.close(code=1013)
+    try:
+        runtime = get_robot_runtime(container)
+    except HTTPException as exc:
+        await websocket.send_json({'error': exc.detail})
+        await websocket.close(code=1013 if exc.status_code == 503 else 1008)
         return
     controller = JogController(bridge, runtime)
 

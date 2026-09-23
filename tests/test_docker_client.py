@@ -79,6 +79,24 @@ class ContainerListingTests(unittest.TestCase):
                 self.client.list_containers()
         self.sdk.images.get.assert_not_called()
 
+    def test_running_robot_lookup_uses_one_list_without_inspection(self):
+        self.sdk.api.containers.return_value = [
+            {'Id': 'one', 'Names': ['/custom-robot'], 'State': 'running'},
+            {'Id': 'two', 'Names': ['/custom-robot-extra'], 'State': 'running'},
+            {'Id': 'three', 'Names': ['/stopped'], 'State': 'exited'},
+        ]
+        self.assertEqual(self.client.running_robot_containers(('custom-robot', 'stopped')),
+                         [{'id': 'one', 'name': 'custom-robot'}])
+        self.sdk.api.containers.assert_called_once_with(
+            all=False, filters={'name': ['custom-robot', 'stopped']})
+        self.sdk.containers.list.assert_not_called()
+        self.sdk.api.inspect_container.assert_not_called()
+        self.sdk.images.get.assert_not_called()
+
+    def test_no_configured_robots_skips_docker(self):
+        self.assertEqual(self.client.running_robot_containers(()), [])
+        self.sdk.api.containers.assert_not_called()
+
 
 class RobotTypeTests(unittest.TestCase):
     def setUp(self):

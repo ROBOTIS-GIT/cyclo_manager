@@ -55,7 +55,6 @@ class PlaybackInput(OwnerInput):
 
     recording_id: str = Field(pattern=r'^[0-9a-f]{32}$')
     robot: Robot = 'ros'
-    generation: str | None = Field(default=None, max_length=300)
     rate: Literal[0.5, 1.0] = 1.0
     repeats: int = Field(default=1, ge=0, le=10000)
 
@@ -90,7 +89,6 @@ async def overview(robot: Robot = 'ros'):
         raise HTTPException(503, str(exc)) from exc
     return {'state': manager.status(), 'groups': groups, 'recordings': recordings,
             'feedback_ready': any(g['joints'] for g in groups),
-            'robot': app_state.robot_runtime.snapshot(),
             'storage': str(manager.store.root)}
 
 
@@ -104,8 +102,7 @@ def status():
 async def record(body: RecordInput):
     """Record discovered trajectory topics without requiring robot feedback."""
     manager = service()
-    current = app_state.robot_runtime.snapshot()
-    return await execute(manager.record, body.name.strip(), current['model'] or 'ros',
+    return await execute(manager.record, body.name.strip(), body.robot,
                          body.groups, body.owner)
 
 
@@ -114,12 +111,12 @@ async def play(body: PlaybackInput):
     """Move to the start pose, then replay with optional synchronized returns."""
     manager = service()
     return await execute(manager.motion, body.recording_id, body.robot, body.owner,
-                         rate=body.rate, repeats=body.repeats, generation=body.generation)
+                         rate=body.rate, repeats=body.repeats)
 
 
 @router.post('/stop')
 async def stop(body: OwnerInput | None = None):
-    """Stop even when bringup checks or the original client are unavailable."""
+    """Stop even when ROS feedback or the original client are unavailable."""
     # Stop remains available even after feedback/client status fails.
     return await execute(service().stop, owner=body.owner if body else None)
 

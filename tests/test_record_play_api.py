@@ -25,8 +25,6 @@ from types import SimpleNamespace
 import unittest
 from unittest.mock import AsyncMock, MagicMock, patch
 
-from robot_runtime_fixture import ready_runtime
-
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
@@ -36,7 +34,7 @@ class RecordPlayAPITests(unittest.TestCase):
         self.manager = MagicMock()
         self.manager.status.return_value = {'phase': 'idle', 'active': False}
         self.agent = SimpleNamespace(get_service_status=AsyncMock(return_value={'is_up': True}))
-        fake_state = SimpleNamespace(app_state=SimpleNamespace(record_play=self.manager, robot_runtime=ready_runtime()),
+        fake_state = SimpleNamespace(app_state=SimpleNamespace(record_play=self.manager),
                                      get_agent_client=lambda _: self.agent)
         path = Path(__file__).parents[1] / 'cyclo_manager/routers/record_play.py'
         spec = importlib.util.spec_from_file_location('isolated_record_router', path)
@@ -49,13 +47,13 @@ class RecordPlayAPITests(unittest.TestCase):
         self.addCleanup(self.client.close)
         self.play = {'recording_id': 'a' * 32, 'robot': 'f2', 'owner': 'browser'}
 
-    def test_manipulator_uses_its_bringup_and_accepts_arm_recording(self):
+    def test_robot_name_is_metadata_only_and_recording_needs_no_runtime(self):
         for robot in ('omy', 'omx'):
             response = self.client.post('/record-play/record', json={
                 'name': 'Arm motion', 'robot': robot, 'groups': ['arm'], 'owner': 'browser'})
             self.assertEqual(response.status_code, 200)
             self.agent.get_service_status.assert_not_awaited()
-            self.manager.record.assert_called_with('Arm motion', 'sg2', ['arm'], 'browser')
+            self.manager.record.assert_called_with('Arm motion', robot, ['arm'], 'browser')
 
     def test_invalid_playback_arguments_never_start_motion(self):
         for change in ({'repeats': -1}, {'rate': 10}, {'recording_id': '../escape'},
@@ -69,7 +67,17 @@ class RecordPlayAPITests(unittest.TestCase):
         response = self.client.post(
             '/record-play/play', json={**self.play, 'repeats': 0, 'rate': .5})
         self.assertEqual(response.status_code, 200)
-        self.manager.motion.assert_called_once_with('a' * 32, 'f2', 'browser', rate=.5, repeats=0, generation=None)
+        self.manager.motion.assert_called_once_with('a' * 32, 'f2', 'browser', rate=.5, repeats=0)
+        self.agent.get_service_status.assert_not_awaited()
+
+    def test_overview_reads_ros_catalog_without_runtime(self):
+        self.manager.catalog.return_value = [{'joints': ['joint1']}]
+        self.manager.store.list.return_value = []
+        response = self.client.get('/record-play')
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(response.json()['feedback_ready'])
+        self.assertNotIn('robot', response.json())
+        self.agent.get_service_status.assert_not_awaited()
 
     def test_recording_does_not_require_agent_bringup(self):
         self.agent.get_service_status.return_value = {'is_up': False}

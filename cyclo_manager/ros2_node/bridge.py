@@ -433,7 +433,8 @@ class Ros2Bridge:
             return [f'{item.node_namespace.rstrip("/")}/{item.node_name}' for item in items
                     if item.node_name != RCLPY_NODE_NAME]
         for topic, topic_types in self._rclpy_node.get_topic_names_and_types():
-            if len(topic_types) != 1 or topic_types[0] not in types:
+            if len(topic_types) != 1 or (topic_types[0] not in types
+                                        and topic not in ('/joint_states', '/robot_description')):
                 continue
             result[topic] = {'type': topic_types[0],
                              'publishers': endpoints(self._rclpy_node.get_publishers_info_by_topic(topic)),

@@ -89,11 +89,11 @@ The API reads **`CONFIG_FILE`** (default `config.yml`). The pip CLI sets **`CYCL
 
 | Key | Description |
 |-----|-------------|
-| **`supported_robot_containers`** | Containers eligible for System navigation and server-side motion profile detection (e.g. `ai_worker`, `open_manipulator`). Each must be a key in `sockets` (not `host_agent`). |
+| **`supported_robot_containers`** | Containers eligible for System/Jog selection and Jog profile detection (e.g. `ai_worker`, `open_manipulator`). Each must be a key in `sockets` (not `host_agent`). |
 | **`sockets`** | Map of logical name → agent socket path **as seen inside the API container** (typically under `/agents/...`). Include robot/service containers and `host_agent`. |
 
 s6 **service names** are not listed in config. System profiles define the service
-names used by the UI; the motion monitor checks the existing agent status endpoints
+names used by the UI; the Jog status GET checks the existing agent status endpoints
 for `ai_worker_bringup` and `open_manipulator_bringup`.
 
 ### Example
@@ -135,7 +135,7 @@ and required ROS bag packages.
 | Apps hub | `/app` | Links to Cyclo Manager (dashboard) and Cyclo Intelligence (port 7080) |
 | Dashboard | `/dashboard` | Host stats, Docker containers/images, logs, bashrc, version management (host git repos + s6 agent compatibility) |
 | System | `/{container}/system` | s6 bringup, launch args, URDF viewer, streaming service logs (download/clear), robot status |
-| Jog | `/jog` | Running robot profile + dynamic URDF/controller feedback; automatic command routing |
+| Jog | `/{container}/jog` | Selected container's profile + dynamic URDF/controller feedback; `/jog` opens container selection |
 | Record & Play | `/record-play` | Record trajectory topics to rosbag2/MCAP; playback with start-pose transition, speed selection and repeat returns |
 | Topics | `/topics` | ROS 2 topic browser; live data via WebSocket |
 | Terminal | `/terminal` | Multi-tab bash into running containers (`?container={name}` optional) |
@@ -143,10 +143,12 @@ and required ROS bag packages.
 | noVNC | `/novnc` | Remote display (when `novnc-server` is running) |
 
 The desktop sidebar and mobile menu share a flat navigation list on all routes
-except `/app`. The **System** button filters `supported_robot_containers` from
-`GET /containers` against running Docker containers: one match opens directly,
+except `/app`. The **System** and **Jog** buttons use `GET /containers?running=true`
+to get configured, running robot containers in one lightweight request: one match opens directly,
 multiple matches offer a choice, and no match reports that no robot container is
-running. Jog and Record & Play open directly and display server-owned bringup status.
+running. Jog keeps the selected container in its URL and queries only its bringup
+status on demand. Record & Play opens directly and uses ROS feedback and controller
+routes independently of bringup status.
 
 Dashboard system statistics and the CPU process list refresh every second. Their
 CPU summaries use the same host-agent average of the latest three one-second
@@ -169,7 +171,7 @@ Interactive docs: `http://<host>:8081/docs`
 | Area | Method & path | Notes |
 |------|----------------|-------|
 | Root | `GET /` | API metadata |
-| Config | `GET /containers` | Supported robot containers for the System page |
+| Config | `GET /containers` | Supported robot containers; `?running=true` returns only running candidates for System/Jog without image inspection |
 | | `GET /containers/agents/status` | Container s6 agent version compatibility |
 | | `POST /containers/{container}/agent/update` | Checkout agent code to the manager version and restart the container |
 | System | `GET /system/info`, `GET /system/status`, `GET /system/processes` | Hostname, internet, CPU/memory/disk, top processes |
@@ -195,10 +197,11 @@ Interactive docs: `http://<host>:8081/docs`
 | | `GET /ros2/topics/{topic}/info` | `ros2 topic info -v` output |
 | | `GET /ros2/robot-description` | One-shot URDF; optional `topic` (default `/robot_description`); transient-local subscription released after receipt or 5 s timeout |
 | | `POST /ros2/cmd_vel` | Publish Twist (`linear_x`, `linear_y`, `angular_z`; optional `topic`); separate from the Jog session API |
-| Record & Play | `GET /record-play` | Shared job state, discovered trajectory groups, saved recordings, robot runtime and storage path |
+| Jog | `GET /{container}/bringup_status` | Selected container's bringup/profile status; Jog pages poll every 2 s, requests for the same container share a 1 s cache |
+| Record & Play | `GET /record-play` | Shared job state, discovered trajectory groups, saved recordings, controller feedback availability and storage path |
 | | `GET /record-play/status` | Read-only job status |
 | | `POST /record-play/record` | Start recording selected topics; bringup and active publishers are not required |
-| | `POST /record-play/play` | Validate bringup and bag, move to start pose, then play at 1× or 0.5×; `repeats` is total passes, 0 for infinite |
+| | `POST /record-play/play` | Validate ROS feedback, controller routes and bag, move to start pose, then play at 1× or 0.5×; `repeats` is total passes, 0 for infinite |
 | | `POST /record-play/stop` | Stop/save the active job; optional owner-scoped request |
 | Host | `GET /host/repos`, `GET /host/repos/updates` | Managed host git repos |
 | | `GET /host/repos/{name}/branch`, `GET /host/repos/{name}/status` | Branch check and local-change status |
@@ -221,17 +224,25 @@ Interactive docs: `http://<host>:8081/docs`
 | WebSocket | `/ws/{container}/services/{service}/logs` | Live s6 logs (agent NDJSON stream → browser) |
 | | `/ws/ros2/topics/{topic}` | Live topic data (see below) |
 | | `/ws/ros2/system-status` | Repeated `battery` and `camera` query parameters; battery percentages and camera publisher presence every 2 s; no camera image subscriptions |
-| | `/ws/jog` | Ordered Jog input and feedback; profile selected by the server |
+| | `/ws/jog?container={container}` | Ordered Jog input and feedback bound to the selected container; profile resolved by the server |
 | | `/record-play/watch` | Own the page's catalog/feedback subscriptions; job status is read over HTTP |
 
-**Motion robot selection:** The manager checks existing s6 service status and reads
-`/run/robot_type` from the running container through Docker. That bringup type selects
-the AI Worker, OMY or OMX profile. Jog uses its command routes; Record & Play recommends
-its topics and still allows other discovered trajectory topics. No s6-agent update or
-new endpoint is required for profile detection. Joint names, position limits and
+**Jog robot selection:** The existing container router's `GET /{container}/bringup_status` checks only the selected
+container's existing s6 service status and
+reads `/run/robot_type` through Docker when a bringup process is first observed or
+changes. It reuses the type while that process remains unchanged. There is no
+background bringup monitor; requests use a lightweight Docker list without image
+inspection. The type selects the AI Worker, OMY or OMX command routes. Record & Play
+uses discovered trajectory topics and ROS feedback without Docker/s6 status checks;
+known topics receive recommendations. No s6-agent update or new agent endpoint is
+required. Joint names, position limits and
 controller membership come from URDF and ROS feedback. Only one running follower
 is supported on the shared feedback namespace. Legacy model-suffixed motion
-WebSocket routes remain accepted but cannot override the server's profile.
+WebSocket routes remain accepted with a required `container` query parameter;
+model suffixes cannot override the server's profile. Each container has its own
+status cache, so other browser selections cannot change an existing Jog target.
+Container selection does not isolate ROS traffic; Jog rejects multiple publishers
+on shared feedback topics and ambiguous controller mappings.
 See [motion profiles](docs/record-play.md#robot-profiles).
 
 **Service logs:** Live logs are streamed over WebSocket (not polled). Opening a new browser session re-tails recent lines from the agent, then follows new output. Download returns the current `/var/log/{service}/current` file with ANSI codes removed.

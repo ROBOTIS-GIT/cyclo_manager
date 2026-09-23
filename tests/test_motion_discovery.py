@@ -211,3 +211,22 @@ class MotionDiscoveryTests(unittest.TestCase):
         result = bridge._inspect_motion_graph()[COMMAND]
         self.assertEqual(result['publishers'], [])
         self.assertEqual(result['subscribers'], ['/workcell/controller'])
+
+    def test_motion_graph_retains_duplicate_shared_feedback_publishers(self):
+        from types import SimpleNamespace
+        from test_jog_bridge import load_bridge_module
+        bridge = load_bridge_module().Ros2Bridge()
+        node = MagicMock()
+        bridge._rclpy_node = node
+        node.get_topic_names_and_types.return_value = [
+            ('/joint_states', ['sensor_msgs/msg/JointState']),
+            ('/robot_description', ['std_msgs/msg/String']),
+            ('/other_string', ['std_msgs/msg/String']),
+        ]
+        node.get_publishers_info_by_topic.return_value = [
+            SimpleNamespace(node_name='robot', node_namespace='/'),
+            SimpleNamespace(node_name='robot', node_namespace='/')]
+        node.get_subscriptions_info_by_topic.return_value = []
+        graph = bridge._inspect_motion_graph()
+        self.assertEqual(set(graph), {'/joint_states', '/robot_description'})
+        self.assertTrue(all(len(info['publishers']) == 2 for info in graph.values()))

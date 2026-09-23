@@ -16,57 +16,64 @@
 
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { getDockerContainers, getSupportedRobotContainers } from "@/lib/api";
+import { getRunningRobotContainers, robotPageUrl, type RobotPage } from "@/lib/robotContainers";
 
 
-export function useNavigation(closeMenu: () => void) {
+export function useNavigation(closeMenu: () => void, pathname: string) {
   const router = useRouter();
   const [navError, setNavError] = useState<string | null>(null);
-  const [systemChoices, setSystemChoices] = useState<string[]>([]);
+  const [selection, setSelection] = useState<{ page: RobotPage; containers: string[] } | null>(null);
+  const requestId = useRef(0);
 
-  async function handleSystemClick() {
+  // Also invalidate requests on back/forward navigation and layout unmount.
+  useEffect(() => () => { ++requestId.current; }, [pathname]);
+
+  async function openRobot(page: RobotPage) {
+    const id = ++requestId.current;
     closeMenu();
     setNavError(null);
-    setSystemChoices([]);
+    setSelection(null);
     try {
-      const { supported_robot_containers } = await getSupportedRobotContainers();
-      if (supported_robot_containers.length === 0) {
-        setNavError("No supported robot container is configured.");
-        return;
-      }
-      const { containers } = await getDockerContainers(false);
-      const runningContainerNames = new Set(containers.map((container) => container.name));
-      const runningRobotContainers = supported_robot_containers.filter((container) =>
-        runningContainerNames.has(container)
-      );
+      const runningRobotContainers = await getRunningRobotContainers();
+      if (id !== requestId.current) return;
       if (runningRobotContainers.length === 0) {
         setNavError("No robot container is running.");
         return;
       }
       if (runningRobotContainers.length === 1) {
-        router.push(`/${runningRobotContainers[0]}/system`);
+        router.push(robotPageUrl(runningRobotContainers[0], page));
         return;
       }
-      setSystemChoices(runningRobotContainers);
+      setSelection({ page, containers: runningRobotContainers });
     } catch {
-      setNavError("Failed to connect to the manager.");
+      if (id === requestId.current) setNavError("Failed to connect to the manager.");
     }
   }
 
-  function openSystemPage(container: string) {
-    setSystemChoices([]);
+  function openRobotPage(container: string) {
+    if (!selection?.containers.includes(container)) return;
+    ++requestId.current;
+    setSelection(null);
     setNavError(null);
-    router.push(`/${container}/system`);
+    router.push(robotPageUrl(container, selection.page));
   }
 
-  function handleJogClick() {
+  function cancelSelection() {
+    ++requestId.current;
+    setSelection(null);
+    setNavError(null);
+  }
+
+  function handleNavigate() {
+    // Cancel before Next.js starts the transition, even for the current route.
+    cancelSelection();
     closeMenu();
-    setNavError(null);
-    setSystemChoices([]);
-    router.push("/jog");
   }
 
-  return { navError, setNavError, systemChoices, setSystemChoices, handleSystemClick, handleJogClick, openSystemPage };
+  return {
+    navError, setNavError, selection, cancelSelection, openRobotPage, handleNavigate,
+    handleSystemClick: () => openRobot("system"), handleJogClick: () => openRobot("jog"),
+  };
 }

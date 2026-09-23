@@ -25,7 +25,7 @@ import tempfile
 import threading
 import time
 from types import SimpleNamespace
-from robot_runtime_fixture import ready_runtime
+from robot_runtime_fixture import ready_runtimes, runtime_state
 import unittest
 from unittest.mock import MagicMock, patch
 
@@ -62,17 +62,17 @@ class SubscriptionTests(unittest.TestCase):
         self.tmp = tempfile.TemporaryDirectory()
         self.store = MemoryStore(self.tmp.name)
         self.manager = RecordPlayService(self.bridge, self.tmp.name, self.store)
-        self.fake_state = SimpleNamespace(
-            get_ros2_bridge_or_none=lambda: self.bridge, record_play=self.manager,
-            robot_runtime=ready_runtime())
+        state_module = runtime_state(ready_runtimes(),
+            get_ros2_bridge_or_none=lambda: self.bridge, record_play=self.manager)
+        state_module.get_agent_client = MagicMock()
+        self.fake_state = state_module.app_state
         self.app = FastAPI()
         for name in ('websocket_ros2', 'websocket_jog', 'record_play', 'ros2'):
             path = Path(__file__).parents[1] / f'cyclo_manager/routers/{name}.py'
             spec = importlib.util.spec_from_file_location(f'isolated_{name}', path)
             router = importlib.util.module_from_spec(spec)
             with patch.dict(sys.modules, {
-                'cyclo_manager.state': SimpleNamespace(
-                    app_state=self.fake_state, get_agent_client=MagicMock()),
+                'cyclo_manager.state': state_module,
                 'cyclo_manager.ros2_node': SimpleNamespace(Ros2Bridge=module.Ros2Bridge),
             }):
                 spec.loader.exec_module(router)
@@ -338,7 +338,7 @@ class SubscriptionTests(unittest.TestCase):
 
     def test_jog_and_viewer_release_only_their_own_feedback(self):
         self.feed = True
-        with self.client.websocket_connect('/ws/jog/f2') as jog:
+        with self.client.websocket_connect('/ws/jog/f2?container=test-container') as jog:
             jog.send_json({'kind': 'idle'})
             receive_data(jog)
             with self.client.websocket_connect('/ws/ros2/topics//joint_states') as viewer:
@@ -361,7 +361,7 @@ class SubscriptionTests(unittest.TestCase):
             return publish(*args)
 
         self.bridge.publish_jog = checked_publish
-        with self.client.websocket_connect('/ws/jog/f2') as jog:
+        with self.client.websocket_connect('/ws/jog/f2?container=test-container') as jog:
             self.wait(lambda: self.bridge.get_topic_data('/test_head/controller_state') is not None)
             jog.send_json({'kind': 'joint', 'joint': 'head_joint1'})
             self.assertIsNone(receive_data(jog)['error'])

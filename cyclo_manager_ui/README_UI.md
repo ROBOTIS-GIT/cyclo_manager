@@ -15,7 +15,7 @@ Next.js web interface for **cyclo_manager** (ROS 2 robot containers, s6 services
   - Live service logs and **3D URDF viewer**: one-shot HTTP URDF lookup with a temporary transient-local subscription (5 s timeout); `/joint_states` via WebSocket. The reusable viewer owns both lifecycles. `descriptionEnabled` gates model requests: System waits for bringup Running, loads once per model/PID, and cancels requests and clears the model when bringup stops or its status is unavailable. `reloadKey` reloads the model on robot/bringup process changes; failed lookups offer Retry while enabled.
   - **Robot Status** panel: one `/ws/ros2/system-status` connection sends battery percentages and camera publisher presence every 2 s. Only battery topics are subscribed automatically. Cameras show **Active** when a publisher exists and **—** otherwise, without subscribing to image messages.
 - **Topics** (`/topics`): Discover topics (`GET /ros2/topics`) and stream message JSON via WebSocket (`/ws/ros2/topics/{topic}`); optional **Info** tab (`GET /ros2/topics/{topic}/info`)
-- **Jog** (`/jog`): Enable/stop controls, joystick or keyboard base input, and joint buttons that update targets continuously while pressed. Joint-button release leaves the last target in place; explicit stop holds the measured position of an active gesture. The server selects the running robot profile; joint metadata comes from URDF and ROS feedback. See [Jog](../docs/jog.md).
+- **Jog** (`/{container}/jog`): Uses the same container selection as System. Enable/stop controls, joystick or keyboard base input, and joint buttons that update targets continuously while pressed. Joint-button release leaves the last target in place; explicit stop holds the measured position of an active gesture. The server resolves the selected container's profile; joint metadata comes from URDF and ROS feedback. See [Jog](../docs/jog.md).
 - **Record & Play** (`/record-play`): **New recording** selects trajectory topics; **Playback** contains the saved recording list, automatic start-pose transition, speed selection, repetition and stop. Server jobs continue after page navigation. See [Record & Play](../docs/record-play.md).
 - **Terminal** (`/terminal`, optional `?container={name}`): Multi-tab xterm.js shells into running containers, process list with kill; links from Dashboard when a container is running
 - **Files** (`/files`): Browse/search host files, upload by file picker or drag-and-drop, edit UTF-8 text and inspect diffs; create, rename and delete files/directories, with optional hidden files and unsaved-edit/conflict checks
@@ -23,25 +23,35 @@ Next.js web interface for **cyclo_manager** (ROS 2 robot containers, s6 services
 
 The flat navigation list is **Dashboard, System, Jog, Record & Play, Topics,
 Terminal, noVNC, Files**. It appears as a desktop sidebar or mobile menu on all
-routes **except** `/app`. System navigation selects among configured, running
-robot containers; Jog and Record & Play open directly.
+routes **except** `/app`. System and Jog select among configured, running robot
+containers: one opens directly, multiple offer a choice, and none shows a message.
+Both menus use `GET /containers?running=true`, without a second Docker/image list request.
+Jog retains the selection in its URL; `/jog` also offers selection for direct visits.
+Record & Play opens directly.
 
 ## Motion pages
 
-Jog and Record & Play show **Server connected** and **Robot bringup** separately.
+Jog shows **Server connected** and **Robot bringup** separately.
 The server chooses an AI Worker, OMY or OMX profile from the container's
 `/run/robot_type` and existing s6 bringup status endpoints. Profile detection
 requires no s6-agent update. Joint definitions and limits come from URDF, measured
 positions from `/joint_states`, and controller membership from controller-state
 feedback. Jog routes commands through the profile automatically and has no
-command-topic selector. Restart/model changes disarm Jog.
+command-topic selector. Restart/model changes disarm Jog. The page polls
+`GET /{container}/bringup_status` every two seconds while connected; concurrent requests
+for the same container share a one-second cache. Only the selected container is
+queried. There is no background bringup monitor, and status older than
+four seconds cannot authorize Jog motion.
+Container selection does not isolate ROS topics. Duplicate publishers on shared
+feedback topics and ambiguous controller mappings block Jog commands.
 
-Record & Play recommends the running profile's topics and also lists other
+Record & Play shows **Server connected** and **Controller feedback**, recommends
+known command topic names and also lists other
 discovered `JointTrajectory` topics. Expand **Topic** in a group to see its ROS
 name. Recording needs neither bringup nor an active publisher. Playback requires
-verified bringup, fresh joint/controller feedback, valid URDF limits and verified
-controller routing. Stop remains available when bringup is unavailable, although
-publishing a pose hold still requires valid feedback and the same running robot.
+fresh joint/controller feedback, valid URDF limits and verified controller routing,
+without Docker/s6 bringup checks. Stop remains available when feedback is unavailable,
+although publishing a pose hold still requires valid feedback and unchanged routes.
 See [motion profiles](../docs/record-play.md#robot-profiles) for supported types and
 runtime checks.
 
@@ -133,20 +143,23 @@ The UI calls the cyclo_manager **REST API** and **WebSockets**:
 
 | Use | Endpoint |
 |-----|----------|
+| System/Jog selection | `GET /containers?running=true` — supported running robot containers, without image inspection |
 | Service logs | `WebSocket /ws/{container}/services/{service}/logs` |
 | ROS topic data | `WebSocket /ws/ros2/topics/{topic}` — each connection acquires a subscription owner, receives `ready` after registration, then receives cached JSON when data changes; disconnect releases only its owner |
 | Robot description | `GET /ros2/robot-description?topic=/robot_description` — temporary subscription, released on completion, timeout or disconnect |
 | System telemetry | `WebSocket /ws/ros2/system-status?battery=...&camera=...` — repeated query parameters, battery subscriptions only; camera graph inspection |
-| Jog | `WebSocket /ws/jog` — operator intent refreshed at 10 Hz, server ROS publishing at 20 Hz, independent status at about 10 Hz; closes on page unmount |
+| Jog | `WebSocket /ws/jog?container={container}` — operator intent refreshed at 10 Hz, server ROS publishing at 20 Hz, independent status at about 10 Hz; closes on page unmount or container change |
+| Jog bringup | `GET /{container}/bringup_status` — page-owned polling every 2 s, no overlapping requests; per-container observations expire after 4 s |
 | Recording catalog | `WebSocket /record-play/watch` — scoped subscriptions for the page; closing it does not stop a recording/playback job |
-| Record & Play status | `GET /record-play` for catalog/library/runtime about every 2 s, `GET /record-play/status` for job status every 500 ms |
+| Record & Play status | `GET /record-play` for catalog/library/controller feedback about every 2 s, `GET /record-play/status` for job status every 500 ms |
 | Record & Play commands | `POST /record-play/record`, `/record-play/play`, `/record-play/stop` |
 | Container terminal | `WebSocket /terminal/{name}/ws?session_id=...` |
 | Host files | `GET /host/files/tree`, `/read`, `/search`, `/diff`; `POST /host/files/write`, `/create`, `/rename`, `/upload`; `DELETE /host/files` |
 
 System launch arguments and selected robot/leader types are stored in
 **`localStorage`**. These configure bringup requests; they do not select the
-Jog/playback profile, which comes from the server's running-robot observation.
+Jog profile, which comes from the server's request-driven running-robot observation.
+Record & Play uses ROS topics and feedback directly.
 
 Configuration for default launch args lives in **`config/launchArgs.ts`** (edited in the UI popup, not in this file at runtime).
 
@@ -158,7 +171,8 @@ Configuration for default launch args lives in **`config/launchArgs.ts`** (edite
 | `/app` | Apps hub (Cyclo Manager / Cyclo Intelligence on port 7080) |
 | `/dashboard` | Host + Docker management, repo updates |
 | `/{container}/system` | Bringup, 3D viewer, robot status |
-| `/jog` | Base teleoperation and measured-position joint jogging |
+| `/{container}/jog` | Base teleoperation and measured-position joint jogging for the selected container |
+| `/jog` | Resolve one running robot or ask the user to choose before opening Jog |
 | `/record-play` | Record trajectory topics, saved recording library and repeated playback |
 | `/topics` | ROS 2 topic list + live viewer |
 | `/terminal` | Multi-tab container shells |

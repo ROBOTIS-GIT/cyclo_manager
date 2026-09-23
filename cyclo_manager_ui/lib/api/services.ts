@@ -15,11 +15,18 @@
 // Author: Hyungyu Kim
 
 import { API_BASE_URL, request } from "./client";
+import type { RobotRuntime } from "@/lib/robotRuntime";
 import type { S6AgentStatusListResponse, S6AgentUpdateResponse, SupportedRobotContainersResponse, ServiceStatusResponse, ServiceControlResponse, ServiceLogsClearResponse, ServiceActionRequest, BashrcResponse, RobotType } from "@/types/api";
 
-export async function getSupportedRobotContainers(): Promise<SupportedRobotContainersResponse> {
-  return request<SupportedRobotContainersResponse>({ method: "GET", url: "/containers" });
+export async function getSupportedRobotContainers(running = false): Promise<SupportedRobotContainersResponse> {
+  return request<SupportedRobotContainersResponse>({
+    method: "GET", url: "/containers", params: { running },
+  });
 }
+
+export const getBringupStatus = (container: string, signal: AbortSignal) => request<RobotRuntime>({
+  url: `/${encodeURIComponent(container)}/bringup_status`, timeout: 5000, signal,
+});
 
 export async function getS6AgentStatuses(): Promise<S6AgentStatusListResponse> {
   return request<S6AgentStatusListResponse>({

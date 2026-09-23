@@ -126,6 +126,34 @@ class JogControllerTests(unittest.IsolatedAsyncioTestCase):
         status = controller.states.get_nowait()
         self.assertEqual(status['state']['base'], [0, 0, 0])
 
+    async def test_shared_feedback_conflict_disables_and_blocks_selected_container(self):
+        for topic in ('/robot_description', '/joint_states'):
+            bridge = FakeBridge()
+            graph = bridge.motion_graph()
+            graph[topic] = {'type': 'sensor_msgs/msg/JointState', 'publishers': ['/robot', '/robot'], 'subscribers': []}
+            bridge.motion_graph = lambda: graph
+            controller = JogController(bridge, ready_runtime())
+            state = controller.robot_status()
+            self.assertFalse(state['ready'])
+            self.assertIn(topic, state['reason'])
+            with self.assertRaisesRegex(ValueError, 'Multiple publishers'):
+                controller.session.apply(JogInput(kind='base', x=.1))
+            self.assertEqual(bridge.published, [])
+            graph[topic]['publishers'] = ['/robot']
+            self.assertTrue(controller.robot_status()['ready'])
+
+    async def test_feedback_conflict_during_motion_blocks_later_commands(self):
+        controller, task = await self.start()
+        controller.update(JogInput(kind='base', x=.1))
+        await self.until(lambda: bool(controller.bridge.published))
+        graph = controller.bridge.motion_graph()
+        graph['/joint_states'] = {'type': 'sensor_msgs/msg/JointState', 'publishers': ['/robot1', '/robot2'], 'subscribers': []}
+        controller.bridge.motion_graph = lambda: graph
+        with self.assertRaisesRegex(ValueError, 'Multiple publishers'):
+            await asyncio.wait_for(task, 1)
+        self.assertEqual(len(controller.bridge.published), 1)
+        self.assertFalse(controller.bridge.subscription_users)
+
 
 if __name__ == '__main__':
     unittest.main()

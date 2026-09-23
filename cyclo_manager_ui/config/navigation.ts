@@ -25,7 +25,7 @@ const route = (href: string) => (pathname: string) => pathname === href || pathn
 export const navigationItems: NavigationItem[] = [
   { href: "/dashboard", label: "Dashboard", icon: "📊", matches: pathname => pathname === "/dashboard" },
   { action: "system", label: "System", icon: "🤖", matches: pathname => /^\/[^/]+\/system\/?$/.test(pathname) },
-  { action: "jog", label: "Jog", icon: "🎮", matches: pathname => pathname === "/jog" },
+  { action: "jog", label: "Jog", icon: "🎮", matches: pathname => pathname === "/jog" || /^\/[^/]+\/jog\/?$/.test(pathname) },
   { href: "/record-play", label: "Record & Play", icon: "⏺", matches: route("/record-play") },
   { href: "/topics", label: "Topics", icon: "📡", matches: route("/topics") },
   { href: "/terminal", label: "Terminal", icon: "🖥️", matches: route("/terminal") },

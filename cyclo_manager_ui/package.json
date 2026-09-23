@@ -8,7 +8,7 @@
     "start": "next start",
     "lint": "eslint",
     "test:observers": "node --test tests/websocketUtils.test.cjs",
-    "test:jog": "node --test tests/jogConnection.test.cjs"
+    "test:jog": "node --test tests/jogConnection.test.cjs tests/navigation.test.cjs"
   },
   "dependencies": {
     "@xterm/addon-fit": "^0.11.0",
