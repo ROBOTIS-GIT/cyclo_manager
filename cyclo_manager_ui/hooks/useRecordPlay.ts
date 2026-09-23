@@ -31,6 +31,7 @@ export function useRecordPlay() {
   const owner = useRef("");
   const mounted = useRef(false);
   const refresh = useRef<(() => Promise<void>) | null>(null);
+  const commandRevision = useRef(0);
   const update = useCallback((value: RecordPlayState) => { setState(value); }, []);
 
   useEffect(() => {
@@ -46,12 +47,17 @@ export function useRecordPlay() {
     let lastOverview = 0;
     const load = () => {
       if (polling) return polling;
+      const revision = commandRevision.current;
       polling = (async () => {
         try {
           const value = await getRecordPlay();
-          if (!disposed) { setOverview(value); update(value.state); setConnected(true); setConnectionError(null); }
+          if (!disposed && revision === commandRevision.current) {
+            setOverview(value); update(value.state); setConnected(true); setConnectionError(null);
+          }
         } catch (err) {
-          if (!disposed) { setConnected(false); setConnectionError(err instanceof Error ? err.message : "Server unavailable"); }
+          if (!disposed && revision === commandRevision.current) {
+            setConnected(false); setConnectionError(err instanceof Error ? err.message : "Server unavailable");
+          }
         } finally { lastOverview = Date.now(); }
       })().finally(() => { polling = null; });
       return polling;
@@ -65,11 +71,12 @@ export function useRecordPlay() {
     const tick = async () => {
       if (checkingStatus) return;
       checkingStatus = true;
+      const revision = commandRevision.current;
       try {
         const value = await getRecordPlayStatus();
-        if (!disposed) { update(value); setConnected(true); }
+        if (!disposed && revision === commandRevision.current) { update(value); setConnected(true); }
       } catch {
-        if (!disposed) setConnected(false);
+        if (!disposed && revision === commandRevision.current) setConnected(false);
       } finally { checkingStatus = false; }
       if (!disposed && Date.now() - lastOverview > 2000) void load();
     };
@@ -86,13 +93,19 @@ export function useRecordPlay() {
     onSuccess?: () => void,
   ) => {
     const commandOwner = owner.current;
+    commandRevision.current++;
     setBusyOwner(commandOwner); setError(null);
     try {
       const value = await operation(commandOwner);
       if (mounted.current && owner.current === commandOwner) {
+        // Discard reads started before or during this command: the response is
+        // newer and must keep Stop available even if an old idle read arrives.
+        commandRevision.current++;
         update(value);
-        await refresh.current?.();
-        if (mounted.current && owner.current === commandOwner) onSuccess?.();
+        setConnected(true); setConnectionError(null);
+        onSuccess?.();
+        // Refresh independently; a slow overview must not keep commands busy.
+        void refresh.current?.();
       }
       return value;
     } catch (err) {

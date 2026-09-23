@@ -38,12 +38,15 @@ function fixture({ recordings = [bag('a', 'First motion'), bag('b', 'Second moti
   const f = {
     confirmed: true, state, recordings, calls, confirmations, feedbackReady,
     load: async () => ({ state: f.state, recordings: f.recordings, groups: [], feedback_ready: f.feedbackReady, storage: '/bags' }),
+    status: async () => f.state,
+    command: async () => f.state,
     remove: async id => { f.recordings = f.recordings.filter(item => item.id !== id); return f.state; },
   };
   const request = async config => {
     calls.push(config);
     if (config.method === 'DELETE') return f.remove(decodeURIComponent(config.url.split('/').at(-1)));
-    if (config.url === '/record-play/status') return f.state;
+    if (config.method === 'POST') return f.command(config);
+    if (config.url === '/record-play/status') return f.status();
     if (config.url === '/record-play') return f.load();
     return f.state;
   };
@@ -191,4 +194,97 @@ test('a job started elsewhere overrides this page\'s local tolerance while activ
   f.tick(); await flush(); f.render();
   assert.equal(toleranceSelect(f).props.value, 3);
   assert.equal(playbackSettings(f).props.disabled, true);
+});
+
+const buttonWithText = (f, text) => f.nodes().find(node => node.type === 'button'
+  && (node.props.children === text || (Array.isArray(node.props.children) && node.props.children.includes(text))));
+const playing = { ...idle, active: true, phase: 'playing', recording_id: 'a' };
+
+test('successful Play and Record enable Stop immediately without waiting for an older overview', async () => {
+  for (const kind of ['play', 'record']) {
+    const f = await ready({ feedbackReady: true });
+    const snapshot = await f.load(); const oldOverview = deferred(); const newOverview = deferred();
+    f.load = () => oldOverview.promise; f.tick(); await flush();
+    const acknowledged = { ...playing, phase: kind === 'record' ? 'recording' : 'playing' };
+    f.command = async () => acknowledged;
+    const command = f.api().action(kind, {}); await flush(); f.render();
+    assert.equal(f.api().busy, false, 'Overview refresh must not hold command busy');
+    assert.equal(buttonWithText(f, kind === 'play' ? 'Stop' : 'stop and save').props.disabled, false);
+    assert.equal(await command, acknowledged);
+    f.load = () => newOverview.promise;
+    oldOverview.resolve(snapshot); await flush(); f.render();
+    assert.equal(f.api().state.active, true, 'Older idle state must not replace the command response');
+    assert.equal(buttonWithText(f, kind === 'play' ? 'Stop' : 'stop and save').props.disabled, false);
+    f.unmount(); newOverview.resolve(snapshot); await flush();
+  }
+});
+
+test('overview and status reads from before or during a command cannot replace its acknowledgment or connection state', async () => {
+  for (const source of ['overview', 'status']) {
+    for (const timing of ['before', 'during']) {
+      for (const outcome of ['idle', 'error']) {
+        const f = await ready({ feedbackReady: true }); const snapshot = await f.load();
+        const oldRead = deferred(); const acknowledgment = deferred(); const fresh = deferred();
+        if (source === 'overview') f.load = () => oldRead.promise;
+        else { f.status = () => oldRead.promise; f.load = () => fresh.promise; }
+        if (timing === 'before') { f.tick(); await flush(); }
+        f.command = () => acknowledgment.promise;
+        const command = f.api().action('play', {});
+        if (timing === 'during') { f.tick(); await flush(); }
+        acknowledgment.resolve(playing); await command;
+        if (source === 'overview') f.load = () => fresh.promise;
+        if (outcome === 'idle') oldRead.resolve(source === 'overview' ? snapshot : idle);
+        else oldRead.reject(new Error('Old connection failed'));
+        await flush(); f.render();
+        assert.equal(f.api().state.active, true, `${source}/${timing}/${outcome}`);
+        assert.equal(f.api().connected, true);
+        assert.equal(f.api().error, null);
+        assert.equal(buttonWithText(f, 'Stop').props.disabled, false);
+        f.unmount(); fresh.resolve(snapshot); await flush();
+      }
+    }
+  }
+});
+
+test('a successful Stop remains stopped after older playing overview and status results arrive', async () => {
+  for (const source of ['overview', 'status']) {
+    const f = await ready({ state: playing }); const snapshot = await f.load();
+    const oldRead = deferred(); const fresh = deferred();
+    if (source === 'overview') f.load = () => oldRead.promise;
+    else { f.status = () => oldRead.promise; f.load = () => fresh.promise; }
+    f.tick(); await flush();
+    f.command = async () => idle;
+    await f.api().action('stop'); f.render();
+    assert.equal(f.api().busy, false);
+    assert.equal(f.api().state.active, false);
+    if (source === 'overview') f.load = () => fresh.promise;
+    oldRead.resolve(source === 'overview' ? snapshot : playing); await flush(); f.render();
+    assert.equal(f.api().state.active, false);
+    assert.equal(buttonWithText(f, 'Stop').props.disabled, true);
+    f.unmount(); fresh.resolve(snapshot); await flush();
+  }
+});
+
+test('confirmed deletion removes the row immediately and late overview cannot resurrect it', async () => {
+  const f = await ready(); const snapshot = await f.load();
+  const oldOverview = deferred(); const fresh = deferred();
+  f.load = () => oldOverview.promise; f.tick(); await flush();
+  await f.api().removeRecording('a'); f.render();
+  assert.equal(f.api().busy, false);
+  assert.equal(f.deleteButton('First motion'), undefined);
+  f.load = () => fresh.promise;
+  oldOverview.resolve(snapshot); await flush(); f.render();
+  assert.equal(f.deleteButton('First motion'), undefined);
+  assert.ok(f.deleteButton('Second motion'));
+  const calls = f.calls.length; f.unmount(); fresh.resolve(snapshot); await flush();
+  assert.equal(f.calls.length, calls);
+});
+
+test('unmount cancels an overview refresh queued behind an older request', async () => {
+  const f = await ready(); const snapshot = await f.load(); const oldOverview = deferred();
+  f.load = () => oldOverview.promise; f.tick(); await flush();
+  f.command = async () => playing;
+  await f.api().action('play', {});
+  const calls = f.calls.length; f.unmount(); oldOverview.resolve(snapshot); await flush();
+  assert.equal(f.calls.length, calls, 'Queued refresh must not start another request after unmount');
 });
