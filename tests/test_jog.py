@@ -18,6 +18,7 @@
 
 """Run with python -m unittest discover -s tests. No ROS or hardware required."""
 
+import json
 import math
 import time
 import unittest
@@ -133,29 +134,113 @@ class JogTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'swerve'):
             self.session.apply(JogInput(kind='base', x=.1))
 
-    def test_target_tracks_feedback_not_previous_command(self):
+    def test_new_gesture_starts_from_feedback(self):
         self.joint()
-        self.assertAlmostEqual(self.target(), 0.2 + math.radians(1))
+        self.assertAlmostEqual(self.target(), 0.2 + math.radians(.1))
         self.session.stop()
         self.bridge.feedback(0.1)
         self.joint()
-        self.assertAlmostEqual(self.target(), 0.1 + math.radians(1))
+        self.assertAlmostEqual(self.target(), 0.1 + math.radians(.1))
         self.assertNotIn('velocities', self.bridge.published[-1][2]['points'][0])
+
+    def test_removed_options_and_increments_are_rejected(self):
+        for payload in ({'target_mode': 'feedback'}, {'target_mode': 'accumulate'},
+                        {'publish_interval_ms': 10}, {'time_from_start_ms': 0},
+                        {'resolution': 'large'}, {'resolution': 'fine_03'},
+                        {'resolution': 'fine_05'}, {'resolution': 'fine_07'}):
+            with self.subTest(payload=payload), self.assertRaises(ValidationError):
+                JogInput.model_validate_json(json.dumps(payload))
+
+    def test_accumulation_reuses_same_sample_until_stale(self):
+        received_at = self.bridge.cache['/joint_states']['received_at']
+        for tick in range(1, 4):
+            with patch('cyclo_manager.robot.interface.time.time', return_value=received_at + tick * .01):
+                self.joint()
+            self.assertEqual(len(self.bridge.published), tick)
+            self.assertAlmostEqual(self.target(), .2 + tick * math.radians(.1))
+        with patch('cyclo_manager.robot.interface.time.time', return_value=received_at + .501):
+            with self.assertRaisesRegex(ValueError, 'feedback is stale'):
+                self.joint()
+        self.assertEqual(len(self.bridge.published), 3)
+
+    def test_accumulated_targets_use_previous_goal_and_obey_limits(self):
+        for name, initial, lower, upper in [('head_joint1', .2, -.3, .7), ('lift_joint', -.2, -.5, 0)]:
+            for resolution, mm, degrees in [('fine', .2, .1), ('normal', .6, .3), ('coarse', 1, .5)]:
+                for direction in (-1, 1):
+                    with self.subTest(joint=name, resolution=resolution, direction=direction):
+                        self.setUp()
+                        delta = mm / 1000 if name == 'lift_joint' else math.radians(degrees)
+                        command = JogInput(kind='joint', joint=name, resolution=resolution,
+                                           direction=direction)
+                        for tick in range(30):
+                            # Movement, stalls and reversals in feedback do not rebase an active goal.
+                            measured = initial + direction * .001 * (tick % 3)
+                            self.bridge.feedback(measured if name == 'head_joint1' else .2)
+                            if name == 'lift_joint':
+                                self.bridge.cache['/joint_states']['data']['position'][2] = measured
+                            self.session.apply(command)
+                            expected = max(lower, min(upper, initial + direction * delta * (tick + 1)))
+                            self.assertAlmostEqual(self.target(), expected)
+                            message = self.bridge.published[-1][2]
+                            self.assertEqual(message['points'][0]['time_from_start'],
+                                             {'sec': 0, 'nanosec': 0})
+                            if name == 'head_joint1':
+                                held = message['joint_names'].index('head_joint2')
+                                self.assertEqual(message['points'][0]['positions'][held], .1)
+
+    def test_accumulation_reseeds_after_release_stop_idle_or_joint_change(self):
+        for end in ('release', 'stop', 'idle', 'other_joint'):
+            with self.subTest(end=end):
+                self.setUp()
+                for _ in range(3):
+                    self.bridge.feedback(.2)
+                    self.joint()
+                if end == 'other_joint':
+                    self.session.apply(JogInput(kind='joint', joint='lift_joint'))
+                else:
+                    self.session.apply(JogInput(kind=end))
+                    self.assertIsNone(self.session.active_joint)
+                self.bridge.feedback(.1)
+                self.joint()
+                self.assertAlmostEqual(self.target(), .1 + math.radians(.1))
+
+    def test_failed_publish_does_not_advance_accumulated_target(self):
+        self.joint()
+        first = self.target()
+        self.bridge.feedback(.201)
+        self.bridge.fail = True
+        with self.assertRaises(ValueError):
+            self.joint()
+        self.assertEqual(self.session.targets['head_joint1'], first)
+        self.bridge.fail = False
+        self.bridge.feedback(.202)
+        self.joint()
+        self.assertAlmostEqual(self.target(), first + math.radians(.1))
+
+    def test_accumulated_mode_rejects_stale_or_invalid_feedback(self):
+        for position, age in [(.2, 1), (float('nan'), 0), (1, 0)]:
+            with self.subTest(position=position, age=age):
+                self.setUp()
+                self.joint()
+                self.bridge.feedback(position, age)
+                with self.assertRaises(ValueError):
+                    self.joint()
+                self.assertEqual(len(self.bridge.published), 1)
 
     def test_hold_refreshes_lift_target_before_arrival(self):
         command = JogInput(kind='joint', joint='lift_joint')
         with patch('cyclo_manager.jog.time.monotonic', return_value=100):
             self.session.apply(command)
-        self.assertAlmostEqual(self.target(), -0.19)
+        self.assertAlmostEqual(self.target(), -0.1998)
         for tick, position in enumerate([-0.198, -0.197, -0.196], start=1):
             self.bridge.cache['/joint_states']['data']['position'][2] = position
             self.bridge.cache['/joint_states']['received_at'] = time.time() + tick / 1000
             with patch('cyclo_manager.jog.time.monotonic', return_value=100.25 + tick * 0.1):
                 self.session.apply(command)
             self.assertEqual(len(self.bridge.published), tick + 1)
-            self.assertAlmostEqual(self.target(), position + 0.01)
+            self.assertAlmostEqual(self.target(), -.2 + (tick + 1) * .0002)
 
-    def test_hold_keeps_refreshing_without_accumulating_stalled_targets(self):
+    def test_hold_accumulates_even_when_feedback_stalls(self):
         self.joint()
         original = self.target()
         for tick in range(1, 4):
@@ -164,7 +249,7 @@ class JogTests(unittest.TestCase):
                        return_value=time.monotonic() + 0.1):
                 self.joint()
             self.assertEqual(len(self.bridge.published), tick + 1)
-            self.assertAlmostEqual(self.target(), original)
+            self.assertAlmostEqual(self.target(), original + tick * math.radians(.1))
 
     def test_hold_reverses_direction_before_previous_goal_is_reached(self):
         self.joint(direction=1)
@@ -173,35 +258,50 @@ class JogTests(unittest.TestCase):
                    return_value=time.monotonic() + 0.1):
             self.joint(direction=-1)
         self.assertEqual(len(self.bridge.published), 2)
-        self.assertAlmostEqual(self.target(), 0.203 - math.radians(1))
+        self.assertAlmostEqual(self.target(), 0.2)
 
     def test_position_only_goal_has_no_manager_duration_even_with_low_urdf_speed(self):
         self.bridge.cache['/robot_description']['data']['data'] = URDF.replace(
             'velocity="2"', 'velocity="0.03"')
         self.joint(resolution='coarse')
-        self.assertAlmostEqual(self.target(), 0.2 + math.radians(3))
+        self.assertAlmostEqual(self.target(), 0.2 + math.radians(.5))
         points = self.bridge.published[-1][2]['points']
         self.assertEqual(points, [{
             'positions': [self.target(), .1],
             'time_from_start': {'sec': 0, 'nanosec': 0},
         }])
 
+    def test_stop_and_idle_replace_goal_with_immediate_measured_hold(self):
+        for kind in ('stop', 'idle', 'cleanup'):
+            with self.subTest(kind=kind):
+                self.setUp()
+                self.joint()
+                self.bridge.feedback(.205)
+                if kind == 'cleanup':
+                    self.session.stop()
+                else:
+                    self.session.apply(JogInput(kind=kind))
+                self.assertEqual(self.target(), .205)
+                self.assertEqual(self.bridge.published[-1][2]['points'][0]['time_from_start'],
+                                 {'sec': 0, 'nanosec': 0})
+
     def test_release_keeps_unfinished_target_without_publishing_again(self):
         self.session.apply(JogInput(kind='joint', joint='lift_joint'))
         self.bridge.cache['/joint_states']['data']['position'][2] = -0.198
         self.session.apply(JogInput(kind='release'))
         self.assertEqual(len(self.bridge.published), 1)
-        self.assertAlmostEqual(self.target(), -0.19)
+        self.assertAlmostEqual(self.target(), -0.1998)
         self.assertIsNone(self.session.active_joint)
-        self.assertIsNone(self.session.last_joint_sample)
         self.assertIsNone(self.session.active_topic)
         self.assertEqual(self.session.held_positions, {})
         self.session.apply(JogInput())
         self.session.stop()
         self.assertEqual(len(self.bridge.published), 1)
+        self.assertEqual(self.bridge.published[0][2]['points'][0]['time_from_start'],
+                         {'sec': 0, 'nanosec': 0})
 
     def test_release_does_not_need_position_feedback_or_controller_publish(self):
-        self.joint(resolution='large')
+        self.joint(resolution='coarse')
         target = self.target()
         self.bridge.fail = True
         with patch.object(self.session, 'feedback', side_effect=AssertionError('No feedback needed')):
@@ -217,11 +317,6 @@ class JogTests(unittest.TestCase):
         self.assertEqual(self.bridge.published[-1][2]['linear'], dict(x=0.0, y=0.0, z=0.0))
         self.assertEqual(self.session.base, [0.0, 0.0, 0.0])
 
-    def test_no_repeated_motion_from_same_sample(self):
-        self.joint()
-        self.joint()
-        self.assertEqual(len(self.bridge.published), 1)
-
     def test_joint_limit_clamp(self):
         self.bridge.feedback(0.69999)
         self.joint()
@@ -230,7 +325,7 @@ class JogTests(unittest.TestCase):
     def test_boundary_noise_allows_jog_but_never_extends_command_limits(self):
         for name, lower, upper, tolerance, delta in [
                 ('head_joint1', -0.3, 0.7, math.radians(0.05), math.radians(0.1)),
-                ('lift_joint', -0.5, 0, 0.00005, 0.001)]:
+                ('lift_joint', -0.5, 0, 0.00005, 0.0002)]:
             for side, boundary in [(-1, lower), (1, upper)]:
                 for fraction in (0, 0.1, 1):
                     for direction in (-1, 1):
@@ -324,7 +419,7 @@ class JogTests(unittest.TestCase):
         self.assertEqual(len(self.bridge.published), 1)
         points = self.bridge.published[0][2]['points']
         self.assertNotIn('velocities', points[0])
-        self.assertAlmostEqual(points[-1]['positions'][0], 0.2 + math.radians(1))
+        self.assertAlmostEqual(points[-1]['positions'][0], 0.2 + math.radians(.1))
 
     def test_idle_stops_before_target_arrival_and_does_not_resume(self):
         self.joint()
@@ -343,7 +438,7 @@ class JogTests(unittest.TestCase):
         self.bridge.feedback(arrived)
         self.joint()
         self.assertEqual(len(self.bridge.published), 2)
-        self.assertAlmostEqual(self.target(), arrived + math.radians(1))
+        self.assertAlmostEqual(self.target(), arrived + math.radians(.1))
         self.assertEqual(self.session.active_joint, 'head_joint1')
 
     def test_explicit_stop_interrupts_unfinished_target(self):
@@ -354,9 +449,9 @@ class JogTests(unittest.TestCase):
         self.assertEqual(self.target(), 0.205)
         self.assertIsNone(self.session.active_joint)
 
-    def test_lift_normal_increment_uses_immediate_ten_mm_offset(self):
+    def test_lift_default_increment_uses_immediate_point_two_mm_offset(self):
         self.session.apply(JogInput(kind='joint', joint='lift_joint'))
-        self.assertAlmostEqual(self.target(), -0.19)
+        self.assertAlmostEqual(self.target(), -0.1998)
         point = self.bridge.published[-1][2]['points'][-1]
         self.assertEqual(point['time_from_start'], {'sec': 0, 'nanosec': 0})
         self.assertEqual(self.bridge.published[-1][0],
@@ -364,8 +459,7 @@ class JogTests(unittest.TestCase):
 
     def test_selected_increments_and_immediate_point(self):
         for name, current in [('head_joint1', 0.2), ('lift_joint', -0.2)]:
-            for resolution, mm, degrees in [('fine', 1, 0.1), ('normal', 10, 1),
-                                            ('coarse', 15, 3), ('large', 20, 5)]:
+            for resolution, mm, degrees in [('fine', .2, .1), ('normal', .6, .3), ('coarse', 1, .5)]:
                 for direction in (-1, 1):
                     with self.subTest(joint=name, resolution=resolution, direction=direction):
                         self.session = JogSession(self.bridge, 'sg2')
@@ -380,30 +474,9 @@ class JogTests(unittest.TestCase):
                             'time_from_start': {'sec': 0, 'nanosec': 0},
                         }])
 
-    def test_hold_targets_remain_bounded_through_repeated_feedback_updates(self):
-        for name, initial in [('head_joint1', 0.2), ('lift_joint', -0.2)]:
-            for resolution, mm, degrees in [('fine', 1, 0.1), ('normal', 10, 1),
-                                            ('coarse', 15, 3), ('large', 20, 5)]:
-                for direction in (-1, 1):
-                    with self.subTest(joint=name, resolution=resolution, direction=direction):
-                        self.setUp()
-                        delta = mm / 1000 if name == 'lift_joint' else math.radians(degrees)
-                        command = JogInput(kind='joint', joint=name,
-                                           resolution=resolution, direction=direction)
-                        for tick in range(30):
-                            # Include stalled samples, gradual motion and tracking changes.
-                            current = initial + direction * delta * (tick % 4) / 4
-                            self.bridge.feedback(current if name == 'head_joint1' else 0.2)
-                            if name == 'lift_joint':
-                                self.bridge.cache['/joint_states']['data']['position'][2] = current
-                            self.session.apply(command)
-                            self.assertAlmostEqual(self.target(), current + direction * delta)
-                            self.assertLessEqual(abs(self.target() - current), delta + 1e-12)
-                        self.assertEqual(len(self.bridge.published), 30)
-
     def test_hold_clamps_both_urdf_boundaries_for_all_resolutions(self):
         for name, lower, upper in [('head_joint1', -0.3, 0.7), ('lift_joint', -0.5, 0)]:
-            for resolution in ('fine', 'normal', 'coarse', 'large'):
+            for resolution in ('fine', 'normal', 'coarse'):
                 for direction, boundary in [(-1, lower), (1, upper)]:
                     with self.subTest(joint=name, resolution=resolution, direction=direction):
                         self.setUp()

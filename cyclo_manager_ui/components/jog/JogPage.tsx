@@ -37,7 +37,7 @@ export default function JogPage({ container }: { container: string }) {
   const [baseMode, setBaseMode] = useState<"joystick" | "keyboard">("joystick");
   const [mobileSection, setMobileSection] = useState<"base" | "joints">("base");
   const basePanel = useRef<HTMLDivElement>(null);
-  const [jointResolution, setJointResolution] = useState<JogResolution>("normal");
+  const [jointResolution, setJointResolution] = useState<JogResolution>("fine");
   const [group, setGroup] = useState("body");
   const [activeJoint, setActiveJoint] = useState<string | null>(null);
   const jog = useJogConnection(container);
@@ -92,7 +92,9 @@ export default function JogPage({ container }: { container: string }) {
       </div>
       <div className="jog-actions flex flex-wrap items-center gap-3" style={surface}>
         {!jog.connected && <button type="button" className={btn} style={button} onClick={jog.reconnect}>Reconnect</button>}
-        <label className="text-sm flex gap-2 items-center"><input type="checkbox" checked={enabled} disabled={!jog.connected || controlsDisabled} onChange={event => { setActiveJoint(null); jog.setEnabled(event.target.checked); }} />Enable jog</label>
+        <label className="text-sm flex gap-2 items-center"><input type="checkbox" checked={enabled} disabled={controlsDisabled} onChange={event => {
+          setActiveJoint(null); jog.setEnabled(event.target.checked);
+        }} />Enable jog</label>
         <button type="button" className={`${btn} font-semibold`} style={danger} onClick={stopAll}>■ Stop jog</button>
       </div>
     </header>
@@ -172,6 +174,7 @@ export default function JogPage({ container }: { container: string }) {
               </option>)}
             </select>
           </label>
+
         </div>
         {visible.length === 0 && <div className="py-12 text-sm text-center" style={secondary}>{!running ? "Waiting for robot feedback." : !jog.state?.description_available ? "Waiting for robot description and joint limits…" : "No supported joints in this group."}</div>}
         <div className="mt-4 grid grid-cols-1 @min-[36rem]:grid-cols-2 gap-3">{visible.map(joint => (

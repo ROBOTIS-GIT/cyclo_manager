@@ -63,20 +63,23 @@ distinction between configured bringup type and actual launch-process detection.
   Unmapped joints remain disabled. AI Worker `*_wheel_steer` joints are omitted
   from Joint Jog cards but still appear in **Wheel steering angle** feedback.
 - Positions, limits and targets use degrees or mm in the UI and radians or metres
-  in ROS. Choose **1 mm / 0.1°**, **10 mm / 1°** (default), **15 mm / 3°**, or
-  **20 mm / 5°**. The mm value applies to prismatic joints, including the lift;
-  degrees apply to revolute joints. Limits can shorten a move near a boundary.
-- Press a joint button to start continuous movement immediately, with no
-  tap/hold transition delay. Every update sends measured position plus/minus the
-  selected increment, bounded by joint limits, without waiting for arrival.
-  Goals are never accumulated from previous targets. Changing the increment
-  stops the gesture.
-- Each update sends one immediate position point. Releasing or cancelling a joint
-  button ends target updates without publishing another trajectory. The controller
-  can finish moving to the last target, even after a short press. The selected
-  increment is a target offset, not a guaranteed travel distance per click.
-  Explicit stop, focus loss, disconnect and input timeout still attempt to hold
-  the measured position of an active gesture.
+  in ROS. Choose **0.2 mm / 0.1°** (default), **0.6 mm / 0.3°**, or **1 mm / 0.5°**.
+  The mm value applies to prismatic joints, including the lift; degrees apply to
+  revolute joints. Limits can shorten a move near a boundary.
+- Press a joint button to start continuous movement immediately. The first target
+  starts from measured position; subsequent updates add the selected increment to
+  the last successfully published target. There is no feedback-relative mode or
+  separate tap/hold transition. Changing the increment stops the gesture.
+- Joint publishing is fixed at **10 ms (100 Hz)**, with one position point and
+  **time_from_start = 0 ms**. Only the increment is selectable. Base publishing
+  remains at 50 ms. The server skips missed ticks rather than catching up in a burst,
+  so actual target progression can be slower under processing delays.
+- Releasing or cancelling a joint button ends target updates without publishing
+  another trajectory. The controller can finish moving to the last target, even
+  after a short press. Accumulation has no separate following-error limit, so a
+  lagging joint can have more movement left after release; URDF position limits
+  still apply. Explicit stop, focus loss, disconnect and input timeout still
+  attempt to hold the measured position of an active gesture.
 - Stop jog, loss of browser focus or a hidden page disables operation. Explicit
   enabling is required again. A hidden tab sends a stop, pauses periodic Jog
   messages and keeps the stopped WebSocket session open. Returning to the tab
@@ -90,10 +93,15 @@ held inputs refresh it about every 100 ms, and release/stop is sent immediately.
 These messages do not wait for status responses. A blocked browser transport skips
 held inputs and retains only the latest intent; release/stop is still sent.
 
-The server owns the ROS cadence, applying the latest held input every 50 ms
-(20 Hz). Each joint update still uses fresh measured position plus/minus the
-selected increment, never accumulated targets. Unchanged feedback samples are
-skipped. Frequent input messages do not create extra publish ticks, and missed
+The server owns the ROS cadence: joint updates use a fixed 10 ms interval and
+base updates use 50 ms. Joint inputs contain the joint name, direction and
+`resolution` (`fine`, `normal` or `coarse`; default `fine`). Target mode, publish
+interval and trajectory duration are not configurable command fields.
+Each joint tick adds one increment to the previous successfully published target,
+regardless of whether a new feedback sample has arrived. Valid feedback no older
+than 500 ms is still required; stale feedback stops motion. Release, stop or
+switching joints ends the gesture, so the next press starts from measured position.
+Frequent input messages do not create extra publish ticks, and missed
 ticks are skipped rather than replayed in a burst. Input reception, the serialized
 motion worker and WebSocket status transmission run independently. Session calls,
 including feedback snapshots, remain serialized; this is not a real-time deadline
@@ -178,26 +186,24 @@ are clamped once per press and remain latched; raw feedback shown in the UI is n
 modified. Larger violations report the joint name, measured value, URDF range and
 allowance in degrees or mm. Missing/non-finite or stale feedback remains invalid.
 
-Each message contains exactly one point with `positions` and
-`time_from_start: {sec: 0, nanosec: 0}`. Velocity and acceleration arrays are empty.
-No travel duration is assigned, and there are no intermediate points or timed
-acceleration/braking profiles. Motion speed and acceleration therefore depend on
-the controller and hardware; the manager does not enforce joint speed through
-trajectory duration.
+Each update sends one position-only point with `time_from_start` set to zero.
+The controller and motor determine the resulting motion; there is no manager-side
+interpolation duration or velocity command.
 
-While pressed, the selected target is:
+While held, targets follow:
 
 ```text
-clamp(measured position + direction * selected increment, URDF lower, URDF upper)
+first target = clamp(measured position + direction * increment, URDF limits)
+next target  = clamp(previous published target + direction * increment, URDF limits)
 ```
 
-The bound uses the fresh measurement at command generation, not a previous goal
-or predicted position. A 3-degree selection commands at most 3 degrees ahead of
-that sample. A stalled joint does not accumulate increasingly distant targets.
-This bounds commanded position, not physical overshoot or speed. Other controller
-joints keep their latched goals. Reaching a target does not end a held gesture;
-the next fresh feedback sample supplies the next target. The UI's pending-target
-highlight uses a 0.01° or 0.1 mm tolerance, which does not affect command generation.
+Feedback changes do not rebase the goal during a gesture. Even if the joint stalls,
+valid feedback allows the target to keep advancing up to its URDF limit. Reversing
+input during the same gesture subtracts from the previous goal. A release followed
+by a new press starts from measured position again. Other controller joints keep
+their latched goals. Reaching a target does not end a held gesture. The UI's
+pending-target highlight uses a 0.01° or 0.1 mm tolerance, which does not affect
+command generation.
 
 ## Stops and timeouts
 
@@ -208,7 +214,7 @@ The next press captures fresh held-joint positions. Base release still sends zer
 velocity.
 
 Explicit stop, focus loss, page exit, disconnect or timeout during an active joint
-gesture sends one immediate target at the selected joint's latest measured
+gesture sends one immediate target (`time_from_start=0`) at the selected joint's latest measured
 position, clamped to the URDF range when within the feedback allowance, keeping
 the other controller joints at their latched goals. Stale
 feedback prevents sending an old measured pose. A changed or unavailable bringup
@@ -238,8 +244,9 @@ avoidance.
 - `robot/joints.py`, `robot/catalog.py`, `robot/interface.py`: URDF joints, controller
   mapping, shared cached feedback and publication.
 - `jog.py`: per-session inputs, targets, held positions and stop state.
-- `jog_stream.py`: latest input, 50 ms motion cadence, watchdog and serialized cleanup.
-- `cyclo_manager_ui/lib/jog.ts`: message types, units, increments and timing.
+- `jog_stream.py`: latest input, fixed 10 ms joint cadence, 50 ms base cadence,
+  watchdog and serialized cleanup.
+- `cyclo_manager_ui/lib/jog.ts`: message types, units and increments.
 - `useJogConnection.ts`: input heartbeats, streamed status and press/release lifecycle.
 - `useKeyboardTeleop.ts`: keyboard focus, input and release handling.
 - `JointJogCard.tsx` and `JogControls.tsx`: joint display and controls.

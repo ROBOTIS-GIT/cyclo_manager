@@ -19,10 +19,9 @@ import type { RobotRuntime } from "@/lib/robotRuntime";
 // UI labels and the resolution type come from the same increment list.
 // Values must match JOINT_INCREMENTS in cyclo_manager/jog.py.
 export const JOINT_INCREMENTS = [
-  { value: "fine", millimetres: 1, degrees: 0.1 },
-  { value: "normal", millimetres: 10, degrees: 1 },
-  { value: "coarse", millimetres: 15, degrees: 3 },
-  { value: "large", millimetres: 20, degrees: 5 },
+  { value: "fine", millimetres: 0.2, degrees: 0.1 },
+  { value: "normal", millimetres: 0.6, degrees: 0.3 },
+  { value: "coarse", millimetres: 1, degrees: 0.5 },
 ] as const;
 
 // SI tolerances for displaying a pending target; they do not gate movement.
@@ -35,7 +34,6 @@ export const BASE_TRANSLATION = { min: 0.05, max: 0.3, step: 0.05, initial: 0.1 
 export const BASE_ROTATION = { min: 0.1, max: 0.6, step: 0.1, initial: 0.2 };
 
 export type JogResolution = typeof JOINT_INCREMENTS[number]["value"];
-
 export type JogCommand =
   | { kind: "idle" | "release" | "stop" }
   | { kind: "base"; x: number; y: number; yaw: number }

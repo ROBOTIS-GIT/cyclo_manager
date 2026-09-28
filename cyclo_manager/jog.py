@@ -16,12 +16,11 @@
 #
 # Author: Hyungyu Kim
 
-"""Small, feedback-relative jog commands. The leader must not run concurrently.
+"""Accumulate position targets while held. The leader must not run concurrently.
 
-This module deliberately has no leader arbitration or robot ownership logic.
-Commands contain one immediate position target bounded by measured feedback.
-No absolute pose commands are accepted. Runtime URDF limits are required;
-actual motion speed is controlled by the robot, not a manager trajectory duration.
+Each new gesture starts from measured position. Commands advance the previous
+successfully published target within runtime URDF limits, without interpolation.
+This module has no leader arbitration or robot ownership logic.
 """
 
 from dataclasses import asdict
@@ -44,8 +43,8 @@ BASE_LINEAR_ACCELERATION = 0.3  # m/s²
 BASE_ANGULAR_ACCELERATION = 0.6  # rad/s²
 BASE_TICK_MIN = 0.01  # seconds
 BASE_TICK_MAX = 0.1  # seconds
-JOINT_INCREMENTS = {  # millimetres, degrees
-    'fine': (1, 0.1), 'normal': (10, 1), 'coarse': (15, 3), 'large': (20, 5),
+JOINT_INCREMENTS = {  # millimetres, degrees per publish
+    'fine': (0.2, 0.1), 'normal': (0.6, 0.3), 'coarse': (1, 0.5),
 }
 # Measurement noise allowance only; published goals still obey exact URDF limits.
 FEEDBACK_LIMIT_TOLERANCE = {'m': 0.00005, 'rad': math.radians(0.05)}
@@ -83,7 +82,7 @@ class JogInput(BaseModel):
     yaw: float = Field(0, ge=-BASE_ANGULAR_MAX, le=BASE_ANGULAR_MAX)
     joint: str = Field('', max_length=100)
     direction: Literal[-1, 1] = 1
-    resolution: Literal['normal', 'fine', 'coarse', 'large'] = 'normal'
+    resolution: Literal['fine', 'normal', 'coarse'] = 'fine'
 
 
 class JogSession(RobotInterface):
@@ -102,7 +101,6 @@ class JogSession(RobotInterface):
         self.active_joint: str | None = None
         self.base = [0.0, 0.0, 0.0]
         self.last_tick = time.monotonic()
-        self.last_joint_sample: float | None = None
         self.held_positions: dict[str, float] = {}
         self.active_topic = None
         self.prepared_topics = set()
@@ -153,7 +151,7 @@ class JogSession(RobotInterface):
         })
 
     def trajectory(self, joint: RobotJoint, target: float):
-        """Send one immediate position target, without timed interpolation."""
+        """Send one immediate position target for the controller group."""
         if not joint.topic or (self.active_topic and joint.topic != self.active_topic):
             raise ValueError('Controller mapping changed. Reconnect before moving.')
         goals = {joint.name: target, **self.held_positions}
@@ -195,7 +193,6 @@ class JogSession(RobotInterface):
                     self.trajectory(joint, _clamp_position(joint, position))
                 except ValueError as exc:
                     errors.append(str(exc))
-        self.last_joint_sample = None
         if errors:
             raise ValueError('; '.join(errors))
         self.active_joint = None
@@ -203,7 +200,7 @@ class JogSession(RobotInterface):
         self.active_topic = None
 
     def apply(self, command: JogInput):
-        """Apply one validated input, using measured position for joint goals."""
+        """Apply one validated operator input."""
         if self.guard is not None and (command.kind in ('base', 'joint')
                                        or any(self.base) or self.active_joint):
             self.guard()
@@ -235,26 +232,23 @@ class JogSession(RobotInterface):
         self.publish_base(values)
 
     def _apply_joint(self, command: JogInput):
-        """Publish a selected-size offset from fresh measured joint position."""
+        """Accumulate from the last published goal; seed each gesture from feedback."""
         if any(self.base) or (self.active_joint and self.active_joint != command.joint):
             self.stop()
-        positions, age, sample = self.feedback()
+        positions, age, _ = self.feedback()
         if age is None or age > FEEDBACK_MAX_AGE:
             raise ValueError('Joint feedback is stale. Jog stopped.')
         joint = next((j for j in self.joints if j.name == command.joint), None)
         if joint is None or not joint.topic:
             raise ValueError('Joint or URDF limits are unavailable.')
         current = _checked_position(joint, positions.get(joint.name))
-        if sample == self.last_joint_sample:
-            return  # Do not repeatedly command from the same feedback sample.
-        self.last_joint_sample = sample
         if self.active_topic and self.active_topic != joint.topic:
             raise ValueError('Controller mapping changed. Reconnect before moving.')
         self.retain_controller(joint, positions)
         millimetres, degrees = JOINT_INCREMENTS[command.resolution]
         delta = millimetres / 1000 if joint.unit == 'm' else math.radians(degrees)
-        target = _clamp_position(joint, current + command.direction * delta)
-        # Recompute from measured position, never by accumulating prior goals.
+        origin = self.targets.get(joint.name, current) if self.active_joint == joint.name else current
+        target = _clamp_position(joint, origin + command.direction * delta)
         # Track attempted motion before publishing so a failed send also stops.
         self.active_joint = joint.name
         self.active_topic = joint.topic

@@ -11,7 +11,7 @@ const ts = require('typescript');
 
 const compile = file => ts.transpileModule(
   fs.readFileSync(path.join(__dirname, '..', file), 'utf8'),
-  { compilerOptions: { module: ts.ModuleKind.CommonJS } },
+  { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2020, jsx: ts.JsxEmit.ReactJSX } },
 ).outputText;
 const source = compile('hooks/useJogConnection.ts');
 const constants = { exports: {} };
@@ -280,4 +280,78 @@ test('GET and WebSocket stay bound to the page container across independent wind
   left.unmount();
   assert.equal(right.socket.readyState, 1);
   right.unmount();
+});
+
+test('joint intent includes only the selected increment, with immediate release', () => {
+  const f = fixture();
+  f.jog.pressJoint('head_joint1', 1, 'fine');
+  f.advance(210);
+  assert.equal(f.joints().length, 3, 'Browser heartbeat stays at 100 ms');
+  for (const message of f.joints()) {
+    assert.deepEqual(message, { kind: 'joint', joint: 'head_joint1', direction: 1, resolution: 'fine' });
+  }
+  f.jog.releaseJoint();
+  assert.deepEqual(f.socket.sent.at(-1), { kind: 'release' });
+  f.unmount();
+});
+
+function jogPageFixture() {
+  let cursor = 0, tree;
+  const slots = [], presses = [], enables = [];
+  const jog = { connected: true, enabled: false, error: null, command() {}, stop() {}, releaseJoint() {}, reconnect() {},
+    setEnabled(value) { enables.push(value); jog.enabled = value; },
+    pressJoint(...args) { presses.push(args); },
+    state: { robot: { ready: true, model: 'test' }, base_supported: false, feedback_fresh: true,
+      description_available: true, controllers: [], base: [0, 0, 0], wheels: {},
+      joints: [{ name: 'joint1', group: 'body', topic: '/arm', available: true, unit: 'rad', lower: -1, upper: 1, position: 0, target: null }] },
+  };
+  const react = {
+    useState(initial) { const i = cursor++; slots[i] ??= { value: initial }; return [slots[i].value, next => {
+      slots[i].value = typeof next === 'function' ? next(slots[i].value) : next;
+    }]; },
+    useRef(initial) { return slots[cursor++] ??= { current: initial }; },
+    useCallback: callback => callback,
+  };
+  const jsx = (type, props) => ({ type, props });
+  const context = { exports: {}, require: name => {
+    if (name === 'react') return react;
+    if (name === 'react/jsx-runtime') return { jsx, jsxs: jsx, Fragment: 'Fragment' };
+    if (name === '@/lib/jog') return constants.exports;
+    if (name === '@/hooks/useJogConnection') return { useJogConnection: () => jog };
+    if (name === '@/hooks/useKeyboardTeleop') return { useKeyboardTeleop() {} };
+    if (name === '@/components/ui/controlStyles') return {};
+    if (name === '@/components/JogControls') return { HoldButton: 'HoldButton', Slider: 'Slider' };
+    if (name.startsWith('@/components/')) return { default: name.split('/').at(-1) };
+    throw new Error(`Unexpected import: ${name}`);
+  } };
+  vm.runInNewContext(compile('components/jog/JogPage.tsx'), context);
+  const nodes = node => !node || typeof node !== 'object' ? [] : Array.isArray(node) ? node.flatMap(nodes) : [node, ...nodes(node.props?.children)];
+  const f = { jog, presses, enables,
+    render() { cursor = 0; tree = context.exports.default({ container: 'ai_worker' }); },
+    input(label) { return nodes(tree).find(node => node.type === 'input' && node.props['aria-label'] === label); },
+    selects() { return nodes(tree).filter(node => node.type === 'select'); },
+    enable() { return nodes(tree).find(node => node.type === 'input' && node.props.type === 'checkbox'); },
+    card() { return nodes(tree).find(node => node.type === 'JointJogCard'); },
+    alerts() { return nodes(tree).filter(node => node.props?.role === 'alert'); },
+  };
+  f.render(); return f;
+}
+
+test('joint settings expose only the three accumulation increments', () => {
+  const f = jogPageFixture();
+  assert.equal(f.input('Publish interval'), undefined);
+  assert.equal(f.input('Time from start'), undefined);
+  assert.equal(f.selects().length, 1);
+  const select = () => f.selects()[0];
+  assert.equal(select().props['aria-label'], 'Joint increment');
+  assert.equal(select().props.value, 'fine');
+  const labels = Array.from(select().props.children, node => node.props.children.join(''));
+  assert.deepEqual(labels, ['0.2 mm / 0.1°', '0.6 mm / 0.3°', '1 mm / 0.5°']);
+  for (const value of ['fine', 'normal', 'coarse']) {
+    select().props.onChange({ target: { value } }); f.render();
+    f.enable().props.onChange({ target: { checked: true } }); f.render();
+    assert.equal(f.card().props.enabled, true);
+    f.card().props.onStart(-1);
+    assert.deepEqual(f.presses.at(-1), ['joint1', -1, value]);
+  }
 });

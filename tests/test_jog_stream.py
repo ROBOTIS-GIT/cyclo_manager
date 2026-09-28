@@ -6,7 +6,9 @@
 """Exercise publish/stop ordering with blocked work, without a real robot."""
 
 import asyncio
+import math
 import threading
+import time
 import unittest
 
 from cyclo_manager.jog import JogInput
@@ -58,6 +60,67 @@ class JogControllerTests(unittest.IsolatedAsyncioTestCase):
 
         bridge.publish_jog = blocked
         return bridge, entered, proceed
+
+    def timed_bridge(self, bridge=None):
+        bridge = bridge or FakeBridge()
+        read, publish = bridge.get_topic_data, bridge.publish_jog
+        published_at = []
+
+        def streaming_read(topic):
+            if topic == '/joint_states':
+                bridge.feedback()
+            return read(topic)
+
+        def timed_publish(*args):
+            result = publish(*args)
+            published_at.append(time.monotonic())
+            return result
+
+        bridge.get_topic_data = streaming_read
+        bridge.publish_jog = timed_publish
+        return bridge, published_at
+
+    async def test_fixed_joint_cadence_accumulates_without_waiting_for_heartbeat(self):
+        bridge, published_at = self.timed_bridge()
+        controller, _ = await self.start(bridge)
+        controller.update(JogInput(kind='joint', joint='head_joint1'))
+        await self.until(lambda: len(published_at) >= 5)
+        controller.update(JogInput(kind='release'))
+        await self.until(lambda: not controller.owns_motion)
+        self.assertLess(published_at[4] - published_at[0], .09)
+        for gap in (b - a for a, b in zip(published_at, published_at[1:])):
+            self.assertGreaterEqual(gap, .007)
+        for tick, (_, _, message) in enumerate(bridge.published, start=1):
+            self.assertAlmostEqual(message['points'][0]['positions'][0], .2 + tick * math.radians(.1))
+            self.assertEqual(message['points'][0]['time_from_start'], {'sec': 0, 'nanosec': 0})
+
+    async def test_base_keeps_fifty_ms_cadence(self):
+        bridge, published_at = self.timed_bridge()
+        controller, _ = await self.start(bridge)
+        controller.update(JogInput(kind='base', x=.1))
+        await self.until(lambda: len(published_at) >= 3)
+        controller.update(JogInput(kind='stop'))
+        await self.until(lambda: not controller.owns_motion)
+        for gap in (b - a for a, b in zip(published_at[:2], published_at[1:3])):
+            self.assertGreaterEqual(gap, .035)
+            self.assertLess(gap, .1)
+        self.assertNotIn('points', bridge.published[0][2])
+
+    async def test_slow_joint_publish_skips_missed_ticks_without_burst(self):
+        bridge, entered, proceed = self.blocked_bridge()
+        bridge, published_at = self.timed_bridge(bridge)
+        controller, _ = await self.start(bridge)
+        command = JogInput(kind='joint', joint='head_joint1')
+        controller.update(command)
+        self.assertTrue(await asyncio.to_thread(entered.wait, 1))
+        await asyncio.sleep(.05)
+        controller.update(command)
+        proceed.set()
+        await self.until(lambda: len(published_at) >= 2)
+        controller.update(JogInput(kind='release'))
+        await self.until(lambda: not controller.owns_motion)
+        self.assertGreaterEqual(published_at[1] - published_at[0], .007)
+        self.assertAlmostEqual(bridge.published[1][2]['points'][0]['positions'][0], .2 + 2 * math.radians(.1))
 
     async def test_disconnect_joins_inflight_publish_before_final_stop_and_cleanup(self):
         bridge, entered, proceed = self.blocked_bridge()

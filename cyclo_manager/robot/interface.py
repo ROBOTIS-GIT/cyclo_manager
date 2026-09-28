@@ -107,6 +107,6 @@ class RobotInterface:
 
 
 def position_message(values):
-    """Build an immediate position-only trajectory point in joint order."""
+    """Build one immediate position point."""
     return {'joint_names': list(values), 'points': [{'positions': list(values.values()),
             'time_from_start': {'sec': 0, 'nanosec': 0}}]}

@@ -15,7 +15,8 @@ from cyclo_manager.robot.profiles import PROFILES
 from cyclo_manager.routers.websocket_utils import release_subscription_owner
 
 logger = logging.getLogger(__name__)
-PUBLISH_INTERVAL = 0.05
+BASE_PUBLISH_INTERVAL = 0.05
+JOINT_PUBLISH_INTERVAL = 0.01
 STATUS_INTERVAL = 0.1
 INPUT_TIMEOUT = 0.4
 MOTION_KINDS = ('base', 'joint')
@@ -136,12 +137,15 @@ class JogController:
                             if not motion_lock.acquire(blocking=False):
                                 raise ValueError('Another manager motion is active. Stop it before Jog.')
                             self.owns_motion = True
-                        await finish_call(self.session.apply, self.command)
+                        command = self.command
+                        await finish_call(self.session.apply, command)
                         self.release_motion()
-                        next_publish += PUBLISH_INTERVAL
+                        interval = (JOINT_PUBLISH_INTERVAL
+                                    if command.kind == 'joint' else BASE_PUBLISH_INTERVAL)
+                        next_publish += interval
                         # Skip missed ticks instead of replaying a burst of old work.
                         if next_publish <= loop.time():
-                            next_publish = loop.time() + PUBLISH_INTERVAL
+                            next_publish = loop.time() + interval
                         if self.pending_end is not None:
                             continue
 
