@@ -272,7 +272,6 @@ cyclo_manager/
 ├── cyclo_manager_ui/        # Next.js UI
 ├── cyclo_manager_cli/       # PyPI package (cyclo-manager)
 ├── docs/                    # Jog, Record & Play and code structure
-├── tests/                   # Backend regression tests
 ├── config.yml               # Dev / example config
 ├── docker-compose.dev.yml
 └── README.md

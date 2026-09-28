@@ -175,12 +175,8 @@ definitions without depending on Jog state or publishing commands.
 
 ## Validation
 
-`python -m unittest discover -s tests -v` covers filesystem IDs, recording
-capture/finalization, deletion and active-job protection, validation before
-publishing, rate scaling, held joints,
-quintic transitions, finite/infinite loops, stops, ownership, feedback/discovery
-failures and HTTP validation with fake robot feedback. A separate integration
-check should write/read a temporary MCAP using the installed ROS packages.
+Verify recording, playback, deletion, repeat transitions and stop behavior on the
+target environment. Check MCAP writing and reading using the installed ROS packages.
 On-robot verification of follower behavior and return paths is required before
 using recordings for unattended motion.
 

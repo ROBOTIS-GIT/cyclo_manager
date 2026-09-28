@@ -257,15 +257,6 @@ avoidance.
 - `useKeyboardTeleop.ts`: keyboard focus, input and release handling.
 - `JointJogCard.tsx` and `JogControls.tsx`: joint display and controls.
 
-From the repository root in the server dependency environment:
-
-```sh
-python -m unittest discover -s tests -v
-```
-
-Tests use fake feedback and do not send commands to a robot. They cover profile
-selection, restart guards, mapping, complete controller goals, held grippers,
-limits, stale feedback, continuous movement, stops and connection timeouts.
-Run `npm run test:jog` in `cyclo_manager_ui` for mocked browser tests of press/release
-ordering, focus loss, page exit and connection timeouts. See
-[Code structure](code-structure.md#verification) for UI and host-agent checks.
+See [Code structure](code-structure.md#verification) for UI checks. Verify
+press/release, focus loss, page exit and connection timeouts on the target browser
+and robot.

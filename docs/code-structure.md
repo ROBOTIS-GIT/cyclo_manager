@@ -69,25 +69,12 @@ host agent's installed Python package.
 
 ## Verification
 
-From the repository root, in environments with the corresponding server or
-host-agent dependencies installed:
-
-```sh
-python -m unittest discover -s tests -v
-PYTHONPATH=cyclo_manager_cli python -m unittest discover -s cyclo_manager_cli/tests -v
-```
-
-The first command covers backend motion, recording, subscription and API logic;
-the second covers host CPU sampling and shared summaries. They use test doubles,
-not live robot commands. They are development checks, not application startup code.
-
 From `cyclo_manager_ui`, run:
 
 ```sh
 npm ci
 npx tsc --noEmit
 npm run lint
-npm run test:observers
 npm run build
 ```
 
