@@ -199,6 +199,16 @@ class ArrivalTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'Fresh joint feedback'):
             self.service._arrive(connection, self.plan, self.goals, .5)
 
+    def test_bag_timing_wait_preserves_deadline_and_cancellation(self):
+        self.service._wait_until(.2)
+        self.assertAlmostEqual(self.clock.now(), .2)
+        self.service._wait_until(.1)
+        self.assertAlmostEqual(self.clock.now(), .2)
+        self.clock.cancelled = True
+        with self.assertRaises(Cancelled):
+            self.service._wait_until(1)
+        self.assertAlmostEqual(self.clock.now(), .2)
+
 
 if __name__ == '__main__':
     unittest.main()

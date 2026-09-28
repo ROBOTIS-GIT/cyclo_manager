@@ -25,16 +25,26 @@ export function HoldButton({ children, label, disabled, onStart, onStop }: {
   children: ReactNode; label: string; disabled: boolean; onStart: () => void; onStop: () => void;
 }) {
   const pressed = useRef(false);
-  const release = () => { if (pressed.current) { pressed.current = false; onStop(); } };
+  const pointer = useRef<number | null>(null);
+  const release = () => {
+    pointer.current = null;
+    if (pressed.current) { pressed.current = false; onStop(); }
+  };
   return <button type="button" className={`${btn} touch-none select-none min-w-11 min-h-11 active:brightness-125`} style={button}
     aria-label={label} disabled={disabled}
     onPointerDown={event => {
+      if (disabled || event.button !== 0 || !event.isPrimary) return;
       event.preventDefault(); if (pressed.current) return;
-      pressed.current = true; event.currentTarget.setPointerCapture(event.pointerId); onStart();
+      pressed.current = true; pointer.current = event.pointerId;
+      event.currentTarget.setPointerCapture(event.pointerId); onStart();
     }}
+    onPointerMove={event => {
+      if (pointer.current === event.pointerId && event.pointerType !== "touch" && event.buttons !== 1) release();
+    }}
+    onContextMenu={event => { event.preventDefault(); release(); }}
     onPointerUp={release} onPointerCancel={release} onLostPointerCapture={release} onBlur={release}
     onKeyDown={event => {
-      if (![" ", "Enter"].includes(event.key) || event.repeat) return;
+      if (disabled || ![" ", "Enter"].includes(event.key) || event.repeat) return;
       event.preventDefault(); if (!pressed.current) { pressed.current = true; onStart(); }
     }}
     onKeyUp={event => { if ([" ", "Enter"].includes(event.key)) release(); }}

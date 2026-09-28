@@ -60,29 +60,39 @@ class JogBridgeTests(unittest.TestCase):
         self.assertFalse(result)
         self.bridge._handle_publish_topic.assert_not_called()
 
-    def test_fresh_command_requires_subscriber(self):
+    def test_fresh_command_is_dispatched(self):
         self.bridge._handle_publish_topic = MagicMock(return_value=True)
         self.assertTrue(self.dispatch(
             ('/cmd_vel', 'geometry_msgs/msg/Twist', {}, time.monotonic() + 1)))
         self.bridge._handle_publish_topic.assert_called_once_with(
-            '/cmd_vel', 'geometry_msgs/msg/Twist', {}, require_subscriber=True)
+            '/cmd_vel', 'geometry_msgs/msg/Twist', {})
 
-    def test_unmatched_publisher_rejects_jog(self):
+    def test_motion_publishes_without_querying_subscribers(self):
         publisher = MagicMock()
         publisher.get_subscription_count.return_value = 0
         self.bridge._rclpy_node = MagicMock()
         self.bridge._rclpy_node.create_publisher.return_value = publisher
         with patch.object(self.module, 'get_message_class', return_value=SimpleNamespace):
-            result = self.bridge._handle_publish_topic(
-                '/cmd_vel', 'geometry_msgs/msg/Twist', {}, True)
-        self.assertFalse(result)
-        publisher.publish.assert_not_called()
+            result = self.dispatch(
+                ('/cmd_vel', 'geometry_msgs/msg/Twist', {}, time.monotonic() + 1))
+        self.assertTrue(result)
+        publisher.publish.assert_called_once()
+        publisher.get_subscription_count.assert_not_called()
+        self.bridge._rclpy_node.get_subscriptions_info_by_topic.assert_not_called()
+
+    def test_publish_failure_is_reported(self):
+        self.bridge._rclpy_node = MagicMock()
+        publisher = self.bridge._rclpy_node.create_publisher.return_value
+        publisher.publish.side_effect = RuntimeError('publisher destroyed')
+        with patch.object(self.module, 'get_message_class', return_value=SimpleNamespace):
+            self.assertFalse(self.dispatch(
+                ('/cmd_vel', 'geometry_msgs/msg/Twist', {}, time.monotonic() + 1)))
 
     def test_legacy_publish_still_works_without_deadline(self):
         self.bridge._handle_publish_topic = MagicMock(return_value=True)
         self.assertTrue(self.dispatch(('/cmd_vel', 'geometry_msgs/msg/Twist', {})))
         self.bridge._handle_publish_topic.assert_called_once_with(
-            '/cmd_vel', 'geometry_msgs/msg/Twist', {}, require_subscriber=False)
+            '/cmd_vel', 'geometry_msgs/msg/Twist', {})
 
     def test_recorder_observes_every_message_without_replacing_cache(self):
         self.bridge._rclpy_node = MagicMock()
@@ -161,6 +171,17 @@ class JogBridgeTests(unittest.TestCase):
         self.assertFalse(self.bridge._has_external_subscriber('/trajectory', publisher))
         node.get_subscriptions_info_by_topic.return_value = [own, follower]
         self.assertTrue(self.bridge._has_external_subscriber('/trajectory', publisher))
+
+    def test_readiness_still_requires_external_subscribers(self):
+        self.bridge._get_or_create_publisher = MagicMock(return_value=MagicMock())
+        self.bridge._has_external_subscriber = MagicMock(return_value=False)
+        for matched in (False, True):
+            self.bridge._has_external_subscriber.return_value = matched
+            response = queue.Queue()
+            self.bridge._request_queue.put((self.module.RequestKind.CHECK_JOG, (
+                [('/trajectory', 'trajectory_msgs/msg/JointTrajectory')], response)))
+            self.bridge._process_request()
+            self.assertEqual(response.get_nowait(), matched)
 
     def test_destroyed_subscription_callback_cannot_overwrite_replacement_cache(self):
         node = self.bridge._rclpy_node = MagicMock()

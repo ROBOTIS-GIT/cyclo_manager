@@ -108,7 +108,7 @@ export default function JogPage({ container }: { container: string }) {
         onClick={() => { stopMotion(); setMobileSection(section); }}>{section === "base" ? "Base" : "Joints"}</button>)}
     </div>
     <fieldset aria-label="Jog controls" disabled={controlsDisabled} inert={controlsDisabled}
-      className={`grid grid-cols-1 ${manipulator ? "" : "lg:grid-cols-[minmax(260px,0.85fr)_minmax(300px,1.15fr)]"} gap-4 p-2 md:p-5 min-w-0 border-0`}
+      className={`jog-controls grid grid-cols-1 ${manipulator ? "" : "lg:grid-cols-[minmax(260px,0.85fr)_minmax(300px,1.15fr)]"} gap-4 p-2 md:p-5 min-w-0 border-0`}
       style={{ opacity: controlsDisabled ? 0.45 : 1 }}>
       <section className={`${manipulator ? "hidden" : mobileSection === "base" ? "" : "hidden md:block"} p-4 md:p-5 rounded-lg border min-w-0`} style={surface}>
         <div className="flex justify-between items-start gap-2 mb-5"><h2 className="font-semibold">Mobile base</h2>{jog.state && !jog.state.base_supported && <span className="text-xs" style={secondary}>Not supported</span>}</div>

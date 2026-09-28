@@ -46,24 +46,14 @@ BASE_TICK_MAX = 0.1  # seconds
 JOINT_INCREMENTS = {  # millimetres, degrees per publish
     'fine': (0.2, 0.1), 'normal': (0.6, 0.3), 'coarse': (1, 0.5),
 }
-# Measurement noise allowance only; published goals still obey exact URDF limits.
-FEEDBACK_LIMIT_TOLERANCE = {'m': 0.00005, 'rad': math.radians(0.05)}
 
 
 def _checked_position(joint: RobotJoint, position: float | None) -> float:
-    """Validate measured feedback without rounding or changing the raw value."""
-    tolerance = FEEDBACK_LIMIT_TOLERANCE[joint.unit]
-    scale, unit = (1000, 'mm') if joint.unit == 'm' else (180 / math.pi, 'deg')
-    limits = (f'limits=[{joint.lower * scale:.6f}, {joint.upper * scale:.6f}] {unit}, '
-              f'tolerance={tolerance * scale:.6f} {unit}')
+    """Require finite feedback; URDF limits apply to outgoing goals only."""
     if position is None or not math.isfinite(position):
         raise ValueError(
             f'Joint feedback unavailable: {joint.name} '
-            f'(missing or non-finite position; {limits})')
-    if not joint.lower - tolerance <= position <= joint.upper + tolerance:
-        raise ValueError(
-            f'Joint feedback outside URDF limits: {joint.name} '
-            f'(measured={position * scale:.6f} {unit}; {limits})')
+            '(missing or non-finite position)')
     return position
 
 

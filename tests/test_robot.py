@@ -73,7 +73,7 @@ class RobotInterfaceTests(unittest.TestCase):
 
     def test_failed_publish_preserves_the_shared_command_error(self):
         self.bridge.fail = True
-        with self.assertRaisesRegex(ValueError, 'controller subscriber unavailable'):
+        with self.assertRaisesRegex(ValueError, 'publish failed or timed out'):
             self.robot.publish('/test', 'example/Type', {'value': 1})
         self.assertEqual(self.bridge.published, [('/test', 'example/Type', {'value': 1})])
 

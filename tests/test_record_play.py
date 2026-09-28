@@ -366,14 +366,34 @@ class RecordPlayTests(unittest.TestCase):
         self.assertEqual(self.service.status()['phase'], 'completed')
         self.assertFalse(self.bridge.subscription_users)
 
-    def test_feedback_loss_stops_background_playback(self):
-        self.store.messages[self.recording_id][1] = (TOPIC, trajectory(.3), 5000000000)
+    def test_streaming_does_not_repeat_feedback_or_controller_checks(self):
+        checked_phases = []
+        original = RobotInterface.require_feedback
+
+        def check(connection):
+            phase = self.service.status()['phase']
+            checked_phases.append(phase)
+            self.assertNotEqual(phase, 'playing')
+            return original(connection)
+
+        with patch.object(RobotInterface, 'require_feedback', check):
+            self.service.motion(self.recording_id, 'f2', 'owner')
+            self.finish()
+        self.assertEqual(self.service.status()['phase'], 'completed')
+        self.assertIn('preparing', checked_phases)
+        self.assertIn('settling', checked_phases)
+        self.assertEqual(len(self.bridge.published), 2)
+
+    def test_feedback_loss_during_streaming_is_checked_at_final_arrival(self):
+        self.store.messages[self.recording_id][1] = (TOPIC, trajectory(.3), 1800000000)
         with self.assertLogs('cyclo_manager.record_play.service', level='ERROR'):
             self.service.motion(self.recording_id, 'f2', 'owner')
             self.wait(lambda: len(self.bridge.published) > 0)
             self.bridge.fresh = False
             self.bridge.feedback(age=2)
             self.finish()
+        self.assertEqual(len(self.bridge.published), 2, 'Both bag messages must be replayed')
+        self.assertEqual(self.bridge.published[-1][2]['points'][0]['positions'][0], .3)
         self.assertIn('feedback', self.service.status()['error'])
         self.assertFalse(motion_lock.locked())
 

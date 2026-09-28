@@ -386,8 +386,7 @@ class Ros2Bridge:
                     topic, msg_type, data, *deadline = request_payload
                     try:
                         result = (
-                            self._handle_publish_topic(
-                                topic, msg_type, data, require_subscriber=bool(deadline))
+                            self._handle_publish_topic(topic, msg_type, data)
                             if not deadline or time.monotonic() < deadline[0]
                             else False
                         )
@@ -535,7 +534,6 @@ class Ros2Bridge:
         topic: str,
         msg_type: str,
         data: dict[str, Any],
-        require_subscriber: bool = False,
     ) -> bool:
         if not self._rclpy_node:
             return False
@@ -545,8 +543,8 @@ class Ros2Bridge:
             return False
 
         pub = self._get_or_create_publisher(topic, msg_type)
-        if pub is None or (require_subscriber and not self._has_external_subscriber(topic, pub)):
-            logger.warning('No subscriber matched for jog topic: %s', topic)
+        if pub is None:
+            logger.warning('Publisher unavailable for topic: %s', topic)
             return False
 
         try:

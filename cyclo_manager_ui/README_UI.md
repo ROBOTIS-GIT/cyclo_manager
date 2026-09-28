@@ -48,9 +48,11 @@ feedback topics and ambiguous controller mappings block Jog commands.
 Record & Play shows **Server connected** and **Controller feedback**, recommends
 known command topic names and also lists other
 discovered `JointTrajectory` topics. Expand **Topic** in a group to see its ROS
-name. Recording needs neither bringup nor an active publisher. Playback requires
-fresh joint/controller feedback, valid URDF limits and verified controller routing,
-without Docker/s6 bringup checks. Stop remains available when feedback is unavailable,
+name. Recording needs neither bringup nor an active publisher. Playback preparation
+requires fresh joint/controller feedback, valid URDF limits and verified controller
+routing, without Docker/s6 bringup checks. Bag streaming does not repeat feedback
+or controller-state/mapping checks; return transitions, arrival checks and stop
+holds still validate them. Stop remains available when feedback is unavailable,
 although publishing a pose hold still requires valid feedback and unchanged routes.
 Playback **Arrival tolerance** offers 0.5° (default), 1°, 2° and 3° for angular joints;
 linear joints use 1 mm. Start, repeat-return and final poses require 0.3 seconds

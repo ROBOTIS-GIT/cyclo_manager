@@ -100,9 +100,17 @@ All involved joints must stay within tolerance for 0.3 seconds before proceeding
 even if the initial pose is already within tolerance. An out-of-range observation
 restarts that interval. Failure to settle within ten seconds after the planned
 interval aborts playback; the error reports the affected joints, targets, measured
-positions, errors and tolerances in degrees or millimeters. Joint feedback must be at
-most 500 ms old throughout movement. More than 500 ms of playback lag aborts
-instead of bursting overdue messages.
+positions, errors and tolerances in degrees or millimeters. Preparation, return
+transitions, arrival checks and stop holds require joint feedback no older than
+500 ms and unchanged controller routes. During bag streaming (including waiting
+for the final trajectory duration), feedback and controller-state/mapping checks
+are not repeated. Feedback loss or mapping changes are therefore checked at the
+next arrival, return or stop stage, not during message replay. Feedback subscriptions
+remain active for those stages. Cancellation, publish failures and the 500 ms
+playback-lag cutoff still interrupt streaming. External subscribers are checked
+during playback preparation, not on each publish. Losing a subscriber alone does
+not fail publishing or stop the replay clock. Overdue commands are not burst after
+the lag cutoff.
 
 The option is sent as `arrival_tolerance_deg` in `POST /record_play/play` and
 reported in job status so other browser clients show the running job's setting.
@@ -122,9 +130,9 @@ Recording, preparation, playback and repeat returns continue after page navigati
 browser closure or client disconnection. No browser heartbeat is required. On
 return, the page shows the active recording, progress, speed and repeat settings;
 any browser can explicitly stop the server job. Infinite repeats continue until
-stopped or a robot/server error occurs. Playback monitors fresh joint/controller
-feedback, its resolved command routes and unchanged URDF limits.
-These checks continue independently of browser connections.
+stopped or an error occurs. Preparation, return, arrival and stop stages validate
+fresh joint/controller feedback, resolved command routes and unchanged URDF limits
+independently of browser connections. Bag streaming skips these repeated checks.
 
 Every topic subscription tracks a set of consumer IDs. A topic viewer owns its
 subscriptions for the lifetime of its WebSocket; Jog owns them through its final
@@ -197,7 +205,8 @@ using recordings for unattended motion.
   angles remain in Wheel steering angle; OMY/OMX and other unassigned joints are unchanged.
 - Playback validates against current URDF and discovered command routes; the old
   metadata `robot` label is informational. All existing saved recordings remain listed.
-  Controller membership/routes and URDF must remain unchanged during playback.
+  Controller membership/routes and URDF are pinned at preparation and checked again
+  during return, arrival and stop stages, rather than on every replayed message.
 - Base control requires both profile support and a discovered `geometry_msgs/msg/Twist`
   subscriber on the profile base topic. OMY/OMX and stationary AI Worker models have no base controls.
 - This version uses `/robot_description` and `/joint_states` in the manager's ROS
@@ -253,9 +262,10 @@ bringup `generation`; it validates the bag against current ROS feedback and rout
   publishers; controller discovery also rejects ambiguous mappings. Selecting a
   container does not isolate ROS topics. This is polled readiness, not hardware interlocking.
 - Record & Play does not use this profile/status service. Recording needs only
-  discovered command topics; playback requires fresh joint/controller feedback,
-  valid URDF limits, unambiguous command routes and controller subscribers. Changes
-  to Docker/s6 status alone do not stop playback.
+  discovered command topics; playback preparation requires fresh joint/controller
+  feedback, valid URDF limits, unambiguous command routes and controller subscribers.
+  Bag streaming skips per-publish subscriber and feedback/controller-state checks.
+  Changes to Docker/s6 status alone do not stop playback.
 - Jog verifies its cached bringup status before publishing. A changed or unavailable run also blocks the final
   pose-hold publish, to avoid sending an old session's goals to a different robot.
   The error is reported; the last target or controller base timeout then applies.

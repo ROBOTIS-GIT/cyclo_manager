@@ -103,7 +103,7 @@ class RobotInterface:
             self.guard()
         if not self.bridge.publish_jog(topic, msg_type, data):
             raise ValueError(
-                'ROS command failed: controller subscriber unavailable or publish timed out.')
+                'ROS command failed: publish failed or timed out.')
 
 
 def position_message(values):

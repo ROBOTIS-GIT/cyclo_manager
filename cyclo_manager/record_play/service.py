@@ -267,13 +267,13 @@ class RecordPlayService:
                 start = time.monotonic()
                 for topic, data, timestamp in self.store.read(recording_id):
                     offset = (timestamp - plan.first_timestamp) / 1e9 / rate
-                    self._wait_until(start + offset, connection)
+                    self._wait_until(start + offset)
                     if time.monotonic() - start - offset > 0.5:
                         raise ValueError(
                             'Playback fell behind; stopped instead of bursting commands.')
                     connection.publish(topic, TRAJECTORY_TYPE, plan.message(topic, data, rate))
                     self.update(elapsed=offset)
-                self._wait_until(start + plan.duration / rate, connection)
+                self._wait_until(start + plan.duration / rate)
                 self.update(phase='settling', elapsed=plan.duration / rate)
                 self._arrive(connection, plan, plan.goals(end=True), arrival_tolerance_deg)
                 if repeats == 0 or cycle < repeats:
@@ -308,10 +308,10 @@ class RecordPlayService:
         if errors:
             raise ValueError('; '.join(errors))
 
-    def _wait_until(self, deadline, connection):
+    def _wait_until(self, deadline):
+        """Wait for bag timing without polling robot feedback or controller routes."""
         while True:
             self._check()
-            connection.require_feedback()
             remaining = deadline - time.monotonic()
             if remaining <= 0:
                 return

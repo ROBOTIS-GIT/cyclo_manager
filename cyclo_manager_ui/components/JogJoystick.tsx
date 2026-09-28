@@ -55,11 +55,16 @@ export default function JogJoystick({ disabled, onMove, onStop }: {
         className="relative w-full max-w-56 aspect-square rounded-full border touch-none"
         style={{ background: "var(--vscode-editor-background)", borderColor: "var(--vscode-panel-border)", opacity: disabled ? 0.4 : 1, cursor: disabled ? "not-allowed" : "grab" }}
         onPointerDown={event => {
-          if (disabled || pointer.current !== null) return;
+          if (disabled || event.button !== 0 || !event.isPrimary || pointer.current !== null) return;
           event.preventDefault(); pointer.current = event.pointerId;
           event.currentTarget.setPointerCapture(event.pointerId); update(event);
         }}
-        onPointerMove={event => { if (!disabled && pointer.current === event.pointerId) update(event); }}
+        onPointerMove={event => {
+          if (pointer.current !== event.pointerId) return;
+          if (disabled || (event.pointerType !== "touch" && event.buttons !== 1)) { release(); return; }
+          update(event);
+        }}
+        onContextMenu={event => { event.preventDefault(); release(); }}
         onPointerUp={release} onPointerCancel={release} onLostPointerCapture={release}
       >
         <div className="absolute left-1/2 top-1/2 w-14 h-14 -ml-7 -mt-7 rounded-full border pointer-events-none"

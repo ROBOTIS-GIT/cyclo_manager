@@ -254,6 +254,15 @@ pre:hover {
   padding-bottom: env(safe-area-inset-bottom, 0px);
 }
 .system-page { min-height: 100%; }
+@media (pointer: coarse) {
+  /* Long presses operate Jog controls instead of selecting nearby labels. */
+  .jog-controls,
+  .jog-controls * {
+    -webkit-user-select: none;
+    user-select: none;
+    -webkit-touch-callout: none;
+  }
+}
 @media (min-width: 768px) {
   .app-shell { --workspace-left: 120px; --workspace-top: 0px; }
 }

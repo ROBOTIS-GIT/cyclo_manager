@@ -172,9 +172,9 @@ class WebsocketJogTests(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn('velocities', point)
         self.assertTrue(socket.closed)
 
-    async def test_small_held_joint_boundary_error_does_not_close_connection(self):
+    async def test_out_of_range_selected_and_held_joints_do_not_close_connection(self):
         bridge = FakeBridge()
-        bridge.cache['/joint_states']['data']['position'][1] = 0.4 + math.radians(0.003)
+        bridge.cache['/joint_states']['data']['position'][:2] = [0.8, 0.5]
         bridge, socket = await self.run_socket([
             {'kind': 'joint', 'joint': 'head_joint1'},
             {'kind': 'joint', 'joint': 'head_joint1'},
@@ -183,7 +183,7 @@ class WebsocketJogTests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(any(item['error'] for item in socket.output))
         self.assertEqual(socket.close_calls, 0)
         self.assertGreaterEqual(len(bridge.published), 2)
-        self.assertEqual(bridge.published[-1][2]['points'][0]['positions'], [0.2, 0.4])
+        self.assertEqual(bridge.published[-1][2]['points'][0]['positions'], [0.7, 0.4])
         for _, _, message in bridge.published:
             values = dict(zip(message['joint_names'], message['points'][0]['positions']))
             self.assertEqual(values['head_joint2'], 0.4)

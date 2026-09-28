@@ -46,6 +46,9 @@ distinction between configured bringup type and actual launch-process detection.
 
 ## Controls
 
+- Hold buttons and the joystick accept only the primary mouse button or primary
+  touch. Right/middle clicks do not start motion. Context menus on these controls
+  are suppressed and end any active gesture; mouse button chords also end it.
 - Choose **Joystick** (default) or **Keyboard** in the base input tabs. Switching
   modes stops the current gesture. Only the selected mode accepts movement input.
 - In Joystick mode, drag for robot-relative forward/lateral/diagonal translation.
@@ -166,25 +169,24 @@ not measured odometry.
 ## Joint targets and held positions
 
 A Jog message contains the **complete joint set of the selected controller**.
-The selected joint receives the measured-position offset. Every other joint on
+The selected joint receives the accumulated target, seeded from measured position. Every other joint on
 that controller is captured from fresh feedback at press start and held at that
 position throughout the press and final stop. This includes grippers regardless
 of their names and works with controllers that reject partial joint goals.
 
 Hold updates do not recapture fluctuating gripper or other held-joint feedback.
-A new gesture after stopping captures new held positions. Missing or
-out-of-range positions beyond the feedback allowance block the initial command;
+A new gesture after stopping captures new held positions. Missing or non-finite
+positions block the initial command;
 joints on separate controllers are not included. This holds position, not grasp force or an earlier closing
 target. A changed controller mapping interrupts the gesture instead of redirecting
 its commands.
 
-Measured positions may exceed a URDF boundary by up to **0.05°** for revolute
-joints or **0.05 mm** for prismatic joints to accommodate small boundary noise.
-This allowance applies to the selected joint, other held joints and stop feedback.
-Every published target is still clamped to the original URDF range. Held positions
-are clamped once per press and remain latched; raw feedback shown in the UI is not
-modified. Larger violations report the joint name, measured value, URDF range and
-allowance in degrees or mm. Missing/non-finite or stale feedback remains invalid.
+Measured positions outside URDF limits do not stop Jog or close the connection.
+There is no feedback-limit tolerance check. URDF position limits apply to every
+outgoing target, including the selected joint, other held joints and explicit stop
+commands. Held positions are clamped once per press and remain latched; raw feedback
+shown in the UI is not modified. Missing/non-finite feedback and feedback older than
+500 ms still block motion.
 
 Each update sends one position-only point with `time_from_start` set to zero.
 The controller and motor determine the resulting motion; there is no manager-side
@@ -215,7 +217,7 @@ velocity.
 
 Explicit stop, focus loss, page exit, disconnect or timeout during an active joint
 gesture sends one immediate target (`time_from_start=0`) at the selected joint's latest measured
-position, clamped to the URDF range when within the feedback allowance, keeping
+position, clamped to the URDF range, keeping
 the other controller joints at their latched goals. Stale
 feedback prevents sending an old measured pose. A changed or unavailable bringup
 also blocks the old session's final publish and reports an error; the controller
@@ -231,6 +233,10 @@ The UI's 700 ms feedback timeout pauses while hidden and restarts on return.
 Commands waiting more than 250 ms in the ROS bridge queue are discarded. If the
 manager or bridge dies, base stopping relies on the robot controller's configured
 velocity timeout; the last joint target remains, without further goal updates.
+
+The bridge does not query external subscribers on each publish. Jog still checks
+feedback and controller mappings; a successful publish alone does not confirm
+that a controller received or executed the command.
 
 The manager's motion guard excludes concurrent Jog/playback motion across browser
 clients. Recording can coexist with Jog. External leaders are outside this guard.

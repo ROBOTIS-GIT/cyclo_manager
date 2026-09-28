@@ -218,7 +218,7 @@ class JogTests(unittest.TestCase):
         self.assertAlmostEqual(self.target(), first + math.radians(.1))
 
     def test_accumulated_mode_rejects_stale_or_invalid_feedback(self):
-        for position, age in [(.2, 1), (float('nan'), 0), (1, 0)]:
+        for position, age in [(.2, 1), (float('nan'), 0), (float('inf'), 0), (None, 0)]:
             with self.subTest(position=position, age=age):
                 self.setUp()
                 self.joint()
@@ -346,38 +346,45 @@ class JogTests(unittest.TestCase):
                                          if j['name'] == name)
                             self.assertEqual(shown['position'], measured)
 
-    def test_feedback_beyond_tolerance_reports_actual_value_limits_and_units(self):
-        for name, lower, upper, tolerance, unit in [
-                ('head_joint1', -0.3, 0.7, math.radians(0.05), 'deg'),
-                ('lift_joint', -0.5, 0, 0.00005, 'mm')]:
+    def test_out_of_range_feedback_allows_start_and_continued_accumulation(self):
+        for name, lower, upper, excess, delta in [
+                ('head_joint1', -.3, .7, .2, math.radians(.1)),
+                ('lift_joint', -.5, 0, .01, .0002)]:
             for side, boundary in [(-1, lower), (1, upper)]:
                 with self.subTest(joint=name, side=side):
                     self.setUp()
+                    measured = boundary + side * excess
                     data = self.bridge.cache['/joint_states']['data']
-                    data['position'][data['name'].index(name)] = boundary + side * tolerance * 1.02
-                    with self.assertRaisesRegex(ValueError, 'outside URDF limits') as raised:
-                        self.session.apply(JogInput(kind='joint', joint=name))
-                    for detail in (name, 'measured=', 'limits=[', f'tolerance=0.050000 {unit}'):
-                        self.assertIn(detail, str(raised.exception))
-                    self.assertEqual(self.bridge.published, [])
+                    data['position'][data['name'].index(name)] = measured
+                    command = JogInput(kind='joint', joint=name, direction=-side)
+                    self.session.apply(command)
+                    self.assertEqual(self.target(), boundary)
+                    # Fresh but still out-of-range feedback must not interrupt the hold.
+                    self.bridge.cache['/joint_states']['received_at'] = time.time()
+                    self.session.apply(command)
+                    self.assertAlmostEqual(self.target(), boundary - side * delta)
+                    self.assertEqual(len(self.bridge.published), 2)
+                    shown = next(j for j in self.session.snapshot()['joints'] if j['name'] == name)
+                    self.assertEqual(shown['position'], measured)
+                    self.assertTrue(shown['available'])
 
-    def test_stop_clamps_small_boundary_noise_for_rotary_and_linear_joints(self):
-        for name, lower, upper, tolerance in [
-                ('head_joint1', -0.3, 0.7, math.radians(0.05)),
-                ('lift_joint', -0.5, 0, 0.00005)]:
+    def test_stop_clamps_out_of_range_feedback_for_rotary_and_linear_joints(self):
+        for name, lower, upper, excess in [
+                ('head_joint1', -0.3, 0.7, .2),
+                ('lift_joint', -0.5, 0, .01)]:
             for side, boundary in [(-1, lower), (1, upper)]:
                 with self.subTest(joint=name, side=side):
                     self.setUp()
                     self.session.apply(JogInput(kind='joint', joint=name))
                     data = self.bridge.cache['/joint_states']['data']
-                    data['position'][data['name'].index(name)] = boundary + side * tolerance / 2
+                    data['position'][data['name'].index(name)] = boundary + side * excess
                     self.session.stop()
                     self.assertEqual(len(self.bridge.published), 2)
                     self.assertEqual(self.target(), boundary)
                     self.assertIsNone(self.session.active_joint)
 
     def test_stop_rejects_invalid_feedback_and_can_retry_when_it_recovers(self):
-        for measured in (0.7 + math.radians(0.051), float('nan'), float('inf')):
+        for measured in (None, float('nan'), float('inf')):
             with self.subTest(measured=measured):
                 self.setUp()
                 self.joint()
@@ -391,8 +398,8 @@ class JogTests(unittest.TestCase):
                 self.assertEqual(self.target(), 0.7)
                 self.assertIsNone(self.session.active_joint)
 
-    def test_stale_missing_and_out_of_range_feedback_reject_motion(self):
-        for position, age in [(0.2, 1), (float('nan'), 0), (1, 0)]:
+    def test_stale_missing_and_nonfinite_feedback_reject_motion(self):
+        for position, age in [(0.2, 1), (float('nan'), 0), (float('inf'), 0), (None, 0)]:
             with self.subTest(position=position, age=age):
                 self.bridge.feedback(position, age)
                 with self.assertRaises(ValueError):
@@ -622,18 +629,22 @@ class ArmGripperJogTests(unittest.TestCase):
                     gripper = f'gripper_{side}_joint1'
                     self.assertEqual(self.goals()[gripper], self.values[gripper])
 
-    def test_other_arm_joint_beyond_tolerance_blocks_publish_with_diagnostic(self):
+    def test_other_arm_joint_out_of_range_is_clamped_without_blocking_motion(self):
         xml = self.bridge.cache['/robot_description']['data']
         xml['data'] = xml['data'].replace(
             '<joint name="arm_r_joint2" type="revolute"><limit lower="-2" upper="2"',
             '<joint name="arm_r_joint2" type="revolute"><limit lower="0" upper="2"')
-        self.feedback(arm_r_joint2=math.radians(-0.051))
-        with self.assertRaisesRegex(ValueError, 'arm_r_joint2') as raised:
-            self.session.apply(JogInput(kind='joint', joint='arm_r_joint1'))
-        self.assertIn('measured=-0.051000 deg', str(raised.exception))
-        self.assertIn('limits=[0.000000,', str(raised.exception))
-        self.assertIn('tolerance=0.050000 deg', str(raised.exception))
-        self.assertEqual(self.bridge.published, [])
+        self.feedback(arm_r_joint2=-.2, gripper_r_joint1=3)
+        command = JogInput(kind='joint', joint='arm_r_joint1')
+        self.session.apply(command)
+        self.assertEqual(self.goals()['arm_r_joint2'], 0)
+        self.assertEqual(self.goals()['gripper_r_joint1'], 2)
+        first = self.goals()['arm_r_joint1']
+        self.feedback(arm_r_joint2=.3, gripper_r_joint1=1)
+        self.session.apply(command)
+        self.assertGreater(self.goals()['arm_r_joint1'], first)
+        self.assertEqual(self.goals()['arm_r_joint2'], 0)
+        self.assertEqual(self.goals()['gripper_r_joint1'], 2)
 
     def test_gripper_can_still_be_jogged_directly(self):
         self.session.apply(JogInput(kind='joint', joint='arm_l_joint1'))
@@ -644,7 +655,7 @@ class ArmGripperJogTests(unittest.TestCase):
         self.assertTrue(self.session.held_positions)
 
     def test_invalid_gripper_feedback_blocks_initial_arm_command(self):
-        for value in (float('nan'), 3):
+        for value in (None, float('nan'), float('inf')):
             with self.subTest(value=value):
                 self.feedback(gripper_l_joint1=value)
                 with self.assertRaisesRegex(ValueError, 'Joint feedback'):
