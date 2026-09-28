@@ -22,6 +22,7 @@ import asyncio
 import os
 from pathlib import Path
 import re
+import signal
 import time
 from typing import Optional
 
@@ -45,6 +46,7 @@ router = APIRouter(prefix='/repos', tags=['repos'])
 GIT_TIMEOUT = 120.0
 GIT_REMOTE_TIMEOUT = 5.0
 CONTAINER_SCRIPT_TIMEOUT = 600.0
+CONTAINER_TERMINATE_TIMEOUT = 2.0
 CONTAINER_JOB_RETENTION_SECONDS = 3600.0
 CONTAINER_JOB_OUTPUT_LIMIT = 40000
 
@@ -429,13 +431,28 @@ async def _stop_container_start_process(
     proc: asyncio.subprocess.Process | None,
     readers: list[asyncio.Task],
 ) -> None:
-    """Stop a container-start subprocess and consume its reader tasks."""
-    if proc is not None and proc.returncode is None:
+    """Stop the isolated process group, with bounded pipe and process cleanup."""
+    if proc is not None:
+        def signal_group(sig):
+            try:
+                os.killpg(proc.pid, sig)
+            except ProcessLookupError:
+                pass
+
+        signal_group(signal.SIGTERM)
         try:
-            proc.kill()
-        except ProcessLookupError:
+            await asyncio.wait_for(proc.wait(), CONTAINER_TERMINATE_TIMEOUT)
+        except asyncio.TimeoutError:
             pass
-        await proc.wait()
+        # Children may still exist even after their shell has exited.
+        signal_group(signal.SIGKILL)
+        try:
+            await asyncio.wait_for(proc.wait(), CONTAINER_TERMINATE_TIMEOUT)
+        except asyncio.TimeoutError:
+            pass
+    for reader in readers:
+        if not reader.done():
+            reader.cancel()
     await asyncio.gather(*readers, return_exceptions=True)
 
 
@@ -477,6 +494,7 @@ async def _run_container_start(repo_path: Path, name: str) -> None:
             'bash', str(script), 'start',
             cwd=str(repo_path / 'docker'),
             env=env,
+            start_new_session=True,
             stdin=asyncio.subprocess.PIPE,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
@@ -490,28 +508,31 @@ async def _run_container_start(repo_path: Path, name: str) -> None:
             asyncio.create_task(_read_container_job_stream(proc.stdout, job)),
             asyncio.create_task(_read_container_job_stream(proc.stderr, job)),
         ]
-        await asyncio.wait_for(proc.wait(), timeout=CONTAINER_SCRIPT_TIMEOUT)
-        await asyncio.gather(*readers)
+        await asyncio.wait_for(
+            asyncio.gather(proc.wait(), *readers), timeout=CONTAINER_SCRIPT_TIMEOUT)
     except asyncio.TimeoutError:
         error = 'Timeout waiting for container.sh'
-        await _stop_container_start_process(proc, readers)
-        _append_container_job_output(job, error)
-        _set_container_job_status(job, running=False, success=False, error=error)
+        try:
+            await _stop_container_start_process(proc, readers)
+        finally:
+            _append_container_job_output(job, error)
+            _set_container_job_status(job, running=False, success=False, error=error)
         return
     except asyncio.CancelledError:
-        await _stop_container_start_process(proc, readers)
-        _set_container_job_status(
-            job,
-            running=False,
-            success=False,
-            error='Container start operation was cancelled',
-        )
+        try:
+            await _stop_container_start_process(proc, readers)
+        finally:
+            _set_container_job_status(
+                job, running=False, success=False,
+                error='Container start operation was cancelled')
         raise
     except Exception as exc:
-        await _stop_container_start_process(proc, readers)
         error = str(exc) or type(exc).__name__
-        _append_container_job_output(job, error)
-        _set_container_job_status(job, running=False, success=False, error=error)
+        try:
+            await _stop_container_start_process(proc, readers)
+        finally:
+            _append_container_job_output(job, error)
+            _set_container_job_status(job, running=False, success=False, error=error)
         return
 
     assert proc is not None

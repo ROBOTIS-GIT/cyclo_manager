@@ -20,6 +20,7 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass, field
 import logging
 import queue
 import threading
@@ -65,11 +66,27 @@ class RequestKind:
     PUBLISH_TOPIC = 'publish_topic'
     PREPARE_JOG = 'prepare_jog'
     CHECK_JOG = 'check_jog'
+    READ_RETAINED = 'read_retained'
 
 
 RequestPayload: TypeAlias = tuple[Any, queue.Queue[Any]]
 RequestOp: TypeAlias = tuple[str, RequestPayload]
 TopicCacheEntry: TypeAlias = dict[str, Any]
+
+
+@dataclass
+class RetainedRead:
+    """A bounded, independent subscription that never reads or changes shared caches."""
+
+    topic: str
+    msg_type: str
+    deadline: float
+    cancelled: threading.Event
+    response: queue.Queue[Any] = field(default_factory=lambda: queue.Queue(maxsize=1))
+
+    def active(self) -> bool:
+        return not self.cancelled.is_set() and time.monotonic() < self.deadline
+
 
 _rclpy_init_lock = threading.Lock()
 _rclpy_initialized = False
@@ -117,6 +134,7 @@ class Ros2Bridge:
         self._message_listeners: dict[str, set] = {}
         self._subscription_users: dict[str, set[str]] = {}
         self._subscription_types: dict[str, str] = {}
+        self._retained_reads: list[tuple[Subscription, RetainedRead]] = []
 
         self._motion_graph_cache = {}
         self._motion_graph_at = 0.0
@@ -189,6 +207,26 @@ class Ros2Bridge:
         """Observe every received message; callbacks must not block the ROS thread."""
         with self._lock:
             self._message_listeners.setdefault(topic, set()).add(callback)
+
+    def read_retained(self, topic: str, msg_type: str, timeout: float,
+                      cancelled: threading.Event) -> dict[str, Any] | None:
+        """Wait off the ROS thread for a fresh retained delivery, not an old cache entry."""
+        if not self._is_running:
+            raise SubscriptionError('ROS bridge unavailable.')
+        request = RetainedRead(topic, msg_type, time.monotonic() + timeout, cancelled)
+        self._request_queue.put((RequestKind.READ_RETAINED, (request, request.response)))
+        try:
+            while request.active() and self._is_running:
+                try:
+                    result = request.response.get(timeout=min(.05, max(0, request.deadline - time.monotonic())))
+                except queue.Empty:
+                    continue
+                if isinstance(result, Exception):
+                    raise result
+                return message_to_dict(result, convert_value_for_json)
+            return None
+        finally:
+            cancelled.set()
 
     def remove_message_listener(self, topic: str, callback) -> None:
         """Detach a recorder without removing another consumer's subscription."""
@@ -325,6 +363,7 @@ class Ros2Bridge:
     def _spin_loop(self) -> None:
         while self._is_running and self._executor and self._rclpy_node:
             try:
+                self._cleanup_retained_reads()
                 self._process_request()
             except Exception as e:
                 logger.debug('Request process error: %s', e)
@@ -340,7 +379,14 @@ class Ros2Bridge:
             while True:
                 kind, payload = self._request_queue.get_nowait()
                 request_payload, response_queue = payload
-                if kind == RequestKind.MOTION_GRAPH:
+                if kind == RequestKind.READ_RETAINED:
+                    try:
+                        self._handle_read_retained(request_payload)
+                    except Exception as exc:
+                        response_queue.put_nowait(exc)
+                    # The subscription callback responds after the executor spins.
+                    continue
+                elif kind == RequestKind.MOTION_GRAPH:
                     try:
                         result = self._inspect_motion_graph()
                     except Exception:
@@ -423,6 +469,50 @@ class Ros2Bridge:
     # ------------------------------------------------------------------
     # Spin thread — request handlers
     # ------------------------------------------------------------------
+
+    def _handle_read_retained(self, request: RetainedRead) -> None:
+        if not request.active() or not self._rclpy_node:
+            return
+        with self._lock:
+            existing_type = self._subscription_types.get(request.topic)
+        if existing_type and existing_type != request.msg_type:
+            raise SubscriptionError(
+                f'Topic {request.topic} already uses {existing_type}.', 'type_conflict', False)
+        try:
+            msg_class = get_message_class(request.msg_type)
+        except (ValueError, ImportError, AttributeError):
+            msg_class = None
+        if msg_class is None:
+            raise SubscriptionError(
+                f'Unsupported message type: {request.msg_type}.', 'invalid_message_type', False)
+
+        def receive(message):
+            if request.active():
+                try:
+                    request.response.put_nowait(message)
+                except queue.Full:
+                    pass
+
+        qos = parse_qos_profile({'reliability': 'reliable', 'durability': 'transient_local', 'depth': 1})
+        try:
+            subscription = self._rclpy_node.create_subscription(
+                msg_class, request.topic, receive, qos)
+        except Exception as exc:
+            raise SubscriptionError(f'Cannot subscribe to {request.topic}: {exc}') from exc
+        self._retained_reads.append((subscription, request))
+
+    def _cleanup_retained_reads(self, all_reads: bool = False) -> None:
+        remaining = []
+        for subscription, request in self._retained_reads:
+            if all_reads or not request.active():
+                request.cancelled.set()
+                try:
+                    self._rclpy_node.destroy_subscription(subscription)
+                except Exception as exc:
+                    logger.warning('Cannot destroy retained read for %s: %s', request.topic, exc)
+            else:
+                remaining.append((subscription, request))
+        self._retained_reads = remaining
 
     def _inspect_motion_graph(self):
         types = {'trajectory_msgs/msg/JointTrajectory',
@@ -675,6 +765,7 @@ class Ros2Bridge:
     def _remove_all_subscriptions(self) -> None:
         if not self._rclpy_node:
             return
+        self._cleanup_retained_reads(all_reads=True)
         with self._lock:
             all_subs = list(self._subs.items())
             self._subs.clear()

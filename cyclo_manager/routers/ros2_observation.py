@@ -20,8 +20,9 @@
 
 import asyncio
 import math
-import time
+import threading
 
+from anyio import CancelScope
 from cyclo_manager.routers.websocket_utils import (
     _close_websocket_ignoring_error, _send_websocket_data,
     release_subscription_owner, run_until_disconnect,
@@ -45,24 +46,29 @@ def require_bridge():
 
 
 async def read_once(request, bridge, topic, msg_type, timeout):
-    """Release the temporary owner on success, timeout, cancellation or disconnect."""
-    owner = SubscriptionOwner(bridge)
-    deadline = time.monotonic() + timeout
-    qos = {'reliability': 'reliable', 'durability': 'transient_local', 'depth': 1}
+    """Read through an independent subscription, leaving other viewers' caches alone."""
     try:
-        await asyncio.to_thread(owner.subscribe, topic, msg_type, qos)
-        while time.monotonic() < deadline:
+        validate_topic(topic)
+    except SubscriptionError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    cancelled = threading.Event()
+    reading = asyncio.create_task(asyncio.to_thread(
+        bridge.read_retained, topic, msg_type, timeout, cancelled))
+    try:
+        while not reading.done():
             if await request.is_disconnected():
                 raise HTTPException(499, 'Client disconnected.')
-            cached = bridge.get_topic_data(topic)
-            if cached is not None:
-                return {'topic': topic, 'data': cached['data']}
-            await asyncio.sleep(.05)
+            await asyncio.wait({reading}, timeout=.05)
+        data = await reading
+        if data is not None:
+            return {'topic': topic, 'data': data}
         raise HTTPException(504, 'Robot description not received within 5 seconds.')
     except SubscriptionError as exc:
         raise HTTPException(503 if exc.retryable else 400, str(exc)) from exc
     finally:
-        await release_subscription_owner(owner)
+        cancelled.set()
+        with CancelScope(shield=True):
+            await asyncio.gather(reading, return_exceptions=True)
 
 
 @router.get('/ros2/robot-description')

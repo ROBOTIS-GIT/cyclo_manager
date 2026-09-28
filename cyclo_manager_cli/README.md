@@ -120,6 +120,7 @@ The API container reaches it at `/agents/host/host_agent.sock` (see bundled `con
 - Check update availability from remote tags and local `package.xml` versions.
 - Update repos on allowed branches (`main`, `jazzy`) using stash or reset workflows.
 - Stop/start a repo's `docker/container.sh` helper during an update when requested by the UI.
+- Run container starts as background jobs with a 10-minute timeout covering the helper and its output streams; timeout or cancellation terminates the helper's process group and ends the job.
 - Run Cyclo Manager package updates from the UI by delegating to `cyclo_manager update`.
 - Provide host CPU/memory/disk statistics and process information. CPU summaries
   share a background sampler's average of the latest three one-second samples.

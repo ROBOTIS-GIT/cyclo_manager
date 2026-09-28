@@ -18,6 +18,7 @@
 
 import { useState } from "react";
 import { getFileTree, uploadFile } from "@/lib/api";
+import type { FileRequest } from "./useFileWorkspace";
 import { formatBytes } from "@/lib/files/format";
 
 const MAX_UPLOAD_BYTES = 20 * 1024 * 1024;
@@ -25,51 +26,39 @@ const MAX_UPLOAD_BYTES = 20 * 1024 * 1024;
 type UploadOptions = {
   currentPath: string;
   showHidden: boolean;
-  loadDirectory: (path: string, showHidden: boolean, clearOpenFile: boolean) => Promise<unknown>;
-  clearNotice: () => void;
-  setError: (error: string) => void;
+  uploading: boolean;
+  readDirectory: (request: FileRequest, path: string, hidden: boolean, clearOpenFile: boolean) => Promise<unknown>;
+  runUpload: (work: (request: FileRequest) => Promise<void>) => Promise<void>;
   setMessage: (message: string) => void;
 };
 
 export function useFileUpload({
-  currentPath, showHidden, loadDirectory, clearNotice, setError, setMessage,
+  currentPath, showHidden, uploading, readDirectory, runUpload, setMessage,
 }: UploadOptions) {
-  const [uploading, setUploading] = useState(false);
   const [dragDepth, setDragDepth] = useState(0);
 
   async function uploadDroppedFiles(files: File[]) {
-    if (files.length === 0 || uploading) return;
-    clearNotice();
-
-    const oversized = files.find((file) => file.size > MAX_UPLOAD_BYTES);
-    if (oversized) {
-      setError(`${oversized.name} is larger than ${formatBytes(MAX_UPLOAD_BYTES)}`);
-      return;
-    }
-
-    setUploading(true);
-    try {
-      const directory = await getFileTree(currentPath, true);
-      const existingNames = new Set(directory.entries.map((entry) => entry.name));
+    if (files.length === 0) return;
+    await runUpload(async request => {
+      const oversized = files.find(file => file.size > MAX_UPLOAD_BYTES);
+      if (oversized) throw new Error(`${oversized.name} is larger than ${formatBytes(MAX_UPLOAD_BYTES)}`);
+      const directory = await getFileTree(currentPath, true, request.signal);
+      if (!request.isCurrent()) return;
+      const existingNames = new Set(directory.entries.map(entry => entry.name));
       let uploadedCount = 0;
       for (const file of files) {
+        if (!request.isCurrent()) return;
         const exists = existingNames.has(file.name);
-        const overwrite = exists
-          ? window.confirm(`${file.name} already exists. Overwrite it?`)
-          : false;
+        const overwrite = exists ? window.confirm(`${file.name} already exists. Overwrite it?`) : false;
         if (exists && !overwrite) continue;
         await uploadFile(currentPath, file, overwrite);
         existingNames.add(file.name);
         uploadedCount += 1;
       }
-      await loadDirectory(currentPath, showHidden, false);
-      setMessage(`${uploadedCount} file(s) uploaded`);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to upload files");
-      await loadDirectory(currentPath, showHidden, false);
-    } finally {
-      setUploading(false);
-    }
+      if (!request.isCurrent()) return;
+      await readDirectory(request, currentPath, showHidden, false);
+      if (request.isCurrent()) setMessage(`${uploadedCount} file(s) uploaded`);
+    });
   }
 
   function isFileDrag(event: React.DragEvent<HTMLDivElement>): boolean {

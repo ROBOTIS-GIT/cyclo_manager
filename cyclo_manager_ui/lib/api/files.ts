@@ -19,28 +19,32 @@ import type { FileDiffResponse, FileOperationResponse, FileReadResponse, FileSea
 
 export async function getFileTree(
   path: string = "",
-  showHidden: boolean = false
+  showHidden: boolean = false,
+  signal?: AbortSignal
 ): Promise<FileTreeResponse> {
   return request<FileTreeResponse>({
     method: "GET",
     url: "/host/files/tree",
     params: { path, show_hidden: showHidden },
+    signal,
   });
 }
 
-export async function readFile(path: string): Promise<FileReadResponse> {
+export async function readFile(path: string, signal?: AbortSignal): Promise<FileReadResponse> {
   return request<FileReadResponse>({
     method: "GET",
     url: "/host/files/read",
     params: { path },
+    signal,
   });
 }
 
-export async function getFileDiff(path: string): Promise<FileDiffResponse> {
+export async function getFileDiff(path: string, signal?: AbortSignal): Promise<FileDiffResponse> {
   return request<FileDiffResponse>({
     method: "GET",
     url: "/host/files/diff",
     params: { path },
+    signal,
   });
 }
 
@@ -48,12 +52,14 @@ export async function searchFiles(
   path: string,
   query: string,
   showHidden: boolean = false,
-  limit: number = 200
+  limit: number = 200,
+  signal?: AbortSignal
 ): Promise<FileSearchResponse> {
   return request<FileSearchResponse>({
     method: "GET",
     url: "/host/files/search",
     params: { path, query, show_hidden: showHidden, limit },
+    signal,
   });
 }
 

@@ -254,8 +254,11 @@ See [motion profiles](docs/record-play.md#robot-profiles).
 
 **HTTP observations:** For the one-shot robot-description read, invalid topics and
 subscription type conflicts return **400**, temporary subscription or bridge
-failures return **503**, and timeout returns **504**. Its temporary owner is
-released on completion, failure, timeout or disconnect. Camera status uses ROS
+failures return **503**, and timeout returns **504**. Each request creates an
+independent transient-local subscription and waits for a retained delivery instead
+of reusing the shared cache, so a previous bringup's URDF is not returned from
+that cache. The temporary subscription is removed on completion, failure, timeout
+or disconnect without affecting other viewers. Camera status uses ROS
 graph publisher presence via the System status WebSocket; there is no camera
 frame-check endpoint or image subscription. Publisher presence does not prove
 that frames are being delivered.
