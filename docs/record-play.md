@@ -213,13 +213,12 @@ using recordings for unattended motion.
   Choosing namespaced feedback sources, Action-only grippers, TwistStamped inputs,
   and controllers without JointTrajectoryControllerState are outside this version.
 
-New clients use `/ws/jog?container={container}` and `/record_play/watch`.
+Clients use `/ws/jog?container={container}` and `/record_play/watch`.
 Jog state and `GET /{container}/bringup_status`
 include `robot` status fields (`ready`, `model`, `container`, `generation`, `reason`);
 the GET returns those fields directly. Record & Play overview exposes controller
-feedback availability without a bringup status. Legacy model-suffixed WebSocket
-routes remain accepted but also require the container query parameter; their model
-suffix cannot select the Jog profile. Record & Play request
+feedback availability without a bringup status. The Jog profile is selected from
+the required container query parameter and its bringup status. Record & Play request
 `robot` fields are metadata only and default to `ros`. Old Jog `topic`/`base_topic`
 query parameters do not override profile routes. Playback no longer takes a
 bringup `generation`; it validates the bag against current ROS feedback and routes.

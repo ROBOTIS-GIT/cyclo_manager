@@ -2,7 +2,7 @@
 Changelog for package cyclo_manager
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
-1.1.0 (unreleased)
+1.1.0 (2026-09-29)
 ------------------
 * Added joint Jog controls for AI Worker, OMY, and OMX, with selectable movement increments and displays of joint positions, targets, and limits.
 * Added joystick-based mobile base control with selectable joystick and keyboard modes.

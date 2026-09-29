@@ -238,9 +238,9 @@ uses discovered trajectory topics and ROS feedback without Docker/s6 status chec
 known topics receive recommendations. No s6-agent update or new agent endpoint is
 required. Joint names, position limits and
 controller membership come from URDF and ROS feedback. Only one running follower
-is supported on the shared feedback namespace. Legacy model-suffixed motion
-WebSocket routes remain accepted with a required `container` query parameter;
-model suffixes cannot override the server's profile. Each container has its own
+is supported on the shared feedback namespace. Jog uses
+`/ws/jog?container={container}`; the selected container determines the profile.
+Each container has its own
 status cache, so other browser selections cannot change an existing Jog target.
 Container selection does not isolate ROS traffic; Jog rejects multiple publishers
 on shared feedback topics and ambiguous controller mappings.

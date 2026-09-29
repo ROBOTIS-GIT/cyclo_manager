@@ -34,8 +34,7 @@ logger = logging.getLogger(__name__)
 
 
 @router.websocket('/ws/jog')
-@router.websocket('/ws/jog/{robot_type}')
-async def websocket_jog(websocket: WebSocket, robot_type: str = 'ros', container: str | None = None):
+async def websocket_jog(websocket: WebSocket, container: str | None = None):
     """Receive current intent and stream status independently of ROS publishing."""
     await websocket.accept()
     bridge = app_state.get_ros2_bridge_or_none()

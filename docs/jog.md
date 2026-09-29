@@ -114,9 +114,9 @@ Status is sampled about every 100 ms and includes server-owned robot status and
 cached joint/controller feedback. A slow sender keeps only the latest waiting
 snapshot instead of delaying ROS publishing or accumulating old display states.
 The UI binds both HTTP status reads and the WebSocket to the container in the page URL.
-Both `/ws/jog` and the legacy `/ws/jog/{robot_type}` require the `container` query
-parameter. Missing/unsupported selections are rejected. The legacy model and old
-`topic` / `base_topic` query parameters cannot override the profile.
+`/ws/jog` requires the `container` query parameter. Missing/unsupported selections
+are rejected. Command topics come from the selected container's profile;
+`topic` / `base_topic` query parameters cannot override it.
 
 Connection creation is deferred one timer turn so an immediate development-mode
 effect cleanup can cancel it. Leaving the page stops and closes an active
