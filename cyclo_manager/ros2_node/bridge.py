@@ -218,7 +218,8 @@ class Ros2Bridge:
         try:
             while request.active() and self._is_running:
                 try:
-                    result = request.response.get(timeout=min(.05, max(0, request.deadline - time.monotonic())))
+                    result = request.response.get(
+                        timeout=min(.05, max(0, request.deadline - time.monotonic())))
                 except queue.Empty:
                     continue
                 if isinstance(result, Exception):
@@ -326,7 +327,8 @@ class Ros2Bridge:
         """Cache lightweight graph inspection; never read graph APIs from HTTP threads."""
         with self._motion_graph_lock:
             if time.monotonic() - self._motion_graph_at >= 2:
-                self._motion_graph_cache = self._enqueue_request(RequestKind.MOTION_GRAPH, timeout=0.3) or {}
+                self._motion_graph_cache = self._enqueue_request(
+                    RequestKind.MOTION_GRAPH, timeout=0.3) or {}
                 self._motion_graph_at = time.monotonic()
             return self._motion_graph_cache
 
@@ -493,7 +495,8 @@ class Ros2Bridge:
                 except queue.Full:
                     pass
 
-        qos = parse_qos_profile({'reliability': 'reliable', 'durability': 'transient_local', 'depth': 1})
+        qos = parse_qos_profile({
+            'reliability': 'reliable', 'durability': 'transient_local', 'depth': 1})
         try:
             subscription = self._rclpy_node.create_subscription(
                 msg_class, request.topic, receive, qos)
@@ -518,16 +521,22 @@ class Ros2Bridge:
         types = {'trajectory_msgs/msg/JointTrajectory',
                  'control_msgs/msg/JointTrajectoryControllerState', 'geometry_msgs/msg/Twist'}
         result = {}
+
         def endpoints(items):
             return [f'{item.node_namespace.rstrip("/")}/{item.node_name}' for item in items
                     if item.node_name != RCLPY_NODE_NAME]
+
         for topic, topic_types in self._rclpy_node.get_topic_names_and_types():
-            if len(topic_types) != 1 or (topic_types[0] not in types
-                                        and topic not in ('/joint_states', '/robot_description')):
+            if len(topic_types) != 1 or (
+                topic_types[0] not in types
+                and topic not in ('/joint_states', '/robot_description')
+            ):
                 continue
-            result[topic] = {'type': topic_types[0],
-                             'publishers': endpoints(self._rclpy_node.get_publishers_info_by_topic(topic)),
-                             'subscribers': endpoints(self._rclpy_node.get_subscriptions_info_by_topic(topic))}
+            result[topic] = {
+                'type': topic_types[0],
+                'publishers': endpoints(self._rclpy_node.get_publishers_info_by_topic(topic)),
+                'subscribers': endpoints(self._rclpy_node.get_subscriptions_info_by_topic(topic)),
+            }
         return result
 
     def _handle_run_discovery(self) -> bool:

@@ -27,8 +27,10 @@ from cyclo_manager.models import ROS2TopicDataResponse
 from cyclo_manager.routers.websocket_utils import (
     _close_websocket_ignoring_error,
     _send_websocket_data,
+    close_observer_error,
     release_subscription_owner,
-    run_until_disconnect, close_observer_error, send_subscription_ready,
+    run_until_disconnect,
+    send_subscription_ready,
 )
 from cyclo_manager.state import app_state
 from cyclo_manager.subscriptions import SubscriptionError, SubscriptionOwner, validate_topic

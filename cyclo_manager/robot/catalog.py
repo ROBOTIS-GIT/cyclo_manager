@@ -26,7 +26,6 @@ TRAJECTORY_TYPE = 'trajectory_msgs/msg/JointTrajectory'
 STATE_TYPE = 'control_msgs/msg/JointTrajectoryControllerState'
 
 
-
 def catalog(bridge, subscriptions=None):
     """Subscribe only to controller feedback; trajectory payloads are recorded on demand."""
     graph = bridge.motion_graph()

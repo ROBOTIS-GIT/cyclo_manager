@@ -87,7 +87,7 @@ class DockerClient:
             return []
         containers = self.client.api.containers(all=False, filters={'name': list(names)})
         # Docker's name filter is a substring match; require an exact configured name.
-        return [dict(id=container['Id'], name=name)
+        return [{'id': container['Id'], 'name': name}
                 for container in containers if container.get('State') == 'running'
                 for alias in container.get('Names', [])
                 if (name := alias.lstrip('/')) in names]

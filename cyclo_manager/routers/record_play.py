@@ -88,7 +88,8 @@ async def overview(robot: Robot = 'ros'):
     manager = service()
     try:
         groups, recordings = await asyncio.gather(
-            asyncio.to_thread(manager.catalog, robot), asyncio.to_thread(manager.store.list))
+            asyncio.to_thread(manager.catalog, robot),
+            asyncio.to_thread(manager.store.list_recordings))
     except (ValueError, OSError) as exc:
         raise HTTPException(503, str(exc)) from exc
     return {'state': manager.status(), 'groups': groups, 'recordings': recordings,

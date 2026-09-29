@@ -154,7 +154,7 @@ class FileTreeEntry(BaseModel):
 
     name: str
     path: str
-    type: str
+    type: str  # noqa: A003 - Keep the public API field name.
     size: int | None = None
     modified: float | None = None
     readonly: bool = False
@@ -212,7 +212,7 @@ class FileCreateRequest(BaseModel):
     """Request body for POST /files/create."""
 
     path: str
-    type: str
+    type: str  # noqa: A003 - Keep the public API field name.
     content: str = ''
 
 

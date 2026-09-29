@@ -88,7 +88,8 @@ class MotionPlan:
             if topic in self.schemas and self.schemas[topic] != schema:
                 raise ValueError(
                     'Joint membership changes inside a topic; record full groups. '
-                    'Jog recordings with changing joint lists cannot be replayed in Record & Play.')
+                    'Jog recordings with changing joint lists cannot be replayed '
+                    'in Record & Play.')
             self.schemas[topic] = schema
             first = dict(zip(data['joint_names'], data['points'][0]['positions']))
             self.first.setdefault(topic, first)
@@ -128,7 +129,8 @@ class MotionPlan:
                 if point.get(field):
                     point[field] = [v * multiplier for v in point[field]] + [0.0] * len(held)
             nanoseconds = round(duration_seconds(point) / rate * 1e9)
-            point['time_from_start'] = {'sec': nanoseconds // 10**9, 'nanosec': nanoseconds % 10**9}
+            point['time_from_start'] = {
+                'sec': nanoseconds // 10**9, 'nanosec': nanoseconds % 10**9}
         return result
 
 

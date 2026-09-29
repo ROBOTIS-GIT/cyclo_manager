@@ -1,6 +1,19 @@
 #!/usr/bin/env python3
+#
 # Copyright 2026 ROBOTIS CO., LTD.
-# Licensed under the Apache License, Version 2.0.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+#
 # Author: Hyungyu Kim
 
 """Session-owned Jog cadence, independent of browser and WebSocket send timing."""
@@ -64,7 +77,7 @@ class JogController:
             guard=guard)
 
     def feedback_conflict(self):
-        """Selecting a Docker container does not isolate the shared ROS namespace."""
+        """Reject conflicting publishers in the shared ROS namespace."""
         graph = self.bridge.motion_graph()
         for topic in ('/robot_description', '/joint_states'):
             if len(graph.get(topic, {}).get('publishers', [])) > 1:
@@ -135,7 +148,8 @@ class JogController:
                     if now >= next_publish:
                         if not self.owns_motion:
                             if not motion_lock.acquire(blocking=False):
-                                raise ValueError('Another manager motion is active. Stop it before Jog.')
+                                raise ValueError(
+                                    'Another manager motion is active. Stop it before Jog.')
                             self.owns_motion = True
                         command = self.command
                         await finish_call(self.session.apply, command)
@@ -169,7 +183,9 @@ class JogController:
                 try:
                     await finish_call(self.session.stop)
                 except Exception:
-                    logger.exception('Could not send final jog stop; last joint targets remain; base timeout applies')
+                    logger.exception(
+                        'Could not send final jog stop; last joint targets remain; '
+                        'base timeout applies')
                 finally:
                     try:
                         await release_subscription_owner(self.session.subscriptions)

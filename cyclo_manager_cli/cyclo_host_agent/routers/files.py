@@ -20,10 +20,10 @@
 
 import asyncio
 import os
+from pathlib import Path
 import shutil
 import subprocess
 import uuid
-from pathlib import Path
 
 from cyclo_host_agent.models import (
     FileCreateRequest,
@@ -67,7 +67,9 @@ FILE_ROOT_PATH = _resolve_file_root()
 def _safe_path(relative_path: str = '') -> tuple[Path, str]:
     target = (FILE_ROOT_PATH / relative_path).resolve()
     if target != FILE_ROOT_PATH and FILE_ROOT_PATH not in target.parents:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail='Path escapes file root')
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail='Path escapes file root')
     rel = '' if target == FILE_ROOT_PATH else target.relative_to(FILE_ROOT_PATH).as_posix()
     return target, rel
 
@@ -75,12 +77,16 @@ def _safe_path(relative_path: str = '') -> tuple[Path, str]:
 def _safe_nofollow_path(relative_path: str = '') -> tuple[Path, str]:
     raw_path = Path(relative_path)
     if raw_path.is_absolute() or '..' in raw_path.parts:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail='Path escapes file root')
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail='Path escapes file root')
 
     lexical_target = FILE_ROOT_PATH / raw_path
     parent = lexical_target.parent.resolve()
     if parent != FILE_ROOT_PATH and FILE_ROOT_PATH not in parent.parents:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail='Path escapes file root')
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail='Path escapes file root')
 
     target = parent / lexical_target.name
     rel = '' if target == FILE_ROOT_PATH else target.relative_to(FILE_ROOT_PATH).as_posix()
@@ -172,7 +178,8 @@ def _git_status_by_entry_path(directory: Path, entries: list[FileTreeEntry]) -> 
 
     try:
         repo_root = Path(root_result.stdout.strip()).resolve()
-        directory_rel = '' if directory == repo_root else directory.relative_to(repo_root).as_posix()
+        directory_rel = (
+            '' if directory == repo_root else directory.relative_to(repo_root).as_posix())
     except (OSError, ValueError):
         return {}
 
@@ -256,9 +263,13 @@ def _git_status_for_file(repo_root: Path, repo_path: str) -> str | None:
 def _read_text_file_for_diff(path: Path) -> str:
     stat = path.stat()
     if stat.st_size > MAX_DIFF_BYTES:
-        raise HTTPException(status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, detail='File is too large to diff')
+        raise HTTPException(
+            status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+            detail='File is too large to diff')
     if _is_binary(path):
-        raise HTTPException(status_code=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE, detail='Binary files are not diffable')
+        raise HTTPException(
+            status_code=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
+            detail='Binary files are not diffable')
     try:
         return path.read_text(encoding='utf-8', errors='replace')
     except OSError as exc:
@@ -274,7 +285,9 @@ def _git_head_content(repo_root: Path, repo_path: str) -> str:
     if not result or result.returncode != 0:
         return ''
     if len(result.stdout.encode('utf-8')) > MAX_DIFF_BYTES:
-        raise HTTPException(status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, detail='Original file is too large to diff')
+        raise HTTPException(
+            status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+            detail='Original file is too large to diff')
     return result.stdout
 
 
@@ -286,7 +299,9 @@ def list_directory(
     """Return one directory level under the configured file root."""
     target, rel = _safe_path(path)
     if not target.is_dir():
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail='Path is not a directory')
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail='Path is not a directory')
 
     entries: list[FileTreeEntry] = []
     for child in sorted(target.iterdir(), key=lambda item: (not item.is_dir(), item.name.lower())):
@@ -312,7 +327,9 @@ def search_files(
     """Search file and folder names recursively under the current directory."""
     target, rel = _safe_path(path)
     if not target.is_dir():
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail='Path is not a directory')
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail='Path is not a directory')
     normalized_query = query.strip().lower()
     if not normalized_query:
         return FileSearchResponse(root_path=str(FILE_ROOT_PATH), path=rel, query=query, entries=[])
@@ -366,9 +383,13 @@ def read_file(
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail='Path is not a file')
     stat = target.stat()
     if stat.st_size > MAX_READ_BYTES:
-        raise HTTPException(status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, detail='File is too large to edit')
+        raise HTTPException(
+            status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+            detail='File is too large to edit')
     if _is_binary(target):
-        raise HTTPException(status_code=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE, detail='Binary files are not editable')
+        raise HTTPException(
+            status_code=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
+            detail='Binary files are not editable')
     try:
         content = target.read_text(encoding='utf-8', errors='replace')
     except OSError as exc:
@@ -393,15 +414,21 @@ def diff_file(
 
     repo_root = _git_root_for_path(target)
     if not repo_root:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail='Path is not in a git repository')
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail='Path is not in a git repository')
     try:
         repo_path = target.relative_to(repo_root).as_posix()
     except ValueError:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail='Path is not in a git repository')
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail='Path is not in a git repository')
 
     git_status = _git_status_for_file(repo_root, repo_path)
     if not git_status:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail='File has no git changes')
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail='File has no git changes')
 
     current_content = _read_text_file_for_diff(target)
     original_content = '' if git_status == 'untracked' else _git_head_content(repo_root, repo_path)
@@ -420,11 +447,15 @@ def write_file(req: FileWriteRequest) -> FileOperationResponse:
     if target.exists() and not target.is_file():
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail='Path is not a file')
     if len(req.content.encode('utf-8')) > MAX_WRITE_BYTES:
-        raise HTTPException(status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, detail='Content is too large')
+        raise HTTPException(
+            status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+            detail='Content is too large')
     if req.expected_modified is not None and target.exists():
         current_modified = target.stat().st_mtime
         if abs(current_modified - req.expected_modified) > 0.001:
-            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail='File changed on disk')
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail='File changed on disk')
     try:
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_text(req.content, encoding='utf-8')
@@ -445,12 +476,16 @@ def create_path(req: FileCreateRequest) -> FileOperationResponse:
             message = 'Folder created'
         elif req.type == 'file':
             if len(req.content.encode('utf-8')) > MAX_WRITE_BYTES:
-                raise HTTPException(status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, detail='Content is too large')
+                raise HTTPException(
+                    status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+                    detail='Content is too large')
             target.parent.mkdir(parents=True, exist_ok=True)
             target.write_text(req.content, encoding='utf-8')
             message = 'File created'
         else:
-            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail='Type must be file or directory')
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail='Type must be file or directory')
     except OSError as exc:
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(exc))
     return FileOperationResponse(path=rel, success=True, message=message)
@@ -466,14 +501,19 @@ def rename_path(req: FileRenameRequest) -> FileOperationResponse:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail='Invalid name')
     destination = target.parent / req.new_name
     if destination != FILE_ROOT_PATH and FILE_ROOT_PATH not in destination.parents:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail='Path escapes file root')
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail='Path escapes file root')
     if destination.exists() or destination.is_symlink():
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail='Destination already exists')
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail='Destination already exists')
     try:
         target.rename(destination)
     except OSError as exc:
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(exc))
-    rel = '' if destination == FILE_ROOT_PATH else destination.relative_to(FILE_ROOT_PATH).as_posix()
+    rel = ('' if destination == FILE_ROOT_PATH
+           else destination.relative_to(FILE_ROOT_PATH).as_posix())
     return FileOperationResponse(path=rel, success=True, message='Renamed')
 
 
@@ -487,14 +527,20 @@ async def upload_file(
     """Upload one file into a directory under the configured file root."""
     target_dir, _ = _safe_path(path)
     if not target_dir.is_dir():
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail='Path is not a directory')
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail='Path is not a directory')
 
     safe_name = _safe_filename(filename)
     destination = target_dir / safe_name
     if destination != FILE_ROOT_PATH and FILE_ROOT_PATH not in destination.parents:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail='Path escapes file root')
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail='Path escapes file root')
     if destination.exists() and destination.is_dir():
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail='A folder with that name already exists')
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail='A folder with that name already exists')
     overwritten = destination.exists() or destination.is_symlink()
     if overwritten and not overwrite:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail='File already exists')
@@ -507,7 +553,9 @@ async def upload_file(
             async for chunk in request.stream():
                 size_bytes += len(chunk)
                 if size_bytes > MAX_UPLOAD_BYTES:
-                    raise HTTPException(status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, detail='File is too large to upload')
+                    raise HTTPException(
+                        status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+                        detail='File is too large to upload')
                 await asyncio.to_thread(output.write, chunk)
         finally:
             await asyncio.to_thread(output.close)
@@ -544,7 +592,9 @@ def delete_path(
     """Delete a file or folder under the configured file root."""
     target, rel = _safe_nofollow_path(path)
     if target == FILE_ROOT_PATH:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail='Cannot delete file root')
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail='Cannot delete file root')
     if not target.exists() and not target.is_symlink():
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail='Path not found')
     try:

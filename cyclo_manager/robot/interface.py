@@ -33,7 +33,8 @@ TRAJECTORY_TYPE = 'trajectory_msgs/msg/JointTrajectory'
 class RobotInterface:
     """Share the bridge while each consumer explicitly owns its subscriptions."""
 
-    def __init__(self, bridge, robot_type='ros', command_topic=None, *, command_topics=None, guard=None):
+    def __init__(self, bridge, robot_type='ros', command_topic=None, *,
+                 command_topics=None, guard=None):
         """Keep local model state without subscribing or sending commands."""
         self.bridge = bridge
         self.guard = guard

@@ -25,12 +25,12 @@ import shutil
 import threading
 import time
 
-from cyclo_manager.robot.catalog import catalog
 from cyclo_manager.motion_guard import motion_lock
 from cyclo_manager.record_play.bags import BagStore
 from cyclo_manager.record_play.motion import (
     arrival_errors, arrived, interpolate, MotionPlan, return_duration,
 )
+from cyclo_manager.robot.catalog import catalog
 from cyclo_manager.robot.interface import position_message, RobotInterface, TRAJECTORY_TYPE
 from cyclo_manager.subscriptions import subscribe_joint_feedback, SubscriptionOwner
 

@@ -23,10 +23,14 @@ from dataclasses import dataclass
 GROUPS = {
     '/leader/joystick_controller_left/joint_trajectory': ('head', 'Neck'),
     '/leader/joystick_controller_right/joint_trajectory': ('lift', 'Lift'),
-    '/leader/joint_trajectory_command_broadcaster_left/joint_trajectory': ('arm_l', 'Left arm + gripper'),
-    '/leader/joint_trajectory_command_broadcaster_right/joint_trajectory': ('arm_r', 'Right arm + gripper'),
-    '/leader/joint_trajectory_command_broadcaster_left_hand/joint_trajectory': ('hand_l', 'Left hand'),
-    '/leader/joint_trajectory_command_broadcaster_right_hand/joint_trajectory': ('hand_r', 'Right hand'),
+    '/leader/joint_trajectory_command_broadcaster_left/joint_trajectory': (
+        'arm_l', 'Left arm + gripper'),
+    '/leader/joint_trajectory_command_broadcaster_right/joint_trajectory': (
+        'arm_r', 'Right arm + gripper'),
+    '/leader/joint_trajectory_command_broadcaster_left_hand/joint_trajectory': (
+        'hand_l', 'Left hand'),
+    '/leader/joint_trajectory_command_broadcaster_right_hand/joint_trajectory': (
+        'hand_r', 'Right hand'),
     '/leader/joint_trajectory': ('arm', 'Arm + gripper'),
 }
 

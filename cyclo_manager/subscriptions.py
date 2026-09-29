@@ -64,7 +64,7 @@ class SubscriptionOwner:
             self._topics[topic] = msg_type
 
     def close(self):
-        """A delayed acquire cannot run after this owner's release."""
+        """Release ownership after any pending acquire finishes."""
         with self._lock:
             if not self._closed:
                 self._closed = True

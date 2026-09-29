@@ -31,7 +31,7 @@ STATUS_CACHE_AGE = 1.0
 
 
 def unavailable(reason):
-    return dict(ready=False, model=None, container=None, generation=None, reason=reason)
+    return {'ready': False, 'model': None, 'container': None, 'generation': None, 'reason': reason}
 
 
 def service_pid(status):
@@ -135,9 +135,11 @@ class RobotRuntime:
             profile = PROFILES.get(model)
             if not profile or profile.service != robot['service']:
                 raise ValueError('Bringup type is unsupported or does not match its service.')
-            state = dict(ready=True, model=profile.model, container=self.container,
-                         generation=f"{container_id}:{robot['service']}:{pid}:{profile.model}",
-                         reason=None)
+            state = {
+                'ready': True, 'model': profile.model, 'container': self.container,
+                'generation': f"{container_id}:{robot['service']}:{pid}:{profile.model}",
+                'reason': None,
+            }
         except Exception as exc:
             state = unavailable(str(exc))
             state['container'] = self.container

@@ -16,7 +16,8 @@
 #
 # Author: Hyungyu Kim
 
-"""Accumulate position targets while held. The leader must not run concurrently.
+"""
+Accumulate position targets while held. The leader must not run concurrently.
 
 Each new gesture starts from measured position. Commands advance the previous
 successfully published target within runtime URDF limits, without interpolation.
@@ -28,10 +29,10 @@ import math
 import time
 from typing import Literal
 
+from cyclo_manager.robot.catalog import base_topics, catalog
 from cyclo_manager.robot.interface import (
     FEEDBACK_MAX_AGE, position_message, RobotInterface, TRAJECTORY_TYPE,
 )
-from cyclo_manager.robot.catalog import base_topics, catalog
 from cyclo_manager.robot.joints import RobotJoint
 from cyclo_manager.robot.profiles import PROFILES
 from cyclo_manager.subscriptions import subscribe_joint_feedback, SubscriptionOwner
@@ -136,8 +137,8 @@ class JogSession(RobotInterface):
     def publish_base(self, values):
         """Publish forward, lateral and yaw velocity."""
         self.publish(self.base_topic, 'geometry_msgs/msg/Twist', {
-            'linear': dict(x=values[0], y=values[1], z=0.0),
-            'angular': dict(x=0.0, y=0.0, z=values[2]),
+            'linear': {'x': values[0], 'y': values[1], 'z': 0.0},
+            'angular': {'x': 0.0, 'y': 0.0, 'z': values[2]},
         })
 
     def trajectory(self, joint: RobotJoint, target: float):
@@ -237,7 +238,8 @@ class JogSession(RobotInterface):
         self.retain_controller(joint, positions)
         millimetres, degrees = JOINT_INCREMENTS[command.resolution]
         delta = millimetres / 1000 if joint.unit == 'm' else math.radians(degrees)
-        origin = self.targets.get(joint.name, current) if self.active_joint == joint.name else current
+        origin = (self.targets.get(joint.name, current)
+                  if self.active_joint == joint.name else current)
         target = _clamp_position(joint, origin + command.direction * delta)
         # Track attempted motion before publishing so a failed send also stops.
         self.active_joint = joint.name

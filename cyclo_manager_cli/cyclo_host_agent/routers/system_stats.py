@@ -18,8 +18,8 @@
 
 """Host system status and process endpoints."""
 
-import time
 from pathlib import Path
+import time
 
 from cyclo_host_agent.cpu_usage import CpuUsageSampler
 from cyclo_host_agent.models import (
@@ -101,7 +101,8 @@ def _sample_processes(limit: int = PROCESS_DEFAULT_LIMIT) -> HostProcessesRespon
     for process in tracked:
         try:
             info = process.as_dict(
-                attrs=['pid', 'username', 'cpu_percent', 'memory_percent', 'memory_info', 'cmdline', 'name']
+                attrs=['pid', 'username', 'cpu_percent', 'memory_percent',
+                       'memory_info', 'cmdline', 'name']
             )
             memory_info = info.get('memory_info')
             rss_kb = int(memory_info.rss // 1024) if memory_info else None

@@ -61,4 +61,3 @@ def parse_joints(description: str) -> list[RobotJoint]:
         linear = joint.attrib['type'] == 'prismatic'
         result.append(RobotJoint(name, 'unassigned', '', 'm' if linear else 'rad', lower, upper))
     return result
-

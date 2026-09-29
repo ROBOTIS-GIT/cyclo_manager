@@ -115,7 +115,7 @@ class FileWriteRequest(BaseModel):
 
 class FileCreateRequest(BaseModel):
     path: str
-    type: str
+    type: str  # noqa: A003 - Keep the public API field name.
     content: str = ''
 
 

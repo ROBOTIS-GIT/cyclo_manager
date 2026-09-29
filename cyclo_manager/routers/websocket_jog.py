@@ -23,7 +23,7 @@ import logging
 
 from anyio import CancelScope
 from cyclo_manager.jog import JogInput
-from cyclo_manager.jog_stream import JogController, INPUT_TIMEOUT
+from cyclo_manager.jog_stream import INPUT_TIMEOUT, JogController
 from cyclo_manager.state import app_state, get_robot_runtime
 from fastapi import APIRouter, HTTPException, WebSocket, WebSocketDisconnect
 from pydantic import ValidationError

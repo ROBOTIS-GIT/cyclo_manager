@@ -69,7 +69,7 @@ class BagStore:
         except (OSError, json.JSONDecodeError) as exc:
             raise ValueError('Recording is missing or incomplete.') from exc
 
-    def list(self):
+    def list_recordings(self):
         """List completed recordings, leaving incomplete captures on disk."""
         records = []
         for path in self.root.iterdir():
