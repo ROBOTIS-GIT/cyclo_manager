@@ -23,7 +23,11 @@ robot selection, or polling interval.
 - `hooks/useAnsiConverter.ts`: theme-aware log rendering, including HTML escaping.
 
 Files retains optimistic save checks, unsaved-edit prompts, search debounce and
-mobile/desktop interaction differences. System reads saved model settings before
+mobile/desktop interaction differences. `useFileWorkspace` coordinates reads and
+mutations: new navigation cancels superseded reads, and request identity checks
+ignore late responses, errors and cleanup. Writes and uploads block conflicting
+operations until completion; unmount invalidates pending UI updates.
+System reads saved model settings before
 mounting its viewers and updates a model and its launch arguments together.
 Dashboard system statistics and CPU process rows poll every second; container
 and host-info observations have separate intervals. CPU summaries share the
@@ -43,6 +47,12 @@ host agent's moving average of the latest three one-second samples.
 - `motion_guard.py`: mutual exclusion of Manager Jog and playback motion.
 - `ros2_node/bridge.py`: the ROS executor, publishers, subscriptions and cache.
 - `subscriptions.py`: explicit subscription ownership and lifetime.
+
+System's one-shot URDF HTTP read uses a separate, bounded transient-local
+subscription through `bridge.read_retained`. It waits for a delivery from ROS
+instead of reading shared cached data. Completion, timeout, cancellation and
+disconnect dispose of only that temporary subscription; existing owners and their
+caches remain intact.
 
 The shared robot interface does not acquire subscriptions. Jog connections and
 record/play jobs keep ownership in their existing lifecycle scopes. Constructing
@@ -66,6 +76,11 @@ serves statistics and process rows. `routers/files.py` and `routers/repos.py`
 handle workspace files and managed repository operations. The manager proxies
 these through its host-agent client. Dev API/UI source mounts do not update the
 host agent's installed Python package.
+
+Container starts run as background jobs in independent process groups. The
+10-minute timeout covers both process completion and output-stream readers.
+Timeout or cancellation terminates the process group, including child helpers,
+and ends the job instead of leaving its status running.
 
 ## Verification
 

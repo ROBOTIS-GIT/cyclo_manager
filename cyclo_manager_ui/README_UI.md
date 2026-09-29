@@ -152,7 +152,7 @@ The UI calls the cyclo_manager **REST API** and **WebSockets**:
 | System/Jog selection | `GET /containers?running=true` — supported running robot containers, without image inspection |
 | Service logs | `WebSocket /ws/{container}/services/{service}/logs` |
 | ROS topic data | `WebSocket /ws/ros2/topics/{topic}` — each connection acquires a subscription owner, receives `ready` after registration, then receives cached JSON when data changes; disconnect releases only its owner |
-| Robot description | `GET /ros2/robot-description?topic=/robot_description` — temporary subscription, released on completion, timeout or disconnect |
+| Robot description | `GET /ros2/robot-description?topic=/robot_description` — independent temporary subscription, bypasses shared cache; released on completion, timeout or disconnect |
 | System telemetry | `WebSocket /ws/ros2/system-status?battery=...&camera=...` — repeated query parameters, battery subscriptions only; camera graph inspection |
 | Jog | `WebSocket /ws/jog?container={container}` — operator intent refreshed at 10 Hz; joint targets accumulate at a fixed 10 ms interval (100 Hz) with time from start fixed at 0 ms; base publishing remains 20 Hz, independent status about 10 Hz; closes on page unmount or container change |
 | Jog bringup | `GET /{container}/bringup_status` — page-owned polling every 2 s, no overlapping requests; per-container observations expire after 4 s |
@@ -178,7 +178,7 @@ Configuration for default launch args lives in **`config/launchArgs.ts`** (edite
 | `/app` | Apps hub (Cyclo Manager / Cyclo Intelligence on port 7080) |
 | `/dashboard` | Host + Docker management, repo updates |
 | `/{container}/system` | Bringup, 3D viewer, robot status |
-| `/{container}/jog` | Base teleoperation and measured-position joint jogging for the selected container |
+| `/{container}/jog` | Base teleoperation and joint jogging that accumulates increments onto the previous target for the selected container |
 | `/jog` | Resolve one running robot or ask the user to choose before opening Jog |
 | `/record-play` | Record trajectory topics, saved recording library and repeated playback |
 | `/topics` | ROS 2 topic list + live viewer |

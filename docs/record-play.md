@@ -134,7 +134,7 @@ stopped or an error occurs. Preparation, return, arrival and stop stages validat
 fresh joint/controller feedback, resolved command routes and unchanged URDF limits
 independently of browser connections. Bag streaming skips these repeated checks.
 
-Every topic subscription tracks a set of consumer IDs. A topic viewer owns its
+Shared topic subscriptions track a set of consumer IDs. A topic viewer owns its
 subscriptions for the lifetime of its WebSocket; Jog owns them through its final
 stop, and recording/playback jobs own theirs independently of browser lifetime.
 The last consumer's departure destroys the ROS subscription and clears its cache.
@@ -146,7 +146,10 @@ monitoring; closing it releases only the page's subscriptions. HTTP overview,
 status and topic reads are read-only. The old global HTTP topic subscribe and
 unsubscribe endpoints have been removed. System uses `/ws/ros2/system-status`
 for low-rate battery values and camera publisher presence, and
-`GET /ros2/robot-description` for one-shot description reads. Camera status is
+`GET /ros2/robot-description` for one-shot description reads through independent
+temporary transient-local subscriptions. These reads bypass the shared cache and
+release only their temporary subscription after completion, timeout or disconnect.
+Camera status is
 `Active` when a publisher exists; it never subscribes to image streams.
 The Record & Play catalog observer retries connection closures with backoff while
 mounted. Topic/System observers also distinguish retryable from terminal errors;

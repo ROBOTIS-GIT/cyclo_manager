@@ -4,23 +4,24 @@ Changelog for package cyclo_manager
 
 1.1.0 (unreleased)
 ------------------
+* Added joint Jog controls for AI Worker, OMY, and OMX, with selectable movement increments and displays of joint positions, targets, and limits.
 * Added joystick-based mobile base control with selectable joystick and keyboard modes.
-* Changed Jog communication from HTTP commands to a dedicated WebSocket, with ordered command processing and active motion stops on input timeout or disconnection.
-* Added a Record & Play page for recording joint command topics to rosbags and playing back saved recordings.
-* Added automatic transitions to the start pose, playback speed selection, finite and infinite repetition, and returns to the start pose between passes.
-* Made recording and playback server-managed jobs that continue after page navigation or browser disconnection.
-* Added a Files page for browsing, searching, uploading, creating, renaming, deleting, and editing host files.
-* Added Git status and diff views for files.
-* Changed ROS subscription management to track ownership per connection and job, releasing subscriptions only when the last owner leaves to prevent interruptions in other windows or recording/playback jobs.
-* Changed System robot description loading to a one-shot subscription while bringup is running. Camera status now checks publisher presence without subscribing to image messages.
-* Added a dashboard CPU details modal showing overall usage and per-process CPU and memory usage.
-* Moved host statistics collection to ``cyclo_host_agent``. Dashboard and CPU details summaries share the average of the latest three one-second CPU samples and refresh every second.
-* Improved mobile layouts for navigation, buttons, file management, terminals, and robot controls.
-* Changed container creation and startup during repository updates to background jobs with progress logs, including Docker image pull output.
-* Added a fallback to the container's saved image information when image inspection fails, preventing failures of the entire container listing.
+* Added Record & Play for recording joint command topics to rosbags and managing saved recordings, with playback, repetition, automatic start-pose transitions, and arrival tolerance settings. Recording and playback continue after leaving the page.
+* Added Files for host file browsing, search, upload, editing, creation, renaming, and deletion, including Git status and diff views.
+* Added a dashboard CPU details view with overall usage and per-process CPU and memory usage.
 * Added s6-agent APIs for listing services and retrieving all service statuses.
+* Changed Jog from browser-timed HTTP commands to a dedicated WebSocket with server-scheduled publishing and active motion stops on input timeout or disconnection.
+* Changed Jog robot selection to use the selected container's bringup status and robot type. System and Jog now list running robot containers without inspecting their images.
+* Changed ROS subscription management to share subscriptions by connection and job ownership, releasing them only when the last owner leaves so other viewers and jobs remain connected.
+* Changed ROS topic HTTP reads to return cached data without creating subscriptions, and removed the HTTP subscribe/unsubscribe endpoints.
+* Added retry backoff and persistent error reporting to ROS topic and System status WebSocket observers.
+* Changed System robot description loading to an independent one-shot subscription while bringup is running, avoiding stale shared descriptions after bringup restarts.
+* Changed camera status checks to use publisher presence without subscribing to image messages.
+* Moved host statistics collection to ``cyclo_host_agent``. Dashboard and CPU details summaries now share the average of the latest three one-second CPU samples and refresh every second.
+* Changed container startup during repository updates to background jobs with progress logs, including image downloads. Timed-out or cancelled jobs terminate their helper process group instead of remaining in progress.
+* Fixed container listing failures when image inspection is unavailable by falling back to the container's saved image information.
+* Improved mobile layouts for navigation, file management, terminals, and robot controls.
 * Updated DYNAMIXEL Wizard 2 in noVNC and added its documents directory.
-* Refactored the frontend and backend into feature modules, consolidated shared API and connection handling, and expanded regression tests and documentation.
 * Contributors: Hyungyu Kim
 
 1.0.1 (2026-08-19)
