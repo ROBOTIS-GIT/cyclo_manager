@@ -24,7 +24,7 @@ import re
 import shutil
 import uuid
 
-from cyclo_manager.robot_control.motion_interface import TRAJECTORY_TYPE
+from cyclo_manager.robot_interface.motion_interface import TRAJECTORY_TYPE
 
 
 class RecordingNotFoundError(LookupError):

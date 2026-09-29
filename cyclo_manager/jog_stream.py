@@ -24,7 +24,7 @@ import logging
 from anyio import CancelScope
 from cyclo_manager.jog import JogInput, JogSession
 from cyclo_manager.motion_guard import motion_lock
-from cyclo_manager.robot_control.command_profiles import PROFILES
+from cyclo_manager.robot_interface.command_profiles import PROFILES
 from cyclo_manager.routers.websocket_utils import release_subscription_owner
 
 logger = logging.getLogger(__name__)

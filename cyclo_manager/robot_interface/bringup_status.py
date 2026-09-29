@@ -23,7 +23,7 @@ import re
 import threading
 import time
 
-from cyclo_manager.robot_control.command_profiles import PROFILES
+from cyclo_manager.robot_interface.command_profiles import PROFILES
 import httpx
 
 MAX_AGE = 4.0

@@ -20,7 +20,7 @@
 
 import time
 
-from cyclo_manager.robot_control.command_profiles import GROUPS
+from cyclo_manager.robot_interface.command_profiles import GROUPS
 
 TRAJECTORY_TYPE = 'trajectory_msgs/msg/JointTrajectory'
 STATE_TYPE = 'control_msgs/msg/JointTrajectoryControllerState'
