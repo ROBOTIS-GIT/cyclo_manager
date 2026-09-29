@@ -146,7 +146,7 @@ controllers without JointTrajectoryControllerState are not supported here.
 
 ## Command routes
 
-Routes are defined in `cyclo_manager/robot/profiles.py`:
+Routes are defined in `cyclo_manager/robot_control/command_profiles.py`:
 
 | Profile | JointTrajectory command topics |
 |---------|--------------------------------|
@@ -246,8 +246,9 @@ avoidance.
 
 ## Code and validation
 
-- `robot/profiles.py` and `robot/runtime.py`: routes and server-owned bringup status.
-- `robot/joints.py`, `robot/catalog.py`, `robot/interface.py`: URDF joints, controller
+- `robot_control/command_profiles.py` and `robot_control/bringup_status.py`: routes and server-owned bringup status.
+- `robot_control/urdf_joints.py`, `robot_control/controller_discovery.py`,
+  `robot_control/motion_interface.py`: URDF joints, controller
   mapping, shared cached feedback and publication.
 - `jog.py`: per-session inputs, targets, held positions and stop state.
 - `jog_stream.py`: latest input, fixed 10 ms joint cadence, 50 ms base cadence,

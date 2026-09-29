@@ -29,12 +29,12 @@ import math
 import time
 from typing import Literal
 
-from cyclo_manager.robot.catalog import base_topics, catalog
-from cyclo_manager.robot.interface import (
+from cyclo_manager.robot_control.command_profiles import PROFILES
+from cyclo_manager.robot_control.controller_discovery import base_topics, catalog
+from cyclo_manager.robot_control.motion_interface import (
     FEEDBACK_MAX_AGE, position_message, RobotInterface, TRAJECTORY_TYPE,
 )
-from cyclo_manager.robot.joints import RobotJoint
-from cyclo_manager.robot.profiles import PROFILES
+from cyclo_manager.robot_control.urdf_joints import RobotJoint
 from cyclo_manager.subscriptions import subscribe_joint_feedback, SubscriptionOwner
 from pydantic import BaseModel, ConfigDict, Field
 

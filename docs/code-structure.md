@@ -35,12 +35,16 @@ host agent's moving average of the latest three one-second samples.
 
 ## Robot control
 
-- `robot/profiles.py`: bringup types/services, command topics, labels and base support.
-- `robot/runtime.py` and `routers/container.py`: independent request-driven status/type caches per selected container, with generation guards; no background monitor.
+`cyclo_manager/robot_control` contains the shared robot interpretation and command
+interface used by Jog and Record & Play. ROS transport stays in `ros2_node`;
+feature-specific motion behavior stays in `jog.py`, `jog_stream.py` and `record_play`.
+
+- `robot_control/command_profiles.py`: bringup types/services, command topics, labels and base support.
+- `robot_control/bringup_status.py` and `routers/container.py`: independent request-driven status/type caches per selected container, with generation guards; no background monitor.
 - `state.get_robot_runtime`: common container resolution for the HTTP route and Jog WebSocket.
-- `robot/joints.py`: bounded position-command joints and limits parsed from URDF.
-- `robot/catalog.py`: command topics and controller membership matched by ROS endpoint node identity.
-- `robot/interface.py`: shared cached feedback access and command publication.
+- `robot_control/urdf_joints.py`: bounded position-command joints and limits parsed from URDF.
+- `robot_control/controller_discovery.py`: command topics and controller membership matched by ROS endpoint node identity.
+- `robot_control/motion_interface.py`: shared cached feedback access and command publication.
 - `jog.py`: per-connection jog input, targets, controller-wide held positions and stop state.
 - `jog_stream.py`: latest operator intent, server publish cadence, input timeout and ordered session cleanup.
 - `record_play`: bag storage, motion validation/return planning and background jobs.

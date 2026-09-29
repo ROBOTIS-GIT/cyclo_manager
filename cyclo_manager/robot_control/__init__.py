@@ -16,4 +16,4 @@
 #
 # Author: Hyungyu Kim
 
-"""Shared robot model, feedback and command access for manager features."""
+"""Share robot control profiles, bringup status, feedback and command access."""

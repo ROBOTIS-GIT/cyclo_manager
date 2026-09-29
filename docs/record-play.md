@@ -166,9 +166,10 @@ observes the job that is already running; it does not start a new job.
 
 ## Code organization
 
-`robot/joints.py` parses commanded URDF limits. `robot/catalog.py` resolves controller
+`robot_control/urdf_joints.py` parses commanded URDF limits.
+`robot_control/controller_discovery.py` resolves controller
 joint membership by matching JointTrajectory subscribers to controller-state publishers.
-`robot/interface.py` reads shared bridge caches, checks feedback freshness and
+`robot_control/motion_interface.py` reads shared bridge caches, checks feedback freshness and
 resolved routes, and publishes commands through an optional guard used by Jog. It does not
 register subscriptions or run a motion loop. Jog adds
 its per-connection command state through `JogSession`; Record & Play uses the
@@ -225,7 +226,7 @@ bringup `generation`; it validates the bag against current ROS feedback and rout
 
 ## Robot profiles
 
-- `robot/profiles.py` defines routes for AI Worker SG2/BG2/SH5/BH5/F1/F2/mobile,
+- `robot_control/command_profiles.py` defines routes for AI Worker SG2/BG2/SH5/BH5/F1/F2/mobile,
   OMY and OMX. Profiles contain no joint names, joint counts or limits. Custom Jog
   remaps require updating the profile; manual recording/playback topics still
   resolve through controller feedback.

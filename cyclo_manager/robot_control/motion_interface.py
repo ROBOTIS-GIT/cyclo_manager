@@ -23,8 +23,8 @@ import math
 import time
 import xml.etree.ElementTree as ET
 
-from cyclo_manager.robot.catalog import catalog
-from cyclo_manager.robot.joints import parse_joints, RobotJoint
+from cyclo_manager.robot_control.controller_discovery import catalog
+from cyclo_manager.robot_control.urdf_joints import parse_joints, RobotJoint
 
 FEEDBACK_MAX_AGE = 0.5
 TRAJECTORY_TYPE = 'trajectory_msgs/msg/JointTrajectory'
