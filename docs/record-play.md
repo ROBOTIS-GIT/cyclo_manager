@@ -71,8 +71,9 @@ arbitration. Manager Jog and playback mutually exclude active motion, and only
 one Record & Play job can run across browser clients. Recording may coexist
 with Jog because it only observes commands.
 
-1. Select a recording. The server validates every message against current URDF
-   joint names, controller topics and position limits before publishing. All
+1. Select a recording. The server validates every message's structure, finite
+   values, timing, joint names and controller topics before publishing. Recorded
+   positions are neither rejected nor clamped against URDF position limits. All
    selected controller topics must have a matching subscriber before motion.
 2. **Play** automatically interpolates from fresh measured positions to each
    topic's first recorded positions. Unrecorded joints on those controllers,
@@ -86,6 +87,11 @@ with Jog because it only observes commands.
    reach the final target. For repetitions, the manager returns to the initial
    pose, verifies arrival, and starts the next pass. The repeat count is the
    **total number of passes**; zero means infinite. The bag itself is unchanged.
+
+Current feedback used to latch unrecorded joints and calculate return transitions
+must still be within URDF position limits. Arrival checks also remain enabled;
+if the controller limits a recorded target and cannot reach it within the selected
+tolerance, playback can stop with an arrival timeout.
 
 Return trajectories use quintic position interpolation at approximately 10 Hz,
 with zero endpoint slope/acceleration. All selected groups share a duration

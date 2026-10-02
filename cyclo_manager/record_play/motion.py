@@ -36,7 +36,7 @@ def duration_seconds(point):
 
 
 def validate_message(topic, data, joints):
-    """Reject ambiguous, non-finite or out-of-range trajectories before any movement."""
+    """Validate trajectory structure and routing without enforcing position limits."""
     names, points = data.get('joint_names', []), data.get('points', [])
     if not names or len(set(names)) != len(names) or not points:
         raise ValueError('Trajectory has empty or duplicate joint names/points.')
@@ -47,12 +47,9 @@ def validate_message(topic, data, joints):
         positions = point.get('positions', [])
         if len(positions) != len(names):
             raise ValueError('Position count does not match joint names.')
-        for name, value in zip(names, positions):
-            joint = joints[name]
+        for value in positions:
             if not isinstance(value, (float, int)) or not math.isfinite(value):
                 raise ValueError('Non-finite joint goal.')
-            if not joint.lower <= value <= joint.upper:
-                raise ValueError(f'Recorded goal exceeds limits: {name}')
         for field in ('velocities', 'accelerations'):
             values = point.get(field, [])
             if values and (len(values) != len(names) or any(
