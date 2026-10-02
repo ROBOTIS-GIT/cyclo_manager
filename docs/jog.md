@@ -1,0 +1,263 @@
+# Jog
+
+Use Jog with leader publishing stopped. The manager coordinates its own Jog and
+playback sessions, but does not arbitrate with external publishers. Opening the
+page publishes no motion or stop commands. Click **Enable jog** before operating
+controls.
+
+## Robot selection and readiness
+
+**Server connected** indicates the Jog WebSocket connection to the manager.
+The Jog menu uses the same running-container selection as System: one supported
+container opens directly, multiple containers offer a choice, and none shows an
+explanation. The selection is retained in `/{container}/jog`; `/jog` also resolves
+or asks for a container before opening a motion connection.
+Both entry points use `GET /containers?running=true`, which filters configured
+names on the server without loading container/image details.
+
+**Robot bringup** is refreshed by `GET /{container}/bringup_status` while the Jog page is
+connected, immediately and then every two seconds without overlapping requests.
+The endpoint belongs to the existing container router. HTTP and WebSocket requests
+use the same container validation; polling uses the shared `usePolling` hook.
+There is no background bringup monitor. The GET checks only the selected container
+with one filtered Docker list request (no container/image inspection), then its
+existing s6 status endpoints for `ai_worker_bringup` / `open_manipulator_bringup`.
+Concurrent pages for the same container share a one-second status cache; other
+containers have independent caches. An unavailable selection is never replaced
+by another running robot automatically.
+`/run/robot_type` is read when a bringup process is first observed, changes or
+returns after an observation gap, and reused while that process is unchanged.
+It selects the AI Worker, OMY or OMX profile. Browser-saved System settings do
+not select the Jog profile. Observations older than four seconds are unavailable;
+the WebSocket worker reads this expiring snapshot without issuing Docker/s6 requests.
+
+Until a single supported bringup is verified, the control area is disabled.
+Container selection does not isolate ROS traffic. Multiple publishers on the shared
+`/joint_states` or `/robot_description` topics disable Jog and block new commands;
+ambiguous controller mappings remain rejected. Other containers' s6 status is not
+polled to find or select a different robot.
+Restart, model change or unavailable status invalidates the current motion
+session and disarms the UI. Idle connections can adopt a new runtime profile;
+an active session encountering a changed run reports an error and closes.
+Reconnect when needed and explicitly enable Jog after bringup recovers. The
+server also checks the runtime before publishing, including a final stop.
+See [robot profiles](record-play.md#robot-profiles) for generation checks and the
+distinction between configured bringup type and actual launch-process detection.
+
+## Controls
+
+- Hold buttons and the joystick accept only the primary mouse button or primary
+  touch. Right/middle clicks do not start motion. Context menus on these controls
+  are suppressed and end any active gesture; mouse button chords also end it.
+- Choose **Joystick** (default) or **Keyboard** in the base input tabs. Switching
+  modes stops the current gesture. Only the selected mode accepts movement input.
+- In Joystick mode, drag for robot-relative forward/lateral/diagonal translation.
+  Distance from the centre sets speed up to a fixed 0.3 m/s, with a 12% dead
+  zone. Release to stop. The translation speed slider only applies to Keyboard
+  mode; the rotation speed slider applies to both modes. The robot controller
+  may still ignore small translation commands below its per-axis deadband.
+- Use the rotation buttons in Joystick mode. In Keyboard mode, focus the keyboard
+  control area after enabling Jog, then hold W/A/S/D or arrow keys for translation
+  and Q/E for rotation; release to stop. Space stops and disables Jog in either
+  mode outside editable controls.
+- Select a controller group. Joint cards come from bounded, non-mimic position
+  joints in `/robot_description`; controller feedback and profile topics determine
+  their group. Known topics have labels such as Neck, Lift or Arm + gripper.
+  Unmapped joints remain disabled. AI Worker `*_wheel_steer` joints are omitted
+  from Joint Jog cards but still appear in **Wheel steering angle** feedback.
+- Positions, limits and targets use degrees or mm in the UI and radians or metres
+  in ROS. Choose **0.2 mm / 0.1°** (default), **0.6 mm / 0.3°**, or **1 mm / 0.5°**.
+  The mm value applies to prismatic joints, including the lift; degrees apply to
+  revolute joints. Limits can shorten a move near a boundary.
+- Press a joint button to start continuous movement immediately. The first target
+  starts from measured position; subsequent updates add the selected increment to
+  the last successfully published target. There is no feedback-relative mode or
+  separate tap/hold transition. Changing the increment stops the gesture.
+- Joint publishing is fixed at **10 ms (100 Hz)**, with one position point and
+  **time_from_start = 0 ms**. Only the increment is selectable. Base publishing
+  remains at 50 ms. The server skips missed ticks rather than catching up in a burst,
+  so actual target progression can be slower under processing delays.
+- Releasing or cancelling a joint button ends target updates without publishing
+  another trajectory. The controller can finish moving to the last target, even
+  after a short press. Accumulation has no separate following-error limit, so a
+  lagging joint can have more movement left after release; URDF position limits
+  still apply. Explicit stop, focus loss, disconnect and input timeout still
+  attempt to hold the measured position of an active gesture.
+- Stop jog, loss of browser focus or a hidden page disables operation. Explicit
+  enabling is required again. A hidden tab sends a stop, pauses periodic Jog
+  messages and keeps the stopped WebSocket session open. Returning to the tab
+  resumes feedback without re-enabling Jog. Actual connection failures require
+  **Reconnect**; leaving the Jog page stops its session and closes its connection.
+
+## ROS connection and feedback
+
+The UI sends the current operator intent to `/ws/jog?container={container}`: a press starts the gesture,
+held inputs refresh it about every 100 ms, and release/stop is sent immediately.
+These messages do not wait for status responses. A blocked browser transport skips
+held inputs and retains only the latest intent; release/stop is still sent.
+
+The server owns the ROS cadence: joint updates use a fixed 10 ms interval and
+base updates use 50 ms. Joint inputs contain the joint name, direction and
+`resolution` (`fine`, `normal` or `coarse`; default `fine`). Target mode, publish
+interval and trajectory duration are not configurable command fields.
+Each joint tick adds one increment to the previous successfully published target,
+regardless of whether a new feedback sample has arrived. Valid feedback no older
+than 500 ms is still required; stale feedback stops motion. Release, stop or
+switching joints ends the gesture, so the next press starts from measured position.
+Frequent input messages do not create extra publish ticks, and missed
+ticks are skipped rather than replayed in a burst. Input reception, the serialized
+motion worker and WebSocket status transmission run independently. Session calls,
+including feedback snapshots, remain serialized; this is not a real-time deadline
+guarantee when ROS or server processing is slow.
+
+Status is sampled about every 100 ms and includes server-owned robot status and
+cached joint/controller feedback. A slow sender keeps only the latest waiting
+snapshot instead of delaying ROS publishing or accumulating old display states.
+The UI binds both HTTP status reads and the WebSocket to the container in the page URL.
+`/ws/jog` requires the `container` query parameter. Missing/unsupported selections
+are rejected. Command topics come from the selected container's profile;
+`topic` / `base_topic` query parameters cannot override it.
+
+Connection creation is deferred one timer turn so an immediate development-mode
+effect cleanup can cancel it. Leaving the page stops and closes an active
+connection immediately. The server finishes its stop attempt before releasing
+that session's subscription owners. Other viewers or jobs retain their own owners.
+The HTTP `/ros2/cmd_vel` endpoint is a separate direct-publish API; the Jog UI does
+not use it, and it does not provide the Jog session/watchdog behavior.
+
+The session subscribes to `/joint_states`, transient-local `/robot_description`,
+and discovered `control_msgs/msg/JointTrajectoryControllerState` topics. Joint
+motion requires:
+
+- A verified, unchanged bringup generation.
+- A revolute/prismatic joint with a position command interface, finite lower/upper
+  limits and positive finite velocity limit in URDF. Fixed, continuous and mimic
+  joints are excluded; there are no guessed limits.
+- Joint position feedback no older than 500 ms, with valid positions for every
+  joint in the commanded controller.
+- Controller-state feedback no older than two seconds supplying the complete joint
+  list. ROS graph subscriber/publisher node identities associate this list with a
+  `trajectory_msgs/msg/JointTrajectory` command topic allowed by the profile.
+  Missing, ambiguous or incomplete mappings disable control.
+
+The shared `/robot_description` and `/joint_states` sources support one follower
+at a time. Namespaced feedback selection, Action-only grippers, TwistStamped and
+controllers without JointTrajectoryControllerState are not supported here.
+
+## Command routes
+
+Routes are defined in `cyclo_manager/robot_interface/command_profiles.py`:
+
+| Profile | JointTrajectory command topics |
+|---------|--------------------------------|
+| AI Worker except Mobile | `/leader/joystick_controller_{left,right}/joint_trajectory` and `/leader/joint_trajectory_command_broadcaster_{left,right}/joint_trajectory` |
+| SH5 / BH5 additions | `/leader/joint_trajectory_command_broadcaster_{left,right}_hand/joint_trajectory` |
+| OMY / OMX | `/leader/joint_trajectory` |
+| Mobile | None; base only |
+
+Profiles define routes, not joint names or counts. Command-topic remaps require
+updating the profile. Controller feedback validates actual joint membership.
+
+Base movement uses `/cmd_vel` (`geometry_msgs/msg/Twist`) for SG2, SH5, F2 and
+Mobile profiles when an external Twist subscriber is discovered. OMY, OMX and
+stationary AI Worker profiles have no base control. Mobile rejects joint commands
+even if feedback includes upper-body joints. Translation vector magnitude is
+capped at 0.3 m/s and rotation at 0.6 rad/s. Normal changes are ramped; an explicit
+stop publishes zero. The displayed base values are the manager's command values,
+not measured odometry.
+
+## Joint targets and held positions
+
+A Jog message contains the **complete joint set of the selected controller**.
+The selected joint receives the accumulated target, seeded from measured position. Every other joint on
+that controller is captured from fresh feedback at press start and held at that
+position throughout the press and final stop. This includes grippers regardless
+of their names and works with controllers that reject partial joint goals.
+
+Hold updates do not recapture fluctuating gripper or other held-joint feedback.
+A new gesture after stopping captures new held positions. Missing or non-finite
+positions block the initial command;
+joints on separate controllers are not included. This holds position, not grasp force or an earlier closing
+target. A changed controller mapping interrupts the gesture instead of redirecting
+its commands.
+
+Measured positions outside URDF limits do not stop Jog or close the connection.
+There is no feedback-limit tolerance check. URDF position limits apply to every
+outgoing target, including the selected joint, other held joints and explicit stop
+commands. Held positions are clamped once per press and remain latched; raw feedback
+shown in the UI is not modified. Missing/non-finite feedback and feedback older than
+500 ms still block motion.
+
+Each update sends one position-only point with `time_from_start` set to zero.
+The controller and motor determine the resulting motion; there is no manager-side
+interpolation duration or velocity command.
+
+While held, targets follow:
+
+```text
+first target = clamp(measured position + direction * increment, URDF limits)
+next target  = clamp(previous published target + direction * increment, URDF limits)
+```
+
+Feedback changes do not rebase the goal during a gesture. Even if the joint stalls,
+valid feedback allows the target to keep advancing up to its URDF limit. Reversing
+input during the same gesture subtracts from the previous goal. A release followed
+by a new press starts from measured position again. Other controller joints keep
+their latched goals. Reaching a target does not end a held gesture. The UI's
+pending-target highlight uses a 0.01° or 0.1 mm tolerance, which does not affect
+command generation.
+
+## Stops and timeouts
+
+Ordinary joint-button release or pointer cancellation sends a `release` input.
+It clears the active gesture and its watchdog without publishing a trajectory;
+subsequent idle messages and connection cleanup leave the last goal unchanged.
+The next press captures fresh held-joint positions. Base release still sends zero
+velocity.
+
+Explicit stop, focus loss, page exit, disconnect or timeout during an active joint
+gesture sends one immediate target (`time_from_start=0`) at the selected joint's latest measured
+position, clamped to the URDF range, keeping
+the other controller joints at their latched goals. Stale
+feedback prevents sending an old measured pose. A changed or unavailable bringup
+also blocks the old session's final publish and reports an error; the controller
+can retain the last joint goal.
+
+During active motion, no operator input for 400 ms stops commands and closes the
+session, even if status messages are still being delivered. Release/stop wakes the
+motion worker immediately; any already-running publish finishes before the end of
+the gesture is processed. Disconnect cleanup also joins in-flight work before
+stopping and releasing subscriptions or motion ownership.
+Stopped/read-only sessions can wait without that timeout, including while hidden.
+The UI's 700 ms feedback timeout pauses while hidden and restarts on return.
+Commands waiting more than 250 ms in the ROS bridge queue are discarded. If the
+manager or bridge dies, base stopping relies on the robot controller's configured
+velocity timeout; the last joint target remains, without further goal updates.
+
+The bridge does not query external subscribers on each publish. Jog still checks
+feedback and controller mappings; a successful publish alone does not confirm
+that a controller received or executed the command.
+
+The manager's motion guard excludes concurrent Jog/playback motion across browser
+clients. Recording can coexist with Jog. External leaders are outside this guard.
+Actual stop response, smoothness and controller interpolation require on-robot
+verification. This is a software stop, not a hardware emergency stop or collision
+avoidance.
+
+## Code and validation
+
+- `robot_interface/command_profiles.py` and `robot_interface/bringup_status.py`: routes and server-owned bringup status.
+- `robot_interface/urdf_joints.py`, `robot_interface/controller_discovery.py`,
+  `robot_interface/motion_interface.py`: URDF joints, controller
+  mapping, shared cached feedback and publication.
+- `jog.py`: per-session inputs, targets, held positions and stop state.
+- `jog_stream.py`: latest input, fixed 10 ms joint cadence, 50 ms base cadence,
+  watchdog and serialized cleanup.
+- `cyclo_manager_ui/lib/jog.ts`: message types, units and increments.
+- `useJogConnection.ts`: input heartbeats, streamed status and press/release lifecycle.
+- `useKeyboardTeleop.ts`: keyboard focus, input and release handling.
+- `JointJogCard.tsx` and `JogControls.tsx`: joint display and controls.
+
+See [Code structure](code-structure.md#verification) for UI checks. Verify
+press/release, focus loss, page exit and connection timeouts on the target browser
+and robot.

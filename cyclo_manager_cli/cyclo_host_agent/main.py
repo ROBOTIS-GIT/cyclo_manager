@@ -18,10 +18,12 @@
 
 """Cyclo host agent: FastAPI server on Unix Domain Socket for host-level operations."""
 
+import asyncio
+from contextlib import asynccontextmanager
 import logging
 from pathlib import Path
 
-from cyclo_host_agent.routers import repos, update
+from cyclo_host_agent.routers import files, repos, system_stats, update
 from cyclo_manager_cli import __version__
 from fastapi import FastAPI
 import uvicorn
@@ -34,13 +36,27 @@ logger = logging.getLogger(__name__)
 
 SOCKET_PATH = '/var/run/robotis/agent_sockets/host/host_agent.sock'
 
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Run the shared CPU sampler for the lifetime of the host agent."""
+    system_stats.cpu_sampler.start()
+    try:
+        yield
+    finally:
+        await asyncio.to_thread(system_stats.cpu_sampler.stop)
+
+
 app = FastAPI(
     title='cyclo_host_agent',
     description='Host agent for Cyclo Manager: repo management.',
     version=__version__,
+    lifespan=lifespan,
 )
 
 app.include_router(repos.router)
+app.include_router(files.router)
+app.include_router(system_stats.router)
 app.include_router(update.router)
 
 

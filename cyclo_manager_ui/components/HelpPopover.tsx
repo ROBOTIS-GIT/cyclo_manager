@@ -16,16 +16,21 @@
 
 "use client";
 
-import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useRef, useState } from "react";
 import type { CSSProperties, ReactNode } from "react";
 import { createPortal } from "react-dom";
 
 const HELP_BTN_CLASS =
-  "inline-flex items-center justify-center shrink-0 rounded-full border leading-none font-semibold cursor-pointer select-none hover:opacity-80 focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--vscode-focusBorder)]";
+  "help-popover-trigger inline-flex items-center justify-center shrink-0 rounded-full border leading-none font-semibold cursor-pointer select-none hover:opacity-80 focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--vscode-focusBorder)]";
 
 const HELP_BTN_STYLE: CSSProperties = {
   width: "15px",
   height: "15px",
+  minWidth: "15px",
+  minHeight: "15px",
+  maxWidth: "15px",
+  maxHeight: "15px",
+  padding: 0,
   fontSize: "10px",
   lineHeight: 1,
   borderColor: "var(--vscode-panel-border)",
@@ -66,22 +71,17 @@ export default function HelpPopover({
 }: HelpPopoverProps) {
   const buttonRef = useRef<HTMLButtonElement>(null);
   const panelId = useId();
-  const [open, setOpen] = useState(false);
   const [coords, setCoords] = useState<{ top: number; left: number; width: number } | null>(null);
+
+  const open = coords !== null && !disabled;
+  // Disabling the trigger also closes its panel, including after re-enabling it.
+  if (disabled && coords !== null) setCoords(null);
 
   const syncPosition = useCallback(() => {
     const button = buttonRef.current;
     if (!button) return;
     setCoords(computeHelpPosition(button.getBoundingClientRect()));
   }, []);
-
-  useLayoutEffect(() => {
-    if (!open) {
-      setCoords(null);
-      return;
-    }
-    syncPosition();
-  }, [open, syncPosition]);
 
   useEffect(() => {
     if (!open) return;
@@ -96,15 +96,11 @@ export default function HelpPopover({
   useEffect(() => {
     if (!open) return;
     const onKey = (event: KeyboardEvent) => {
-      if (event.key === "Escape") setOpen(false);
+      if (event.key === "Escape") setCoords(null);
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [open]);
-
-  useEffect(() => {
-    if (disabled) setOpen(false);
-  }, [disabled]);
 
   return (
     <>
@@ -112,7 +108,7 @@ export default function HelpPopover({
         ref={buttonRef}
         type="button"
         disabled={disabled}
-        onClick={() => setOpen((current) => !current)}
+        onClick={() => { if (open) setCoords(null); else syncPosition(); }}
         className={`${HELP_BTN_CLASS} disabled:cursor-not-allowed disabled:opacity-50`}
         style={HELP_BTN_STYLE}
         aria-expanded={open}

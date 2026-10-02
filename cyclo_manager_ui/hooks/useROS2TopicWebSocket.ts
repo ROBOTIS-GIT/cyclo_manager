@@ -16,69 +16,51 @@
 
 "use client";
 
-import { useEffect, useState } from "react";
-import {
-  createROS2TopicWebSocket,
-  type ROS2TopicWebSocketOptions,
-} from "@/lib/ros2Websocket";
+import { useEffect, useRef, useState } from "react";
+import { createROS2TopicWebSocket, type ROS2TopicWebSocketOptions } from "@/lib/ros2Websocket";
 import type { ROS2TopicDataResponse } from "@/types/api";
-import type { WebSocketStatus } from "@/lib/websocketUtils";
+import { maintainWebSocket, OBSERVER_CONNECTING, type ObserverConnectionState, type ObserverHandle } from "@/lib/websocketUtils";
 
-export function useROS2TopicWebSocket(
-  topic: string | null,
-  options: ROS2TopicWebSocketOptions = {}
-) {
-  const [ws, setWs] = useState<WebSocket | null>(null);
-  const [status, setStatus] = useState<WebSocketStatus>("disconnected");
-  const [topicData, setTopicData] = useState<ROS2TopicDataResponse | null>(null);
-
+export function useROS2TopicWebSocket(topic: string | null, options: ROS2TopicWebSocketOptions = {}) {
+  const key = JSON.stringify([topic, options.msgType, options.metadataOnly]);
+  const callbacks = useRef(options);
+  useEffect(() => { callbacks.current = options; });
+  const handle = useRef<ObserverHandle | null>(null);
+  const [result, setResult] = useState<{
+    key: string; data: ROS2TopicDataResponse | null; connection: ObserverConnectionState;
+  } | null>(null);
   useEffect(() => {
-    if (!topic) {
-      return;
-    }
-
-    let isMounted = true;
-    setStatus("connecting");
-
-    const websocket = createROS2TopicWebSocket(topic, {
-      ...options,
-      onOpen: () => {
-        if (isMounted) {
-          setStatus("connected");
-          options.onOpen?.();
-        }
-      },
-      onMessage: (data: ROS2TopicDataResponse) => {
-        if (!isMounted) return;
-        setTopicData(data);
-        options.onMessage?.(data);
-      },
-      onError: (error: Error) => {
-        if (isMounted) {
-          setStatus("error");
-          options.onError?.(error);
-        }
-      },
-      onClose: () => {
-        if (isMounted) {
-          setStatus("disconnected");
-          options.onClose?.();
-        }
-      },
-    });
-
-    setWs(websocket);
-
-    return () => {
-      isMounted = false;
-      if (websocket.readyState === WebSocket.OPEN || websocket.readyState === WebSocket.CONNECTING) {
-        websocket.close(1000, "Component unmounting");
-      }
-      setWs(null);
-      setStatus("disconnected");
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [topic]);
-
-  return { ws, status, topicData };
+    if (!topic) return;
+    const [, msgType, metadataOnly] = JSON.parse(key) as [string, string | undefined, boolean | undefined];
+    let active = true;
+    let generation = 0;
+    let data: ROS2TopicDataResponse | null = null;
+    let connection = OBSERVER_CONNECTING;
+    const update = () => { if (active) setResult({ key, data, connection }); };
+    const dispose = maintainWebSocket(() => {
+      const current = ++generation;
+      return createROS2TopicWebSocket(topic, {
+        msgType, metadataOnly,
+        onOpen: () => { if (active && generation === current) callbacks.current.onOpen?.(); },
+        onMessage: value => {
+          if (!active || generation !== current) return;
+          data = value; update(); callbacks.current.onMessage?.(value);
+        },
+        onClose: event => { if (active && generation === current) callbacks.current.onClose?.(event); },
+      });
+    }, { onState: value => {
+      if (!active) return;
+      if (value.error && value.error !== connection.error) callbacks.current.onError?.(new Error(value.error));
+      connection = value;
+      if (value.status !== "connected") data = null;
+      update();
+    } });
+    handle.current = dispose;
+    return () => { active = false; handle.current = null; dispose(); };
+  }, [topic, key]);
+  const current = result?.key === key ? result : null;
+  const connection = topic ? current?.connection ?? OBSERVER_CONNECTING
+    : { status: "disconnected" as const, error: null, retryInMs: null };
+  return { topicData: current?.data ?? null, status: connection.status,
+    error: connection.error, connection, reconnect: () => handle.current?.reconnect() };
 }

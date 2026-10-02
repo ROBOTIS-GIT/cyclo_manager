@@ -16,16 +16,9 @@
 
 "use client";
 
-import { useEffect, useState, type CSSProperties } from "react";
+import type { CSSProperties } from "react";
+import { useIntelligenceUrl } from "@/hooks/useIntelligenceUrl";
 import Link from "next/link";
-
-function useCycloIntelligenceUrl(): string {
-  const [url, setUrl] = useState("http://localhost:7080/");
-  useEffect(() => {
-    setUrl(`http://${window.location.hostname}:7080/`);
-  }, []);
-  return url;
-}
 
 function shortcutStyle(
   variant: "default" | "onSidebar",
@@ -54,7 +47,7 @@ export default function ManagerIntelligenceShortcuts({
   variant?: "default" | "onSidebar";
   compact?: boolean;
 }) {
-  const intelligenceUrl = useCycloIntelligenceUrl();
+  const intelligenceUrl = useIntelligenceUrl();
   const base = shortcutStyle(variant, compact);
   const className = `flex shrink-0 items-center justify-center rounded-full border font-semibold transition-all duration-150 hover:border-[var(--vscode-focusBorder)] hover:bg-[var(--vscode-list-hoverBackground)] hover:scale-110 ${
     compact ? "text-xs" : "text-lg"

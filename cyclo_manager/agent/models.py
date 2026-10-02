@@ -55,6 +55,18 @@ class ServiceStatus(BaseModel):
     uptime_seconds: Optional[int] = Field(None, description='Uptime in seconds if running')
 
 
+class ServiceListResponse(BaseModel):
+    """Response for GET /services."""
+
+    services: list[str] = Field(..., description='List of available service names')
+
+
+class ServiceStatusListResponse(BaseModel):
+    """Response for GET /services/status."""
+
+    statuses: list[ServiceStatus] = Field(..., description='List of service statuses')
+
+
 class ServiceControlResponse(BaseModel):
     """Response for POST /services/{name}."""
 

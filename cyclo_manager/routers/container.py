@@ -16,18 +16,24 @@
 #
 # Author: Hyungyu Kim
 
-"""Container-level endpoints (bashrc via docker exec)."""
+"""Container-level endpoints for bringup status and bashrc management."""
 
 import logging
 
 from cyclo_manager.models import BashrcResponse, BashrcUpdateRequest
-from cyclo_manager.state import get_docker_client
+from cyclo_manager.state import get_docker_client, get_robot_runtime
 import docker
 from fastapi import APIRouter, Depends, HTTPException, status
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix='/{container}', tags=['container'])
+
+
+@router.get('/bringup_status')
+async def get_bringup_status(runtime=Depends(get_robot_runtime)):
+    """Read the selected container's bringup status, profile and run generation."""
+    return await runtime.status()
 
 
 @router.get('/bashrc', response_model=BashrcResponse)

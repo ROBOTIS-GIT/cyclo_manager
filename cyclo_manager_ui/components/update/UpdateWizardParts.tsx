@@ -14,7 +14,7 @@
 //
 // Author: Hyungyu Kim
 
-import type { CSSProperties } from "react";
+import { useLayoutEffect, useRef, type CSSProperties } from "react";
 
 export type Phase = "intro" | "stop" | "choose" | "update" | "start";
 
@@ -23,7 +23,7 @@ const PHASES: { key: Phase; label: string }[] = [
   { key: "stop", label: "Stop Container" },
   { key: "choose", label: "Choose Strategy" },
   { key: "update", label: "Update Repository" },
-  { key: "start", label: "Start Container" },
+  { key: "start", label: "Create and Start Container" },
 ];
 
 export const overlay: CSSProperties = {
@@ -130,12 +130,29 @@ export function StepBar({ current }: { current: Phase }) {
 }
 
 export function OutputBox({ output, error }: { output: string; error?: boolean }) {
+  const scrollRef = useRef<HTMLPreElement>(null);
+  const followOutput = useRef(true);
+
+  useLayoutEffect(() => {
+    if (!output) followOutput.current = true;
+    const element = scrollRef.current;
+    if (element && followOutput.current) {
+      element.scrollTop = element.scrollHeight;
+    }
+  }, [output]);
+
   if (!output) return null;
   return (
     <pre
+      ref={scrollRef}
+      onScroll={(event) => {
+        const element = event.currentTarget;
+        followOutput.current = element.scrollHeight - element.scrollTop - element.clientHeight < 50;
+      }}
       className="text-xs p-3 rounded font-mono whitespace-pre-wrap break-words overflow-auto"
       style={{
         maxHeight: 260,
+        overflowAnchor: "none",
         backgroundColor: "var(--vscode-textCodeBlock-background)",
         color: error ? "var(--vscode-errorForeground)" : "var(--vscode-foreground)",
         border: "1px solid var(--vscode-panel-border)",

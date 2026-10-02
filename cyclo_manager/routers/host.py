@@ -22,14 +22,16 @@ import logging
 from typing import Optional
 
 from cyclo_manager.host_agent_client import HostAgentClient
+from cyclo_manager.http_errors import proxy_error
 from cyclo_manager.state import get_host_agent_client
-from fastapi import APIRouter, Depends, HTTPException, status
-import httpx
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pydantic import BaseModel
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix='/host', tags=['host'])
+
+MAX_FILE_UPLOAD_BYTES = 20 * 1024 * 1024
 
 
 # ---------------------------------------------------------------------------
@@ -98,23 +100,28 @@ class ContainerScriptResponse(BaseModel):
     output: str
 
 
-# ---------------------------------------------------------------------------
-# Helper
-# ---------------------------------------------------------------------------
+class ContainerStartStatusResponse(BaseModel):
+    running: bool
+    output: str
+    success: bool | None = None
+    error: str = ''
 
-def _proxy_error(e: Exception) -> HTTPException:
-    if isinstance(e, httpx.RequestError):
-        return HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail=f'Host agent unreachable: {e}',
-        )
-    if isinstance(e, httpx.HTTPStatusError):
-        try:
-            detail = e.response.json().get('detail', str(e))
-        except Exception:
-            detail = e.response.text or str(e)
-        return HTTPException(status_code=e.response.status_code, detail=detail)
-    return HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))
+
+class FileWriteRequest(BaseModel):
+    path: str
+    content: str
+    expected_modified: float | None = None
+
+
+class FileCreateRequest(BaseModel):
+    path: str
+    type: str  # noqa: A003 - Keep the public API field name.
+    content: str = ''
+
+
+class FileRenameRequest(BaseModel):
+    path: str
+    new_name: str
 
 
 # ---------------------------------------------------------------------------
@@ -129,7 +136,7 @@ async def get_repo_updates(
         data = await client.get_repo_updates()
         return RepoUpdatesResponse(**data)
     except Exception as e:
-        raise _proxy_error(e)
+        raise proxy_error(e, 'Host agent')
 
 
 @router.get('/repos', response_model=RepoListResponse)
@@ -140,7 +147,7 @@ async def list_repos(
         data = await client.list_repos()
         return RepoListResponse(**data)
     except Exception as e:
-        raise _proxy_error(e)
+        raise proxy_error(e, 'Host agent')
 
 
 @router.get('/repos/{name}/branch', response_model=RepoBranchCheckResponse)
@@ -152,7 +159,7 @@ async def get_repo_branch(
         data = await client.get_repo_branch(name)
         return RepoBranchCheckResponse(**data)
     except Exception as e:
-        raise _proxy_error(e)
+        raise proxy_error(e, 'Host agent')
 
 
 @router.get('/repos/{name}/status', response_model=RepoStatusResponse)
@@ -164,7 +171,7 @@ async def get_repo_status(
         data = await client.get_repo_status(name)
         return RepoStatusResponse(**data)
     except Exception as e:
-        raise _proxy_error(e)
+        raise proxy_error(e, 'Host agent')
 
 
 @router.post('/repos/{name}/container/stop', response_model=ContainerScriptResponse)
@@ -176,19 +183,34 @@ async def stop_repo_container(
         data = await client.stop_repo_container(name)
         return ContainerScriptResponse(**data)
     except Exception as e:
-        raise _proxy_error(e)
+        raise proxy_error(e, 'Host agent')
 
 
-@router.post('/repos/{name}/container/start', response_model=ContainerScriptResponse)
+@router.post('/repos/{name}/container/start', response_model=ContainerStartStatusResponse)
 async def start_repo_container(
     name: str,
     client: HostAgentClient = Depends(get_host_agent_client),
-) -> ContainerScriptResponse:
+) -> ContainerStartStatusResponse:
     try:
         data = await client.start_repo_container(name)
-        return ContainerScriptResponse(**data)
+        return ContainerStartStatusResponse(**data)
     except Exception as e:
-        raise _proxy_error(e)
+        raise proxy_error(e, 'Host agent')
+
+
+@router.get(
+    '/repos/{name}/container/start/status',
+    response_model=ContainerStartStatusResponse,
+)
+async def get_start_repo_container_status(
+    name: str,
+    client: HostAgentClient = Depends(get_host_agent_client),
+) -> ContainerStartStatusResponse:
+    try:
+        data = await client.get_start_repo_container_status(name)
+        return ContainerStartStatusResponse(**data)
+    except Exception as e:
+        raise proxy_error(e, 'Host agent')
 
 
 @router.post('/repos/{name}/update', response_model=UpdateResponse)
@@ -201,7 +223,7 @@ async def update_repo(
         data = await client.update_repo(name, req.strategy, req.preserve_files)
         return UpdateResponse(**data)
     except Exception as e:
-        raise _proxy_error(e)
+        raise proxy_error(e, 'Host agent')
 
 
 @router.post('/update')
@@ -211,7 +233,7 @@ async def update_cyclo_manager(
     try:
         return await client.update_cyclo_manager()
     except Exception as e:
-        raise _proxy_error(e)
+        raise proxy_error(e, 'Host agent')
 
 
 @router.get('/update/status')
@@ -221,7 +243,7 @@ async def get_update_status(
     try:
         return await client.get_update_status()
     except Exception as e:
-        raise _proxy_error(e)
+        raise proxy_error(e, 'Host agent')
 
 
 @router.get('/version')
@@ -231,4 +253,141 @@ async def get_host_agent_version(
     try:
         return await client.get_version()
     except Exception as e:
-        raise _proxy_error(e)
+        raise proxy_error(e, 'Host agent')
+
+
+@router.get('/files/tree')
+async def list_files(
+    path: str = '',
+    show_hidden: bool = False,
+    client: HostAgentClient = Depends(get_host_agent_client),
+) -> dict:
+    try:
+        return await client.list_files(path, show_hidden)
+    except Exception as e:
+        raise proxy_error(e, 'Host agent')
+
+
+@router.get('/files/read')
+async def read_file(
+    path: str,
+    client: HostAgentClient = Depends(get_host_agent_client),
+) -> dict:
+    try:
+        return await client.read_file(path)
+    except Exception as e:
+        raise proxy_error(e, 'Host agent')
+
+
+@router.get('/files/diff')
+async def get_file_diff(
+    path: str,
+    client: HostAgentClient = Depends(get_host_agent_client),
+) -> dict:
+    try:
+        return await client.get_file_diff(path)
+    except Exception as e:
+        raise proxy_error(e, 'Host agent')
+
+
+@router.get('/files/search')
+async def search_files(
+    query: str,
+    path: str = '',
+    show_hidden: bool = False,
+    limit: int = 200,
+    client: HostAgentClient = Depends(get_host_agent_client),
+) -> dict:
+    try:
+        return await client.search_files(path, query, show_hidden, limit)
+    except Exception as e:
+        raise proxy_error(e, 'Host agent')
+
+
+@router.post('/files/write')
+async def write_file(
+    req: FileWriteRequest,
+    client: HostAgentClient = Depends(get_host_agent_client),
+) -> dict:
+    try:
+        return await client.write_file(req.path, req.content, req.expected_modified)
+    except Exception as e:
+        raise proxy_error(e, 'Host agent')
+
+
+@router.post('/files/create')
+async def create_file_path(
+    req: FileCreateRequest,
+    client: HostAgentClient = Depends(get_host_agent_client),
+) -> dict:
+    try:
+        return await client.create_file_path(req.path, req.type, req.content)
+    except Exception as e:
+        raise proxy_error(e, 'Host agent')
+
+
+@router.post('/files/rename')
+async def rename_file_path(
+    req: FileRenameRequest,
+    client: HostAgentClient = Depends(get_host_agent_client),
+) -> dict:
+    try:
+        return await client.rename_file_path(req.path, req.new_name)
+    except Exception as e:
+        raise proxy_error(e, 'Host agent')
+
+
+@router.post('/files/upload')
+async def upload_file(
+    request: Request,
+    path: str = '',
+    filename: str = '',
+    overwrite: bool = False,
+    client: HostAgentClient = Depends(get_host_agent_client),
+) -> dict:
+    content_length = request.headers.get('content-length')
+    if content_length is not None:
+        try:
+            if int(content_length) > MAX_FILE_UPLOAD_BYTES:
+                raise HTTPException(
+                    status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+                    detail='File is too large to upload',
+                )
+        except ValueError:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail='Invalid Content-Length header',
+            )
+
+    content = bytearray()
+    async for chunk in request.stream():
+        content.extend(chunk)
+        if len(content) > MAX_FILE_UPLOAD_BYTES:
+            raise HTTPException(
+                status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+                detail='File is too large to upload',
+            )
+
+    try:
+        content_type = request.headers.get('content-type', 'application/octet-stream')
+        return await client.upload_file(
+            path,
+            filename,
+            bytes(content),
+            overwrite,
+            content_type,
+        )
+    except Exception as e:
+        raise proxy_error(e, 'Host agent')
+
+
+@router.delete('/files')
+async def delete_file_path(
+    path: str,
+    recursive: bool = False,
+    client: HostAgentClient = Depends(get_host_agent_client),
+) -> dict:
+    try:
+        return await client.delete_file_path(path, recursive)
+    except Exception as e:
+        raise proxy_error(e, 'Host agent')
