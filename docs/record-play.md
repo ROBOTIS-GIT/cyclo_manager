@@ -71,8 +71,9 @@ arbitration. Manager Jog and playback mutually exclude active motion, and only
 one Record & Play job can run across browser clients. Recording may coexist
 with Jog because it only observes commands.
 
-1. Select a recording. The server validates every message against current URDF
-   joint names, controller topics and position limits before publishing. All
+1. Select a recording. The server validates every message's structure, finite
+   values, timing, joint names and controller topics before publishing. Recorded
+   positions are neither rejected nor clamped against URDF position limits. All
    selected controller topics must have a matching subscriber before motion.
 2. **Play** automatically interpolates from fresh measured positions to each
    topic's first recorded positions. Unrecorded joints on those controllers,
@@ -87,6 +88,12 @@ with Jog because it only observes commands.
    pose, verifies arrival, and starts the next pass. The repeat count is the
    **total number of passes**; zero means infinite. The bag itself is unchanged.
 
+Current feedback used to latch unrecorded joints and calculate return transitions
+must be present and finite, but is not rejected or clamped against URDF position
+limits. This also applies when holding the current pose after stop. Arrival checks remain enabled;
+if the controller limits a recorded target and cannot reach it within the selected
+tolerance, playback can stop with an arrival timeout.
+
 Return trajectories use quintic position interpolation at approximately 10 Hz,
 with zero endpoint slope/acceleration. All selected groups share a duration
 calculated from displacement, URDF velocity limits and conservative return
@@ -94,8 +101,9 @@ limits (10°/s and 20°/s²; lift 10 mm/s and 20 mm/s²). Duration accounts for 
 peak speed and acceleration and is limited to 120 seconds. Position commands
 have `time_from_start=0`. These bound the generated targets, not the controller's
 physical motion. **Arrival tolerance** selects the angular tolerance for each
-playback job: 0.5° (default), 1°, 2° or 3°. Linear joints use 1 mm. The same setting
-applies to the start pose, repeat returns and final pose, including held joints.
+playback job: 0.5° (default), 1°, 2° or 3°. **Lift / linear tolerance** selects
+1 cm (default), 2 cm or 3 cm for linear joints. These settings apply to the start
+pose, repeat returns and final pose, including held joints.
 All involved joints must stay within tolerance for 0.3 seconds before proceeding,
 even if the initial pose is already within tolerance. An out-of-range observation
 restarts that interval. Failure to settle within ten seconds after the planned
@@ -112,8 +120,9 @@ during playback preparation, not on each publish. Losing a subscriber alone does
 not fail publishing or stop the replay clock. Overdue commands are not burst after
 the lag cutoff.
 
-The option is sent as `arrival_tolerance_deg` in `POST /record_play/play` and
-reported in job status so other browser clients show the running job's setting.
+The options are sent as `arrival_tolerance_deg` and `arrival_tolerance_cm` in
+`POST /record_play/play` and reported in job status so other browser clients show
+the running job's settings.
 Choose a tolerance that meets the task's accuracy needs and the robot's measured
 tracking error across poses and loads. This setting does not depend on the saved
 recording's robot label or Docker bringup status.
@@ -126,6 +135,10 @@ the automatic transition should cover only a suitable remaining pose difference.
 
 The UI uses HTTP commands and read-only status polling every 500 ms. A server
 worker owns timing, so rendering and polling do not determine trajectory timing.
+Bridge requests share a FIFO queue on the ROS spin thread. A guard condition wakes
+the executor when a request is queued, so publishing does not wait for the idle
+spin timeout. Each publish still waits for its bridge result; long-running queued
+operations can still delay playback, and the 500 ms playback-lag cutoff remains.
 Recording, preparation, playback and repeat returns continue after page navigation,
 browser closure or client disconnection. No browser heartbeat is required. On
 return, the page shows the active recording, progress, speed and repeat settings;

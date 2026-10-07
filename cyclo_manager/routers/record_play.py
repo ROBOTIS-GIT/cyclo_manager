@@ -52,13 +52,14 @@ class RecordInput(OwnerInput):
 
 
 class PlaybackInput(OwnerInput):
-    """Configure total passes, time scaling and angular arrival tolerance."""
+    """Configure total passes, time scaling and arrival tolerances."""
 
     recording_id: str = Field(pattern=r'^[0-9a-f]{32}$')
     robot: Robot = 'ros'
     rate: Literal[0.5, 1.0] = 1.0
     repeats: int = Field(default=1, ge=0, le=10000)
     arrival_tolerance_deg: Literal[0.5, 1.0, 2.0, 3.0] = 0.5
+    arrival_tolerance_cm: Literal[1.0, 2.0, 3.0] = 1.0
 
 
 def service():
@@ -117,7 +118,8 @@ async def play(body: PlaybackInput):
     manager = service()
     return await execute(manager.motion, body.recording_id, body.robot, body.owner,
                          rate=body.rate, repeats=body.repeats,
-                         arrival_tolerance_deg=body.arrival_tolerance_deg)
+                         arrival_tolerance_deg=body.arrival_tolerance_deg,
+                         arrival_tolerance_cm=body.arrival_tolerance_cm)
 
 
 @router.post('/stop')

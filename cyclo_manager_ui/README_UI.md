@@ -50,14 +50,18 @@ known command topic names and also lists other
 discovered `JointTrajectory` topics. Expand **Topic** in a group to see its ROS
 name. Recording needs neither bringup nor an active publisher. Playback preparation
 requires fresh joint/controller feedback, valid URDF limits and verified controller
-routing, without Docker/s6 bringup checks. Bag streaming does not repeat feedback
+routing, without Docker/s6 bringup checks. Recorded positions are neither rejected
+nor clamped against URDF position limits. Bag structure and finite values are validated
+before motion. Measured positions used for start-pose transitions, repeat returns
+and held joints must be present and finite; they are not checked against URDF
+position bounds. Bag streaming does not repeat feedback
 or controller-state/mapping checks; return transitions, arrival checks and stop
 holds still validate them. Stop remains available when feedback is unavailable,
 although publishing a pose hold still requires valid feedback and unchanged routes.
 Playback **Arrival tolerance** offers 0.5° (default), 1°, 2° and 3° for angular joints;
-linear joints use 1 mm. Start, repeat-return and final poses require 0.3 seconds
-continuously within tolerance. While a job is active, the selector shows the server's
-setting and cannot be changed. Timeout errors include joint targets and measured errors.
+**Lift / linear tolerance** offers 1 cm (default), 2 cm and 3 cm for linear joints. Start, repeat-return and final poses require 0.3 seconds
+continuously within tolerance. While a job is active, the selectors show the server's
+settings and cannot be changed. Timeout errors include joint targets and measured errors.
 See [motion profiles](../docs/record-play.md#robot-profiles) for supported types and
 runtime checks.
 

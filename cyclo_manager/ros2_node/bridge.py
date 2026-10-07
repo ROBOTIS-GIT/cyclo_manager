@@ -46,6 +46,7 @@ from cyclo_manager.ros2_node.qos import (
 from cyclo_manager.subscriptions import SubscriptionError
 import rclpy
 from rclpy.executors import SingleThreadedExecutor
+from rclpy.guard_condition import GuardCondition
 from rclpy.node import Node
 from rclpy.publisher import Publisher
 from rclpy.subscription import Subscription
@@ -122,6 +123,7 @@ class Ros2Bridge:
         self.domain_id = domain_id
         self._rclpy_node: Optional[Node] = None
         self._executor: Optional[SingleThreadedExecutor] = None
+        self._request_guard: Optional[GuardCondition] = None
         self._spin_thread: Optional[threading.Thread] = None
         self._topics_transient_local: set[str] = set()
         self._is_running = False
@@ -155,6 +157,8 @@ class Ros2Bridge:
             allow_undeclared_parameters=True,
         )
         self._executor = SingleThreadedExecutor()
+        # Wake spin_once when requests arrive; dispatch stays in the spin loop.
+        self._request_guard = self._rclpy_node.create_guard_condition(lambda: None)
         self._executor.add_node(self._rclpy_node)
         self._is_running = True
         self._spin_thread = threading.Thread(
@@ -169,10 +173,14 @@ class Ros2Bridge:
         if not self._is_running:
             return
         self._is_running = False
+        self._wake_requests()
         if self._spin_thread and self._spin_thread.is_alive():
             self._spin_thread.join(timeout=5.0)
         self._remove_all_subscriptions()
         self._remove_all_publishers()
+        with self._lock:
+            # Serialize with trigger() before destroy_node destroys the guard.
+            self._request_guard = None
         if self._rclpy_node:
             self._rclpy_node.destroy_node()
             self._rclpy_node = None
@@ -215,6 +223,7 @@ class Ros2Bridge:
             raise SubscriptionError('ROS bridge unavailable.')
         request = RetainedRead(topic, msg_type, time.monotonic() + timeout, cancelled)
         self._request_queue.put((RequestKind.READ_RETAINED, (request, request.response)))
+        self._wake_requests()
         try:
             while request.active() and self._is_running:
                 try:
@@ -453,6 +462,12 @@ class Ros2Bridge:
         except queue.Empty:
             pass
 
+    def _wake_requests(self) -> None:
+        """Interrupt the ROS wait without dispatching node operations on callers."""
+        with self._lock:
+            if self._request_guard is not None:
+                self._request_guard.trigger()
+
     def _enqueue_request(
         self,
         kind: str,
@@ -462,6 +477,7 @@ class Ros2Bridge:
         """Enqueue request and wait for its response value."""
         response_queue: queue.Queue[Any] = queue.Queue(maxsize=1)
         self._request_queue.put((kind, (payload, response_queue)))
+        self._wake_requests()
         try:
             return response_queue.get(timeout=timeout)
         except queue.Empty:

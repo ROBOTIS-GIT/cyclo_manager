@@ -2,6 +2,13 @@
 Changelog for package cyclo_manager
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
+1.1.1 (2026-10-07)
+------------------
+* Added selectable lift/linear arrival tolerance for playback: 1 cm (default), 2 cm or 3 cm.
+* Removed URDF position-limit checks for recorded targets and measured positions in Record & Play, including start-pose transitions, repeat returns and held joints. Positions are not clamped; message validation, feedback freshness and finite-value checks, and arrival checks remain in place.
+* Reduced Jog and playback publishing delays by waking the ROS executor when bridge requests are queued, instead of waiting for its polling timeout.
+* Contributors: Hyungyu Kim
+
 1.1.0 (2026-09-29)
 ------------------
 * Added joint Jog controls for AI Worker, OMY, and OMX, with selectable movement increments and displays of joint positions, targets, and limits.
