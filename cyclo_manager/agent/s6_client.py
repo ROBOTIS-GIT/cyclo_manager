@@ -222,9 +222,9 @@ def control_service(
         raise FileNotFoundError(f"Service '{name}' not found at {service_path}")
 
     if action in ('up', 'restart') and name in _ROBOT_TYPE_BY_SERVICE:
-        # Older clients start the LG2 leader without specifying a robot type.
+        # Use A2 when the client does not specify a leader type.
         if name == 'avatar_bringup' and robot_type is None:
-            robot_type = 'lg2'
+            robot_type = 'a2'
         if not robot_type:
             allowed = sorted(_ROBOT_TYPE_BY_SERVICE[name])
             raise ValueError(
