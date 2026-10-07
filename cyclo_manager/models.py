@@ -319,14 +319,6 @@ class ROS2TopicsListResponse(BaseModel):
     topics: list[ROS2TopicStatus] = Field(..., description='List of topic statuses')
 
 
-class ROS2SubscribeRequest(BaseModel):
-    """Request body for POST /ros2/topics/{topic}/subscribe."""
-
-    msg_type: Optional[str] = Field(
-        None, description='Message type (e.g. sensor_msgs/msg/JointState)'
-    )
-
-
 class ROS2TwistPublishRequest(BaseModel):
     """Request body for POST /ros2/cmd_vel."""
 
@@ -335,6 +327,7 @@ class ROS2TwistPublishRequest(BaseModel):
         description='Forward/backward velocity in m/s',
         examples=[0.3],
     )
+    linear_y: float = Field(0.0, description='Lateral velocity in m/s')
     angular_z: float = Field(
         0.0,
         description='Yaw angular velocity in rad/s',
@@ -365,3 +358,23 @@ class SystemStatsResponse(BaseModel):
     ssd_mount_path: Optional[str] = None
     uptime_seconds: int
     temperature_celsius: Optional[float] = None
+
+
+class SystemProcessInfo(BaseModel):
+    """Single host process CPU/memory usage sample."""
+
+    pid: int
+    user: str
+    cpu_percent: float
+    memory_percent: float
+    rss_kb: Optional[int] = None
+    command: str
+
+
+class SystemProcessesResponse(BaseModel):
+    """Response for GET /system/processes."""
+
+    cpu_percent: float
+    memory_used_mb: int
+    memory_total_mb: int
+    processes: list[SystemProcessInfo]

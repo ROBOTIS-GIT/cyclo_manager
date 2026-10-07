@@ -23,17 +23,48 @@ import logging
 from cyclo_manager.agent.models import (
     ServiceActionRequest,
     ServiceControlResponse,
+    ServiceListResponse,
     ServiceStatus,
+    ServiceStatusListResponse,
 )
 from cyclo_manager.agent.s6_client import (
     control_service,
+    get_all_services_status,
     get_service_status,
+    list_services,
 )
 from fastapi import APIRouter, HTTPException, status
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix='/services', tags=['services'])
+
+
+@router.get('', response_model=ServiceListResponse, summary='List all available services')
+async def get_services() -> ServiceListResponse:
+    """Get the list of all available s6 services."""
+    try:
+        return ServiceListResponse(services=list_services())
+    except Exception as e:
+        logger.error(f'Failed to list services: {e}')
+        raise HTTPException(status_code=500, detail=f'Failed to list services: {str(e)}')
+
+
+@router.get(
+    '/status',
+    response_model=ServiceStatusListResponse,
+    summary='Get status of all services',
+)
+async def get_all_services_status_endpoint() -> ServiceStatusListResponse:
+    """Get status information for all available s6 services."""
+    try:
+        return ServiceStatusListResponse(statuses=get_all_services_status())
+    except Exception as e:
+        logger.error(f'Failed to get all services status: {e}')
+        raise HTTPException(
+            status_code=500,
+            detail=f'Failed to get services status: {str(e)}',
+        )
 
 
 @router.get(

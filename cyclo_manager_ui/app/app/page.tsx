@@ -16,17 +16,13 @@
 
 "use client";
 
-import { useEffect, useState } from "react";
+import { useIntelligenceUrl } from "@/hooks/useIntelligenceUrl";
 import Link from "next/link";
 import { useTheme } from "@/contexts/ThemeContext";
 
 export default function AppHubPage() {
   const { theme } = useTheme();
-  const [intelligenceUrl, setIntelligenceUrl] = useState("http://localhost:7080/");
-
-  useEffect(() => {
-    setIntelligenceUrl(`http://${window.location.hostname}:7080/`);
-  }, []);
+  const intelligenceUrl = useIntelligenceUrl();
 
   return (
     <>

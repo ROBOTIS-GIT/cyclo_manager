@@ -199,6 +199,69 @@ export interface ContainerScriptResponse {
   output: string;
 }
 
+export interface ContainerStartStatusResponse {
+  running: boolean;
+  output: string;
+  success: boolean | null;
+  error: string;
+}
+
+export interface FileTreeEntry {
+  name: string;
+  path: string;
+  type: "file" | "directory";
+  size: number | null;
+  modified: number | null;
+  readonly: boolean;
+  hidden: boolean;
+  symlink: boolean;
+  git_status: "modified" | "untracked" | null;
+}
+
+export interface FileTreeResponse {
+  root_path: string;
+  path: string;
+  entries: FileTreeEntry[];
+}
+
+export interface FileSearchResponse {
+  root_path: string;
+  path: string;
+  query: string;
+  entries: FileTreeEntry[];
+  truncated: boolean;
+}
+
+export interface FileReadResponse {
+  path: string;
+  content: string;
+  size: number;
+  modified: number;
+  readonly: boolean;
+}
+
+export interface FileDiffResponse {
+  path: string;
+  status: "modified" | "untracked";
+  original_content: string;
+  current_content: string;
+}
+
+export interface FileUploadResponse {
+  name: string;
+  path: string;
+  size: number;
+  overwritten: boolean;
+  success: boolean;
+  message: string;
+}
+
+export interface FileOperationResponse {
+  path: string;
+  success: boolean;
+  message: string;
+}
+
 export interface CycloManagerVersionResponse {
   current: string;
   latest: string;
@@ -222,7 +285,7 @@ export interface RobotInfoResponse {
   internet_connected: boolean;
 }
 
-export interface HostSystemStatsResponse {
+export interface SystemStatsResponse {
   cpu_percent: number;
   memory_used_mb: number;
   memory_total_mb: number;
@@ -233,6 +296,22 @@ export interface HostSystemStatsResponse {
   ssd_mount_path: string | null;
   uptime_seconds: number;
   temperature_celsius: number | null;
+}
+
+export interface SystemProcessInfo {
+  pid: number;
+  user: string;
+  cpu_percent: number;
+  memory_percent: number;
+  rss_kb: number | null;
+  command: string;
+}
+
+export interface SystemProcessesResponse {
+  cpu_percent: number;
+  memory_used_mb: number;
+  memory_total_mb: number;
+  processes: SystemProcessInfo[];
 }
 
 export interface SerialPortInfo {
@@ -270,10 +349,4 @@ export interface ROS2TopicDataResponse {
 export interface ROS2TopicInfoResponse {
   topic: string;
   info: string;
-}
-
-export interface ROS2TwistPublishRequest {
-  linear_x: number;
-  angular_z: number;
-  topic?: string;
 }

@@ -41,7 +41,7 @@ KNOWN_TOPICS: dict[str, KnownTopicMeta] = {
         'msg_type': 'sensor_msgs/msg/JointState',
         'qos': {
             'durability': 'volatile',
-            'reliability': 'reliable',
+            'reliability': 'best_effort',
             'depth': 10,
         },
     },

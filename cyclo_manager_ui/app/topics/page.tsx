@@ -50,8 +50,9 @@ export default function TopicsPage() {
   }, []);
 
   return (
-    <div className="flex flex-col gap-4 h-full min-h-0" style={{ minHeight: "calc(100vh - 100px)" }}>
+    <div className="flex flex-col gap-3 h-full min-h-0">
       <div className="flex items-center gap-2 shrink-0">
+        {selectedTopic && <button type="button" className="md:hidden px-3 py-2 rounded border" onClick={() => setSelectedTopic(null)}>← Topics</button>}
         <button
           type="button"
           onClick={loadTopics}
@@ -87,8 +88,8 @@ export default function TopicsPage() {
       >
         <div className="flex-1 flex overflow-hidden min-h-0">
           <div
-            className="overflow-hidden border-r flex-shrink-0 flex flex-col"
-            style={{ width: "280px", borderColor: "var(--vscode-panel-border)", maxHeight: "100%" }}
+            className={`${selectedTopic ? "hidden md:flex" : "flex"} w-full md:w-[280px] overflow-hidden md:border-r flex-shrink-0 flex-col`}
+            style={{ borderColor: "var(--vscode-panel-border)", maxHeight: "100%" }}
           >
             <input
               type="text"
@@ -136,7 +137,7 @@ export default function TopicsPage() {
                 ))}
             </div>
           </div>
-          <div className="flex-1 min-w-0 overflow-hidden">
+          <div className={`${selectedTopic ? "" : "hidden md:block"} flex-1 min-w-0 overflow-hidden`}>
             {selectedTopic ? (
               <TopicViewerPanel
                 topic={selectedTopic.topic}

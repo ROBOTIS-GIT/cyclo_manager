@@ -34,6 +34,24 @@ logger = logging.getLogger(__name__)
 S6_SERVICE_DIR = Path('/run/service')
 
 
+def list_services() -> list[str]:
+    """List all available s6 services."""
+    try:
+        if not S6_SERVICE_DIR.exists():
+            logger.warning(f'Service directory {S6_SERVICE_DIR} does not exist')
+            return []
+        services = [
+            item.name
+            for item in S6_SERVICE_DIR.iterdir()
+            if item.is_dir() and ((item / 'run').exists() or (item / 'type').exists())
+        ]
+        logger.debug(f'Found {len(services)} services: {services}')
+        return sorted(services)
+    except OSError as e:
+        logger.error(f'Failed to list services: {e}')
+        raise
+
+
 def get_service_status(name: str) -> ServiceStatus:
     """
     Get status of an s6 service.
@@ -108,6 +126,17 @@ def get_service_status(name: str) -> ServiceStatus:
     except subprocess.TimeoutExpired:
         logger.error(f"Timeout getting status for service '{name}'")
         raise
+
+
+def get_all_services_status() -> list[ServiceStatus]:
+    """Get status for every available service, skipping individual failures."""
+    statuses: list[ServiceStatus] = []
+    for service_name in list_services():
+        try:
+            statuses.append(get_service_status(service_name))
+        except Exception as e:
+            logger.warning(f"Failed to get status for service '{service_name}': {e}")
+    return statuses
 
 
 LAUNCH_ARGS_DIR = Path('/run/launch_args')

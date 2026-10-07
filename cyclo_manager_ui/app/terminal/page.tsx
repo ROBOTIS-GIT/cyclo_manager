@@ -82,6 +82,7 @@ function saveTabsForContainer(name: string, tabs: Tab[]) {
 }
 
 function TerminalContent() {
+  const [showMobileProcesses, setShowMobileProcesses] = useState(false);
   const searchParams = useSearchParams();
   const initialContainer = searchParams.get("container");
 
@@ -230,12 +231,20 @@ function TerminalContent() {
   const cmdIdx = titles.findIndex((t) => t === "CMD" || t === "COMMAND");
 
   return (
-    <div style={{ height: "100%", display: "flex", overflow: "hidden" }}>
+    <div className="h-full min-h-0 flex flex-col md:flex-row overflow-hidden">
+      <div className="flex items-center gap-2 pb-2 md:hidden shrink-0">
+        <select aria-label="Terminal container" value={selectedContainer ?? ""} onChange={event => { handleSelectContainer(event.target.value); setShowMobileProcesses(false); }}
+          className="flex-1 min-w-0 border rounded px-2" style={{ background: "var(--vscode-input-background)", color: "var(--vscode-foreground)", borderColor: "var(--vscode-panel-border)" }}>
+          <option value="" disabled>Select a container</option>
+          {containers.map(container => <option key={container.name} value={container.name}>{container.name}</option>)}
+        </select>
+        <button type="button" className="px-3 py-2 rounded border text-sm" aria-pressed={showMobileProcesses} onClick={() => setShowMobileProcesses(value => !value)}>{showMobileProcesses ? "Terminal" : "Processes"}</button>
+      </div>
 
       {/* Left panel */}
       <div
-        className="flex flex-col shrink-0 border-r"
-        style={{ width: "300px", borderColor: "var(--vscode-panel-border)", backgroundColor: "var(--vscode-sidebar-background)" }}
+        className={`${showMobileProcesses ? "flex" : "hidden md:flex"} w-full md:w-[300px] min-h-0 flex-1 md:flex-none flex-col shrink-0 md:border-r`}
+        style={{ borderColor: "var(--vscode-panel-border)", backgroundColor: "var(--vscode-sidebar-background)" }}
       >
         {/* Container list */}
         <div
@@ -360,7 +369,7 @@ function TerminalContent() {
       </div>
 
       {/* Right: Terminal */}
-      <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
+      <div className={`${showMobileProcesses ? "hidden md:flex" : "flex"} flex-1 min-w-0 min-h-0 flex-col overflow-hidden`}>
         {!selectedContainer ? (
           <div className="flex items-center justify-center h-full text-sm" style={{ color: "var(--vscode-descriptionForeground)" }}>
             Select a container

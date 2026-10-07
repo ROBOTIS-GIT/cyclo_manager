@@ -62,16 +62,19 @@ export default function FixedLogPanel({
           backgroundColor: "var(--vscode-titleBar-activeBackground)",
           borderBottom: "1px solid var(--vscode-panel-border)",
           display: "flex",
+          flexWrap: "wrap",
+          gap: "8px",
           justifyContent: "space-between",
           alignItems: "center",
           flexShrink: 0,
         }}
       >
-        <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: "8px", minWidth: 0 }}>
           <span
             style={{
               fontSize: "12px",
               fontWeight: "500",
+              overflowWrap: "anywhere",
               color: "var(--vscode-foreground)",
             }}
           >

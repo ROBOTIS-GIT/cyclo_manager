@@ -403,11 +403,12 @@ export default function VersionManagementPanel({
         action={
           <button
             onClick={loadVersionManagement}
+            className="container-text-button max-md:flex max-md:items-center max-md:justify-center max-md:whitespace-nowrap"
             disabled={versionManagementChecking || internetStatus === "loading"}
             style={{
               ...btnStyle(false, versionManagementChecking || internetStatus === "loading"),
-              padding: "2px 8px",
-              fontSize: 11,
+              padding: "var(--container-text-padding, 2px 8px)",
+              fontSize: "var(--container-text-font, 11px)",
             }}
           >
             Refresh

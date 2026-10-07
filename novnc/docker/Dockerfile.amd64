@@ -56,11 +56,13 @@ RUN mkdir -p /root/Desktop && \
     echo "Type=Application" >> /root/Desktop/wizard.desktop && \
     echo "Name=Dynamixel Wizard 2" >> /root/Desktop/wizard.desktop && \
     echo "Comment=Start Dynamixel Wizard" >> /root/Desktop/wizard.desktop && \
-    echo "Exec=/wizard/DynamixelWizard2-linux-x64-2.12.2.2.AppImage" >> /root/Desktop/wizard.desktop && \
+    echo "Exec=/wizard/DynamixelWizard2-x86_64.AppImage" >> /root/Desktop/wizard.desktop && \
     echo "Icon=/wizard/wizard_icon.png" >> /root/Desktop/wizard.desktop && \
     echo "Terminal=false" >> /root/Desktop/wizard.desktop && \
     echo "StartupNotify=true" >> /root/Desktop/wizard.desktop && \
     chmod +x /root/Desktop/wizard.desktop
+
+RUN mkdir -p "$HOME/Documents/DYNAMIXEL Wizard2"
 
 RUN mkdir -p /root/Desktop && \
     echo "[Desktop Entry]" > /root/Desktop/terminal.desktop && \

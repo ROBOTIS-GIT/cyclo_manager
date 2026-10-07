@@ -28,12 +28,15 @@ from cyclo_manager.routers import (
     containers,
     docker,
     host,
+    record_play,
     root,
     ros2,
+    ros2_observation,
     services,
     system,
     terminal,
     version,
+    websocket_jog,
     websocket_logs,
     websocket_ros2,
 )
@@ -95,6 +98,7 @@ app.add_middleware(
 
 # Include routers
 app.include_router(root.router)
+app.include_router(record_play.router)
 app.include_router(system.router)
 app.include_router(containers.router)
 app.include_router(container.router)
@@ -102,9 +106,11 @@ app.include_router(services.router)
 app.include_router(version.router)
 app.include_router(docker.router)
 app.include_router(terminal.router)
+app.include_router(ros2_observation.router)
 app.include_router(ros2.router)
 app.include_router(websocket_logs.router)
 app.include_router(websocket_ros2.router)
+app.include_router(websocket_jog.router)
 app.include_router(host.router)
 
 

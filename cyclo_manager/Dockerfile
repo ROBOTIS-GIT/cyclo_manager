@@ -10,6 +10,8 @@ RUN apt-get update && \
     python3-venv \
     ros-jazzy-rmw-zenoh-cpp \
     ros-jazzy-control-msgs \
+    ros-jazzy-rosbag2-py \
+    ros-jazzy-rosbag2-storage-mcap \
     docker.io \
     && rm -rf /var/lib/apt/lists/*
 
