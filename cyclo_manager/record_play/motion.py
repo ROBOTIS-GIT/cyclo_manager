@@ -104,7 +104,7 @@ class MotionPlan:
             for name, joint in self.joints.items():
                 if joint.topic == topic and name not in recorded:
                     value = positions.get(name)
-                    if value is None or not joint.lower <= value <= joint.upper:
+                    if not isinstance(value, (float, int)) or not math.isfinite(value):
                         raise ValueError(f'Missing or invalid feedback for {name}.')
                     self.held[topic][name] = value
 
@@ -131,13 +131,15 @@ class MotionPlan:
         return result
 
 
-def arrival_errors(goals, positions, joints, arrival_tolerance_deg=0.5):
-    """Describe missed targets in operator units; linear tolerance stays at 1 mm."""
+def arrival_errors(goals, positions, joints, arrival_tolerance_deg=0.5,
+                   arrival_tolerance_cm=1.0):
+    """Describe missed targets using separate angular and linear tolerances."""
     errors = []
     for group in goals.values():
         for name, target in group.items():
             linear = joints[name].unit == 'm'
-            tolerance = 0.001 if linear else math.radians(arrival_tolerance_deg)
+            tolerance = (arrival_tolerance_cm / 100 if linear
+                         else math.radians(arrival_tolerance_deg))
             scale, unit = (1000, 'mm') if linear else (180 / math.pi, 'deg')
             current = positions.get(name)
             measured = current is not None and math.isfinite(current)
@@ -152,9 +154,10 @@ def arrival_errors(goals, positions, joints, arrival_tolerance_deg=0.5):
     return errors
 
 
-def arrived(goals, positions, joints, arrival_tolerance_deg=0.5):
-    """Compare every commanded joint using this playback's angular tolerance."""
-    return not arrival_errors(goals, positions, joints, arrival_tolerance_deg)
+def arrived(goals, positions, joints, arrival_tolerance_deg=0.5, arrival_tolerance_cm=1.0):
+    """Compare every commanded joint using this playback's arrival tolerances."""
+    return not arrival_errors(goals, positions, joints, arrival_tolerance_deg,
+                              arrival_tolerance_cm)
 
 
 def return_duration(goals, positions, joints, description):
@@ -167,8 +170,8 @@ def return_duration(goals, positions, joints, description):
         for name, target in group.items():
             joint = joints[name]
             current = positions.get(name)
-            if current is None or not joint.lower <= current <= joint.upper:
-                raise ValueError(f'Missing or out-of-range feedback for {name}.')
+            if not isinstance(current, (float, int)) or not math.isfinite(current):
+                raise ValueError(f'Missing or invalid feedback for {name}.')
             distance = abs(target - current)
             velocity = min(limits[name], RETURN_SPEED[joint.unit])
             duration = max(duration, 1.875 * distance / velocity,

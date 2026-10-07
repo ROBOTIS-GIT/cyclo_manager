@@ -28,6 +28,7 @@ export type RecordPlayState = {
   return_duration: number; messages: number;
   rate?: number;
   arrival_tolerance_deg?: number;
+  arrival_tolerance_cm?: number;
 };
 export type RecordingGroup = { id: string; label: string; topic: string; receiving: boolean; recommended: boolean };
 export type RecordPlayOverview = {

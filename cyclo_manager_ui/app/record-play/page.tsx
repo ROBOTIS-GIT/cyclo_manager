@@ -44,6 +44,7 @@ export default function RecordPlayPage() {
   const [repeatMode, setRepeatMode] = useState<RepeatMode>("once");
   const [repeats, setRepeats] = useState(5);
   const [arrivalTolerance, setArrivalTolerance] = useState(0.5);
+  const [linearArrivalTolerance, setLinearArrivalTolerance] = useState(1);
   const { overview, state } = api;
   const recordings = overview?.recordings ?? [];
   const activeRecording = overview?.recordings.find(item => item.id === state?.recording_id);
@@ -61,6 +62,7 @@ export default function RecordPlayPage() {
   const shownMode = activeMotion ? state.repeats === 0 ? "infinite" : state.repeats === 1 ? "once" : "repeat" : repeatMode;
   const shownRepeats = activeMotion && state.repeats > 0 ? state.repeats : repeats;
   const shownArrivalTolerance = activeMotion ? state.arrival_tolerance_deg ?? 0.5 : arrivalTolerance;
+  const shownLinearArrivalTolerance = activeMotion ? state.arrival_tolerance_cm ?? 1 : linearArrivalTolerance;
   const showProgress = sameRecording && (activeMotion || (state?.phase === "completed" && rate === (state.rate ?? 1)));
   const elapsed = showProgress ? state?.elapsed ?? 0 : 0;
   const duration = sameRecording && active && state?.duration ? state.duration : (recording?.duration ?? 0) / shownRate;
@@ -70,7 +72,7 @@ export default function RecordPlayPage() {
   const error = api.error || state?.error;
   const isRecording = active && state?.phase === "recording";
   const command = { recording_id: recording?.id, rate, repeats: repeatMode === "infinite" ? 0 : repeatMode === "repeat" ? repeats : 1,
-    arrival_tolerance_deg: arrivalTolerance };
+    arrival_tolerance_deg: arrivalTolerance, arrival_tolerance_cm: linearArrivalTolerance };
 
   async function save() {
     const result = await api.action("stop");
@@ -209,10 +211,17 @@ export default function RecordPlayPage() {
                     onChange={event => setRepeats(Math.max(1, Math.min(10000, Math.trunc(Number(event.target.value)) || 1)))} />
                 </label>}
                 <label className="col-span-2 flex flex-wrap items-center justify-end gap-3 text-xs" style={secondary}>
-                  <span className="text-right">Arrival tolerance<span className="mt-1 block">Linear joints: 1 mm</span></span>
+                  <span>Arrival tolerance</span>
                   <select aria-label="Arrival tolerance" className="w-24 rounded border p-1.5 text-sm disabled:opacity-50" style={control}
                     value={shownArrivalTolerance} onChange={event => setArrivalTolerance(Number(event.target.value))}>
                     <option value={0.5}>0.5°</option><option value={1}>1°</option><option value={2}>2°</option><option value={3}>3°</option>
+                  </select>
+                </label>
+                <label className="col-span-2 flex flex-wrap items-center justify-end gap-3 text-xs" style={secondary}>
+                  <span>Lift / linear tolerance</span>
+                  <select aria-label="Linear arrival tolerance" className="w-24 rounded border p-1.5 text-sm disabled:opacity-50" style={control}
+                    value={shownLinearArrivalTolerance} onChange={event => setLinearArrivalTolerance(Number(event.target.value))}>
+                    <option value={1}>1 cm</option><option value={2}>2 cm</option><option value={3}>3 cm</option>
                   </select>
                 </label>
                 {shownMode !== "once" && <p className="col-span-2 text-xs leading-relaxed" style={secondary}>Returns to the start pose between plays.</p>}
