@@ -177,7 +177,7 @@ Interactive docs: `http://<host>:8081/docs`
 | System | `GET /system/info`, `GET /system/status`, `GET /system/processes` | Hostname, internet, CPU/memory/disk, top processes |
 | | `GET /system/serial-ports` | Serial device candidates from the host `/dev` tree |
 | Services | `GET /{container}/services/{service}/status` | Single s6 service status |
-| | `POST /{container}/services/{service}` | `up` / `down` / `restart`; optional `launch_args`, `robot_type` (AI Worker: SG2/BG2/SH5/BH5/F1/F2/Mobile; Open Manipulator: OMY/OMX) |
+| | `POST /{container}/services/{service}` | `up` / `down` / `restart`; Stop/Restart stop registered `<service>-pipeline` bundles; optional `launch_args`, `robot_type` (AI Worker: SG2/BG2/SH5/BH5/F1/F2/Mobile; Open Manipulator: OMY/OMX) |
 | | `GET /{container}/services/{service}/logs/download` | Download current s6 log file (ANSI stripped) |
 | | `DELETE /{container}/services/{service}/logs` | Truncate s6 log file |
 | Container | `GET`, `PUT /{container}/bashrc` | Via `docker exec` |

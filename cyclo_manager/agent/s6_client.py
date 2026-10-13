@@ -199,6 +199,25 @@ def _write_launch_args(name: str, launch_args: dict[str, str]) -> None:
     logger.info(f"Wrote launch args for service '{name}' to {args_file}")
 
 
+def _s6rc_stop_target(name: str) -> str:
+    """Select a registered service pipeline when it contains the requested service."""
+    pipeline = f'{name}-pipeline'
+    try:
+        members = subprocess.check_output(
+            ['s6-rc-db', 'contents', pipeline],
+            stderr=subprocess.STDOUT,
+            text=True,
+            timeout=5,
+        ).splitlines()
+    except subprocess.CalledProcessError as exc:
+        # Missing identifiers and non-bundles have no pipeline to stop.
+        # Other failures must surface rather than silently leaving a logger up.
+        if exc.returncode in (3, 5):
+            return name
+        raise
+    return pipeline if name in members else name
+
+
 def control_service(
     name: str,
     action: str,
@@ -208,7 +227,8 @@ def control_service(
     """
     Control an s6 service (start, stop, or restart).
 
-    For s6-rc services (especially those with pipelines), uses s6-rc commands.
+    For s6-rc services, stops the registered <name>-pipeline bundle when present,
+    so the producer finishes before its log consumer is stopped.
     For legacy services, falls back to s6-svc.
 
     Args
@@ -273,12 +293,13 @@ def _control_service(name, action, launch_args, robot_type):
         if is_s6rc_service:
             # For s6-rc services, use s6-rc commands
             # For pipelines, starting the producer service will start the entire pipeline
+            stop_target = _s6rc_stop_target(name) if action != 'up' else name
             if action == 'up':
                 cmd = ['s6-rc', '-u', 'change', name]
             elif action == 'down':
-                cmd = ['s6-rc', '-d', 'change', name]
+                cmd = ['s6-rc', '-d', 'change', stop_target]
             else:  # restart
-                cmd = ['s6-rc', '-d', 'change', name]
+                cmd = ['s6-rc', '-d', 'change', stop_target]
                 subprocess.check_output(cmd, stderr=subprocess.STDOUT, timeout=10)
                 # Wait a moment, then bring it back up
                 time.sleep(1)

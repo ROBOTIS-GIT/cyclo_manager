@@ -107,7 +107,11 @@ class AgentClient(SocketHttpClient):
             payload['launch_args'] = launch_args
         if robot_type is not None:
             payload['robot_type'] = robot_type
-        return await self.request_json('POST', f'/services/{service_name}', json=payload)
+        # Robot cleanup may outlast the usual status timeout.
+        return await self.request_json(
+            'POST', f'/services/{service_name}', json=payload,
+            timeout=httpx.Timeout(30.0, connect=self.timeout),
+        )
 
     async def stream_service_logs(
         self,
