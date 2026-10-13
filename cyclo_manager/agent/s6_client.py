@@ -18,6 +18,8 @@
 
 """Helper functions to interact with s6-overlay services."""
 
+from contextlib import contextmanager
+import fcntl
 import logging
 from pathlib import Path
 import re
@@ -32,6 +34,15 @@ logger = logging.getLogger(__name__)
 
 # Default s6 service directory
 S6_SERVICE_DIR = Path('/run/service')
+CONTROL_LOCK = Path('/run/cyclo-service-control.lock')
+
+
+@contextmanager
+def service_control_lock():
+    """Serialize configuration updates and s6 service commands."""
+    with CONTROL_LOCK.open('a') as stream:
+        fcntl.flock(stream, fcntl.LOCK_EX)
+        yield
 
 
 def list_services() -> list[str]:
@@ -214,6 +225,16 @@ def control_service(
     subprocess.CalledProcessError: If command fails.
 
     """
+    with service_control_lock():
+        _control_service(name, action, launch_args, robot_type)
+
+
+def _control_service(name, action, launch_args, robot_type):
+    """Control services while holding the agent's service transaction lock."""
+    if not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9_.-]*', name):
+        raise ValueError('Invalid service name')
+    if action not in ('up', 'down', 'restart'):
+        raise ValueError(f'Invalid action: {action}')
     service_path = S6_SERVICE_DIR / name
 
     if not service_path.exists():
@@ -247,9 +268,6 @@ def control_service(
                 is_s6rc_service = True
     except Exception:
         pass
-
-    if action not in ['up', 'down', 'restart']:
-        raise ValueError(f"Invalid action: {action}. Must be one of: ['up', 'down', 'restart']")
 
     try:
         if is_s6rc_service:
