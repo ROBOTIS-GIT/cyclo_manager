@@ -34,9 +34,10 @@ class RobotInterface:
     """Share the bridge while each consumer explicitly owns its subscriptions."""
 
     def __init__(self, bridge, robot_type='ros', command_topic=None, *,
-                 command_topics=None, guard=None):
+                 command_topics=None, guard=None, publishers=None):
         """Keep local model state without subscribing or sending commands."""
         self.bridge = bridge
+        self.publishers = publishers
         self.guard = guard
         self.robot_type = robot_type
         self.command_topics = (frozenset(command_topics) if command_topics is not None
@@ -102,9 +103,9 @@ class RobotInterface:
         """Send through the bridge's expiring command queue."""
         if self.guard is not None:
             self.guard()
-        if not self.bridge.publish_jog(topic, msg_type, data):
-            raise ValueError(
-                'ROS command failed: publish failed or timed out.')
+        if self.publishers is None:
+            raise ValueError('No publisher owner for this operation.')
+        self.publishers.publish(topic, msg_type, data)
 
 
 def position_message(values):

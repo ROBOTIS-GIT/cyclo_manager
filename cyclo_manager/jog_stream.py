@@ -25,7 +25,6 @@ from anyio import CancelScope
 from cyclo_manager.jog import JogInput, JogSession
 from cyclo_manager.motion_guard import motion_lock
 from cyclo_manager.robot_interface.command_profiles import PROFILES
-from cyclo_manager.routers.websocket_utils import release_subscription_owner
 
 logger = logging.getLogger(__name__)
 BASE_PUBLISH_INTERVAL = 0.05
@@ -56,6 +55,7 @@ class JogController:
         self.session = self.new_session()
         self.command = JogInput()
         self.pending_end = None
+        self.pending_enable = False
         self.last_input = asyncio.get_running_loop().time()
         self.changed = asyncio.Event()
         self.states = asyncio.Queue(maxsize=1)
@@ -94,7 +94,9 @@ class JogController:
     def update(self, command):
         """Receive intent only; heartbeats never directly publish ROS commands."""
         self.last_input = asyncio.get_running_loop().time()
-        if command.kind in MOTION_KINDS:
+        if command.kind == 'enable':
+            self.pending_enable = True
+        elif command.kind in MOTION_KINDS:
             self.command = command
         else:
             self.command = JogInput()
@@ -116,7 +118,8 @@ class JogController:
         if self.command.kind in MOTION_KINDS or self.owns_motion:
             raise ValueError('Robot bringup changed. Reconnect and enable Jog again.')
         await finish_call(self.session.stop)
-        await release_subscription_owner(self.session.subscriptions)
+        await finish_call(self.session.close)
+        self.pending_enable = False
         self.robot = current
         self.session = self.new_session()
         await finish_call(self.session.setup)
@@ -140,6 +143,11 @@ class JogController:
                     # A new release/stop received during the call takes priority.
                     if self.pending_end is not None:
                         continue
+
+                if self.pending_enable:
+                    self.pending_enable = False
+                    await finish_call(self.session.enable)
+                    next_status = 0
 
                 now = loop.time()
                 if self.command.kind in MOTION_KINDS:
@@ -188,7 +196,7 @@ class JogController:
                         'base timeout applies')
                 finally:
                     try:
-                        await release_subscription_owner(self.session.subscriptions)
+                        await finish_call(self.session.close)
                     finally:
                         if self.owns_motion:
                             motion_lock.release()

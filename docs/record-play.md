@@ -73,8 +73,8 @@ with Jog because it only observes commands.
 
 1. Select a recording. The server validates every message's structure, finite
    values, timing, joint names and controller topics before publishing. Recorded
-   positions are neither rejected nor clamped against URDF position limits. All
-   selected controller topics must have a matching subscriber before motion.
+   positions are neither rejected nor clamped against URDF position limits.
+   Publishers are acquired without waiting for subscriber connections.
 2. **Play** automatically interpolates from fresh measured positions to each
    topic's first recorded positions. Unrecorded joints on those controllers,
    including shared grippers, are captured once and explicitly held.
@@ -115,10 +115,13 @@ for the final trajectory duration), feedback and controller-state/mapping checks
 are not repeated. Feedback loss or mapping changes are therefore checked at the
 next arrival, return or stop stage, not during message replay. Feedback subscriptions
 remain active for those stages. Cancellation, publish failures and the 500 ms
-playback-lag cutoff still interrupt streaming. External subscribers are checked
-during playback preparation, not on each publish. Losing a subscriber alone does
-not fail publishing or stop the replay clock. Overdue commands are not burst after
-the lag cutoff.
+playback-lag cutoff still interrupt streaming. Playback does not wait for subscriber
+matching during preparation or check it on each publish. Losing a subscriber
+alone does not fail publishing or stop the replay clock. Overdue commands are not
+burst after the lag cutoff. The initial 0.3-second arrival confirmation does not
+guarantee that a newly created command publisher has matched its receivers.
+Messages sent before matching may be missed; initial delivery is not guaranteed
+when a playback job creates new publishers.
 
 The options are sent as `arrival_tolerance_deg` and `arrival_tolerance_cm` in
 `POST /record_play/play` and reported in job status so other browser clients show
@@ -146,6 +149,13 @@ any browser can explicitly stop the server job. Infinite repeats continue until
 stopped or an error occurs. Preparation, return, arrival and stop stages validate
 fresh joint/controller feedback, resolved command routes and unchanged URDF limits
 independently of browser connections. Bag streaming skips these repeated checks.
+
+Playback owns its command publishers for the entire job, including the initial
+move, every repeat return and final arrival check. Repeats reuse the same publishers;
+infinite repeats retain them until cancellation or failure. Completion, cancellation
+or failure releases ownership after any required stop/hold publish. Jog sessions
+may share these publishers, so destruction occurs only after the last owner leaves.
+Recording alone does not create command publishers.
 
 Shared topic subscriptions track a set of consumer IDs. A topic viewer owns its
 subscriptions for the lifetime of its WebSocket; Jog owns them through its final
@@ -275,8 +285,9 @@ bringup `generation`; it validates the bag against current ROS feedback and rout
   container does not isolate ROS topics. This is polled readiness, not hardware interlocking.
 - Record & Play does not use this profile/status service. Recording needs only
   discovered command topics; playback preparation requires fresh joint/controller
-  feedback, valid URDF limits, unambiguous command routes and controller subscribers.
-  Bag streaming skips per-publish subscriber and feedback/controller-state checks.
+  feedback, valid URDF limits and unambiguous command routes. It does not wait for
+  subscriber matching. Bag streaming skips per-publish
+  feedback/controller-state checks.
   Changes to Docker/s6 status alone do not stop playback.
 - Jog verifies its cached bringup status before publishing. A changed or unavailable run also blocks the final
   pose-hold publish, to avoid sending an old session's goals to a different robot.

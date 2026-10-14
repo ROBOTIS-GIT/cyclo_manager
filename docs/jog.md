@@ -3,7 +3,17 @@
 Use Jog with leader publishing stopped. The manager coordinates its own Jog and
 playback sessions, but does not arbitrate with external publishers. Opening the
 page publishes no motion or stop commands. Click **Enable jog** before operating
-controls.
+controls. The first enable acquires command publishers and shows **Preparing jog…**
+until the server confirms publisher creation and ownership registration. Jog does
+not wait for every controller subscriber to connect before enabling; existing
+per-control feedback and routing checks still apply. Preparation has a five-second
+timeout that disarms Jog, shows an error and closes the connection for cleanup.
+While preparation is pending, that deadline replaces the normal 700 ms feedback
+timeout; the normal feedback timeout resumes after preparation completes.
+No movement input is queued while preparing. Releasing controls, disabling Jog or losing focus retains those
+publishers for the current WebSocket session; re-enabling reuses them. Leaving the
+page, disconnecting or changing the robot runtime releases the session's ownership.
+A publisher is destroyed when no other manager session or job owns it.
 
 ## Robot selection and readiness
 
@@ -121,7 +131,7 @@ are rejected. Command topics come from the selected container's profile;
 Connection creation is deferred one timer turn so an immediate development-mode
 effect cleanup can cancel it. Leaving the page stops and closes an active
 connection immediately. The server finishes its stop attempt before releasing
-that session's subscription owners. Other viewers or jobs retain their own owners.
+that session's subscription and publisher owners. Other viewers or jobs retain their own owners.
 
 The session subscribes to `/joint_states`, transient-local `/robot_description`,
 and discovered `control_msgs/msg/JointTrajectoryControllerState` topics. Joint

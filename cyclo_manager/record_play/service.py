@@ -26,6 +26,7 @@ import threading
 import time
 
 from cyclo_manager.motion_guard import motion_lock
+from cyclo_manager.publishers import PublisherOwner
 from cyclo_manager.record_play.bags import BagStore
 from cyclo_manager.record_play.motion import (
     arrival_errors, arrived, interpolate, MotionPlan, return_duration,
@@ -73,12 +74,12 @@ class RecordPlayService:
         with self._lock:
             return dict(self._state)
 
-    def _connection(self, robot, subscriptions=None, command_topics=None):
+    def _connection(self, robot, subscriptions=None, command_topics=None, publishers=None):
         if subscriptions is not None:
             subscribe_joint_feedback(subscriptions)
         catalog(self.bridge, subscriptions)
         connection = RobotInterface(
-            self.bridge, robot, command_topics=command_topics)
+            self.bridge, robot, command_topics=command_topics, publishers=publishers)
         connection.feedback()
         return connection
 
@@ -232,16 +233,18 @@ class RecordPlayService:
         if not motion_lock.acquire(blocking=False):
             raise ValueError('Jog is moving. Stop Jog before playback.')
         try:
-            with SubscriptionOwner(self.bridge) as subscriptions:
+            with (SubscriptionOwner(self.bridge) as subscriptions,
+                  PublisherOwner(self.bridge) as publishers):
                 self._run_motion(recording_id, robot, rate, repeats, subscriptions,
-                                 arrival_tolerance_deg, arrival_tolerance_cm)
+                                 arrival_tolerance_deg, arrival_tolerance_cm, publishers)
         finally:
             motion_lock.release()
 
     def _run_motion(self, recording_id, robot, rate, repeats, subscriptions,
-                    arrival_tolerance_deg, arrival_tolerance_cm):
+                    arrival_tolerance_deg, arrival_tolerance_cm, publishers):
         recorded_topics = self.store.get(recording_id)['topics']
-        connection = self._connection(robot, subscriptions, command_topics=recorded_topics)
+        connection = self._connection(
+            robot, subscriptions, command_topics=recorded_topics, publishers=publishers)
         plan = None
         attempted = False
         try:
@@ -251,14 +254,7 @@ class RecordPlayService:
             connection.pin_topics(plan.first)
             plan.latch(connection.require_feedback())
             topics = [(topic, TRAJECTORY_TYPE) for topic in plan.first]
-            if not self.bridge.prepare_jog_publishers(topics):
-                raise ValueError('Cannot prepare trajectory publishers.')
-            deadline = time.monotonic() + 2
-            while not self.bridge.jog_publishers_ready(topics):
-                self._check()
-                if time.monotonic() >= deadline:
-                    raise ValueError('One or more trajectory controllers have no subscriber.')
-                self._cancel.wait(0.1)
+            publishers.acquire(topics)
             self._check()
             connection.require_feedback()
             self.update(duration=plan.duration / rate)
