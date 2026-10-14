@@ -196,7 +196,6 @@ Interactive docs: `http://<host>:8081/docs`
 | | `GET /ros2/topics/{topic}/available` | Cheap liveness check (no JSON conversion of payload) |
 | | `GET /ros2/topics/{topic}/info` | `ros2 topic info -v` output |
 | | `GET /ros2/robot-description` | One-shot URDF; optional `topic` (default `/robot_description`); independent transient-local subscription bypasses shared cache and is released after receipt, disconnect or 5 s timeout |
-| | `POST /ros2/cmd_vel` | Publish Twist (`linear_x`, `linear_y`, `angular_z`; optional `topic`); separate from the Jog session API |
 | Jog | `GET /{container}/bringup_status` | Selected container's bringup/profile status; Jog pages poll every 2 s, requests for the same container share a 1 s cache |
 | Record & Play | `GET /record_play` | Shared job state, discovered trajectory groups, saved recordings, controller feedback availability and storage path |
 | | `GET /record_play/status` | Read-only job status |

@@ -122,8 +122,6 @@ Connection creation is deferred one timer turn so an immediate development-mode
 effect cleanup can cancel it. Leaving the page stops and closes an active
 connection immediately. The server finishes its stop attempt before releasing
 that session's subscription owners. Other viewers or jobs retain their own owners.
-The HTTP `/ros2/cmd_vel` endpoint is a separate direct-publish API; the Jog UI does
-not use it, and it does not provide the Jog session/watchdog behavior.
 
 The session subscribes to `/joint_states`, transient-local `/robot_description`,
 and discovered `control_msgs/msg/JointTrajectoryControllerState` topics. Joint

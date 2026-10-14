@@ -250,27 +250,6 @@ class Ros2Bridge:
     # Public API — publish
     # ------------------------------------------------------------------
 
-    def publish_twist(
-        self,
-        topic: str,
-        linear_x: float,
-        angular_z: float,
-        linear_y: float = 0.0,
-    ) -> bool:
-        if not self._is_running:
-            return False
-        data = {
-            'linear': {'x': linear_x, 'y': linear_y, 'z': 0.0},
-            'angular': {'x': 0.0, 'y': 0.0, 'z': angular_z},
-        }
-        return (
-            self._enqueue_request(
-                RequestKind.PUBLISH_TOPIC,
-                (topic, 'geometry_msgs/msg/Twist', data),
-            )
-            is True
-        )
-
     def publish_jog(self, topic: str, msg_type: str, data: dict[str, Any]) -> bool:
         """Never execute a jog command that sat in the spin queue too long."""
         if not self._is_running:
