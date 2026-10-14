@@ -229,6 +229,7 @@ def control_service(
 
     For s6-rc services, stops the registered <name>-pipeline bundle when present,
     so the producer finishes before its log consumer is stopped.
+    Start leaves running services alone and clears stale s6-rc state for stopped services.
     For legacy services, falls back to s6-svc.
 
     Args
@@ -293,16 +294,18 @@ def _control_service(name, action, launch_args, robot_type):
         if is_s6rc_service:
             # For s6-rc services, use s6-rc commands
             # For pipelines, starting the producer service will start the entire pipeline
-            stop_target = _s6rc_stop_target(name) if action != 'up' else name
-            if action == 'up':
-                cmd = ['s6-rc', '-u', 'change', name]
-            elif action == 'down':
+            if action == 'up' and get_service_status(name).is_up:
+                logger.info("Service '%s' is already running; skipping Start", name)
+                return
+            stop_target = _s6rc_stop_target(name)
+            if action == 'down':
                 cmd = ['s6-rc', '-d', 'change', stop_target]
-            else:  # restart
+            else:  # start or restart
+                # A process can exit while s6-rc still considers its pipeline up.
                 cmd = ['s6-rc', '-d', 'change', stop_target]
                 subprocess.check_output(cmd, stderr=subprocess.STDOUT, timeout=10)
-                # Wait a moment, then bring it back up
-                time.sleep(1)
+                if action == 'restart':
+                    time.sleep(1)
                 cmd = ['s6-rc', '-u', 'change', name]
 
             subprocess.check_output(cmd, stderr=subprocess.STDOUT, timeout=10)
