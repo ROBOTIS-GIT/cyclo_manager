@@ -19,6 +19,7 @@
 """One server-owned recording/playback job with interruptible return transitions."""
 
 from datetime import datetime, timezone
+from itertools import chain
 import logging
 import queue
 import shutil
@@ -31,7 +32,9 @@ from cyclo_manager.record_play.bags import BagStore
 from cyclo_manager.record_play.motion import (
     arrival_errors, arrived, interpolate, MotionPlan, return_duration,
 )
-from cyclo_manager.robot_interface.controller_discovery import trajectory_topics
+from cyclo_manager.robot_interface.controller_discovery import (
+    controller_input_topics, trajectory_topics,
+)
 from cyclo_manager.robot_interface.motion_interface import (
     position_message, RobotInterface, TRAJECTORY_TYPE,
 )
@@ -245,14 +248,15 @@ class RecordPlayService:
         try:
             self._check()
             self._wait_for_feedback(connection)
-            plan = MotionPlan(self.store, recording_id, connection.joints, self._check)
+            plan = MotionPlan(self.store, recording_id, connection.joints, self._check,
+                              motion_topics=controller_input_topics(self.bridge))
             connection.pin_description()
             positions = connection.require_feedback()
             missing = sorted({name for names in plan.schemas.values() for name in names
                               if name not in positions})
             if missing:
                 raise ValueError(f'Missing or invalid feedback for {", ".join(missing)}.')
-            topics = [(topic, TRAJECTORY_TYPE) for topic in plan.first]
+            topics = [(topic, TRAJECTORY_TYPE) for topic in sorted(plan.topics)]
             publishers.acquire(topics)
             self._check()
             connection.require_feedback()
@@ -265,15 +269,35 @@ class RecordPlayService:
                 self._check()
                 cycle += 1
                 self.update(phase='playing', cycle=cycle, elapsed=0.0)
+                messages = self.store.read_serialized(recording_id, rate)
+                first = next(messages, None)
+                if first is None:
+                    raise ValueError('Recording contains no trajectory messages.')
+                self._check()
+                # Opening MCAP and preparing its first message are setup, not replay lag.
                 start = time.monotonic()
-                for topic, data, timestamp in self.store.read(recording_id):
+                previous_publish = 0.0
+                last_status = start
+                last_publish_end = start
+                for topic, data, timestamp in chain((first,), messages):
+                    read_prepare = time.monotonic() - last_publish_end
                     offset = (timestamp - plan.first_timestamp) / 1e9 / rate
                     self._wait_until(start + offset)
-                    if time.monotonic() - start - offset > 0.5:
+                    lag = time.monotonic() - start - offset
+                    if lag > 0.5:
                         raise ValueError(
-                            'Playback fell behind; stopped instead of bursting commands.')
-                    connection.publish(topic, TRAJECTORY_TYPE, plan.message(data, rate))
-                    self.update(elapsed=offset)
+                            'Playback fell behind; stopped instead of bursting commands. '
+                            f'cycle={cycle}, topic={topic}, offset={offset:.3f}s, '
+                            f'lag={lag:.3f}s, previous_publish={previous_publish:.3f}s, '
+                            f'read_prepare={read_prepare:.3f}s')
+                    publish_start = time.monotonic()
+                    connection.publish(topic, TRAJECTORY_TYPE, data)
+                    now = time.monotonic()
+                    previous_publish = now - publish_start
+                    last_publish_end = now
+                    if now - last_status >= 0.1:
+                        self.update(elapsed=offset)
+                        last_status = now
                 self._wait_until(start + plan.duration / rate)
                 self.update(phase='settling', elapsed=plan.duration / rate)
                 self._arrive(connection, plan, plan.goals(end=True), arrival_tolerance_deg,

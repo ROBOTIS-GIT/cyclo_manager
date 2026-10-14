@@ -18,7 +18,6 @@
 
 """Validate recorded commands and generate measured, bounded return trajectories."""
 
-from copy import deepcopy
 import math
 import xml.etree.ElementTree as ET
 
@@ -35,12 +34,12 @@ def duration_seconds(point):
     return sec + nano / 1e9
 
 
-def validate_message(data, joints):
-    """Validate trajectory structure and known joints without resolving controllers."""
+def validate_message(data, joints=None):
+    """Validate trajectory data and, for direct commands, usable joint limits."""
     names, points = data.get('joint_names', []), data.get('points', [])
     if not names or len(set(names)) != len(names) or not points:
         raise ValueError('Trajectory has empty or duplicate joint names/points.')
-    unknown = [name for name in names if name not in joints]
+    unknown = [name for name in names if joints is not None and name not in joints]
     if unknown:
         raise ValueError(f'Recording joints lack usable URDF limits: {", ".join(unknown)}')
     previous = -1
@@ -67,61 +66,55 @@ def validate_message(data, joints):
 class MotionPlan:
     """Inspect a bag once and stream each replay without loading the entire bag."""
 
-    def __init__(self, store, recording_id, joints, check=lambda: None):
+    def __init__(self, store, recording_id, joints, check=lambda: None, *, motion_topics):
         """Validate the complete bag and retain first/last poses per topic."""
         self.joints = {joint.name: joint for joint in joints}
         self.first, self.last, self.schemas = {}, {}, {}
+        self.topics = set()
         self.first_timestamp = None
         self.duration = 0.0
         previous = None
         for topic, data, timestamp in store.read(recording_id):
             check()
-            validate_message(data, self.joints)
+            direct_command = topic in motion_topics
+            validate_message(data, self.joints if direct_command else None)
+            self.topics.add(topic)
             if previous is not None and timestamp < previous:
                 raise ValueError('Recording timestamps must be ordered.')
             previous = timestamp
             if self.first_timestamp is None:
                 self.first_timestamp = timestamp
-            schema = frozenset(data['joint_names'])
-            if topic in self.schemas and self.schemas[topic] != schema:
-                raise ValueError(
-                    'Joint membership changes inside a topic; record full groups. '
-                    'Jog recordings with changing joint lists cannot be replayed '
-                    'in Record & Play.')
-            self.schemas[topic] = schema
-            first = dict(zip(data['joint_names'], data['points'][0]['positions']))
-            self.first.setdefault(topic, first)
-            self.last[topic] = dict(zip(data['joint_names'], data['points'][-1]['positions']))
+            if direct_command:
+                schema = frozenset(data['joint_names'])
+                if topic in self.schemas and self.schemas[topic] != schema:
+                    raise ValueError(
+                        f'Joint membership changes inside controller input {topic}; '
+                        'record consistent joint lists for automatic transitions.')
+                self.schemas[topic] = schema
+                first = dict(zip(data['joint_names'], data['points'][0]['positions']))
+                self.first.setdefault(topic, first)
+                self.last[topic] = dict(zip(data['joint_names'], data['points'][-1]['positions']))
             self.duration = max(self.duration, (timestamp - self.first_timestamp) / 1e9
                                 + duration_seconds(data['points'][-1]))
         if self.first_timestamp is None:
             raise ValueError('Recording contains no trajectory messages.')
+        if not self.first:
+            raise ValueError(
+                'No recorded controller input topics were found. '
+                'Automatic start-pose moves require a recorded topic subscribed by a '
+                'controller that publishes JointTrajectoryControllerState.')
 
     def goals(self, end=False):
-        """Return only recorded joint endpoints on their recorded topics."""
+        """Return recorded endpoints only for direct controller input topics."""
         source = self.last if end else self.first
         return {topic: dict(values) for topic, values in source.items()}
-
-    def message(self, data, rate):
-        """Rebase stale header stamps and scale point timing and derivatives together."""
-        result = deepcopy(data)
-        result['header'] = {'stamp': {'sec': 0, 'nanosec': 0},
-                            'frame_id': data.get('header', {}).get('frame_id', '')}
-        for point in result['points']:
-            for field, multiplier in (('velocities', rate), ('accelerations', rate * rate)):
-                if point.get(field):
-                    point[field] = [v * multiplier for v in point[field]]
-            nanoseconds = round(duration_seconds(point) / rate * 1e9)
-            point['time_from_start'] = {
-                'sec': nanoseconds // 10**9, 'nanosec': nanoseconds % 10**9}
-        return result
 
 
 def arrival_errors(goals, positions, joints, arrival_tolerance_deg=0.5,
                    arrival_tolerance_cm=1.0):
     """Describe missed targets using separate angular and linear tolerances."""
     errors = []
-    for group in goals.values():
+    for topic, group in goals.items():
         for name, target in group.items():
             linear = joints[name].unit == 'm'
             tolerance = (arrival_tolerance_cm / 100 if linear
@@ -134,7 +127,7 @@ def arrival_errors(goals, positions, joints, arrival_tolerance_deg=0.5,
                 continue
             current_text = f'{current * scale:.3f} {unit}' if measured else 'unavailable'
             error_text = f'{error * scale:.3f} {unit}' if measured else 'unavailable'
-            errors.append(f'{name}: target={target * scale:.3f} {unit}, '
+            errors.append(f'{topic} / {name}: target={target * scale:.3f} {unit}, '
                           f'current={current_text}, error={error_text}, '
                           f'tolerance={tolerance * scale:.3f} {unit}')
     return errors

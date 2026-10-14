@@ -279,7 +279,7 @@ class Ros2Bridge:
     # Public API — publish
     # ------------------------------------------------------------------
 
-    def publish_jog(self, topic: str, msg_type: str, data: dict[str, Any],
+    def publish_jog(self, topic: str, msg_type: str, data: dict[str, Any] | bytes,
                     owner_id: str) -> bool:
         """Never execute a command after its owner closes or its queue deadline expires."""
         if not self._is_running:
@@ -703,7 +703,7 @@ class Ros2Bridge:
         self,
         topic: str,
         msg_type: str,
-        data: dict[str, Any],
+        data: dict[str, Any] | bytes,
         owner_id: str,
     ) -> bool:
         if not self._rclpy_node:
@@ -719,6 +719,9 @@ class Ros2Bridge:
             return False
 
         try:
+            if isinstance(data, bytes):
+                pub.publish(data)
+                return True
             msg = msg_class()
             if msg_type == 'trajectory_msgs/msg/JointTrajectory':
                 # Nested message arrays need actual JointTrajectoryPoint instances.

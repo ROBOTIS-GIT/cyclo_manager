@@ -31,6 +31,16 @@ def trajectory_topics(bridge):
     return _trajectory_topics(bridge.motion_graph())
 
 
+def controller_input_topics(bridge):
+    """Identify direct controller inputs from graph endpoints, without reading state."""
+    graph = bridge.motion_graph()
+    controllers = {node for info in graph.values() if info['type'] == STATE_TYPE
+                   for node in info['publishers']}
+    return {topic for topic, info in graph.items()
+            if info['type'] == TRAJECTORY_TYPE
+            and controllers.intersection(info['subscribers'])}
+
+
 def _trajectory_topics(graph):
     result = []
     for topic, info in graph.items():

@@ -50,8 +50,10 @@ known command topic names and also lists other
 discovered `JointTrajectory` topics. Expand **Topic** in a group to see its ROS
 name. The page does not require or subscribe to controller feedback.
 Recording needs neither bringup nor an active publisher. Playback preparation
-requires fresh joint feedback and valid URDF limits, without controller discovery
-or Docker/s6 bringup checks. Command topics and joint names come from the bag.
+requires fresh joint feedback and valid URDF limits, without Docker/s6 bringup checks.
+Command topics and joint names come from the bag. Graph endpoints identify direct
+controller inputs for automatic moves, arrival checks and stop holds; all recorded
+topics are streamed during replay. Controller-state messages are not required.
 Recorded positions are neither rejected
 nor clamped against URDF position limits. Bag structure and finite values are validated
 before motion. Measured positions used for start-pose transitions, repeat returns
