@@ -56,7 +56,6 @@ export default function RecordPlayPage() {
   const active = !!state?.active;
   const locked = active || api.busy;
   const available = api.connected;
-  const canPlay = available && !!overview?.feedback_ready;
   const sameRecording = !!recording && state?.recording_id === recording.id;
   const shownRate = activeMotion ? state.rate ?? 1 : rate;
   const shownMode = activeMotion ? state.repeats === 0 ? "infinite" : state.repeats === 1 ? "once" : "repeat" : repeatMode;
@@ -100,10 +99,6 @@ export default function RecordPlayPage() {
         <div className="flex items-center gap-2 text-xs mt-1" style={secondary}>
           <StatusBadge status={api.connected} dotOnly label={api.connected ? "Connected" : "Disconnected"} />
           {api.connected ? "Server connected" : "Server disconnected"}
-        </div>
-        <div className="flex items-center gap-2 text-xs mt-1" style={secondary} aria-live="polite">
-          <StatusBadge status={!!overview?.feedback_ready} dotOnly label="Controller feedback" />
-          Controller feedback: {overview ? overview.feedback_ready ? "Available" : "Unavailable" : "Checking…"}
         </div>
       </div>
     </header>
@@ -185,7 +180,7 @@ export default function RecordPlayPage() {
                   <div className="h-full transition-[width] duration-300" style={{ width: `${progress}%`, background: "var(--vscode-focusBorder)" }} />
                 </div>
                 <div className="mt-5 grid grid-cols-[minmax(0,1fr)_auto] gap-2">
-                  <button type="button" className={button} style={primary} disabled={!canPlay || locked}
+                  <button type="button" className={button} style={primary} disabled={!available || locked}
                     onClick={() => void api.action("play", command)}><TransportIcon />Play</button>
                   {stopButton}
                 </div>

@@ -35,13 +35,14 @@ def duration_seconds(point):
     return sec + nano / 1e9
 
 
-def validate_message(topic, data, joints):
-    """Validate trajectory structure and routing without enforcing position limits."""
+def validate_message(data, joints):
+    """Validate trajectory structure and known joints without resolving controllers."""
     names, points = data.get('joint_names', []), data.get('points', [])
     if not names or len(set(names)) != len(names) or not points:
         raise ValueError('Trajectory has empty or duplicate joint names/points.')
-    if any(name not in joints or joints[name].topic != topic for name in names):
-        raise ValueError('Recording joint names/topics do not match this robot.')
+    unknown = [name for name in names if name not in joints]
+    if unknown:
+        raise ValueError(f'Recording joints lack usable URDF limits: {", ".join(unknown)}')
     previous = -1
     for point in points:
         positions = point.get('positions', [])
@@ -75,7 +76,7 @@ class MotionPlan:
         previous = None
         for topic, data, timestamp in store.read(recording_id):
             check()
-            validate_message(topic, data, self.joints)
+            validate_message(data, self.joints)
             if previous is not None and timestamp < previous:
                 raise ValueError('Recording timestamps must be ordered.')
             previous = timestamp
@@ -95,36 +96,21 @@ class MotionPlan:
                                 + duration_seconds(data['points'][-1]))
         if self.first_timestamp is None:
             raise ValueError('Recording contains no trajectory messages.')
-        self.held = {}
-
-    def latch(self, positions):
-        """Explicitly hold unrecorded joints, including grippers sharing an arm topic."""
-        for topic, recorded in self.schemas.items():
-            self.held[topic] = {}
-            for name, joint in self.joints.items():
-                if joint.topic == topic and name not in recorded:
-                    value = positions.get(name)
-                    if not isinstance(value, (float, int)) or not math.isfinite(value):
-                        raise ValueError(f'Missing or invalid feedback for {name}.')
-                    self.held[topic][name] = value
 
     def goals(self, end=False):
-        """Combine recorded endpoints with latched unrecorded joint goals."""
+        """Return only recorded joint endpoints on their recorded topics."""
         source = self.last if end else self.first
-        return {topic: {**values, **self.held.get(topic, {})} for topic, values in source.items()}
+        return {topic: dict(values) for topic, values in source.items()}
 
-    def message(self, topic, data, rate):
+    def message(self, data, rate):
         """Rebase stale header stamps and scale point timing and derivatives together."""
         result = deepcopy(data)
         result['header'] = {'stamp': {'sec': 0, 'nanosec': 0},
                             'frame_id': data.get('header', {}).get('frame_id', '')}
-        held = self.held.get(topic, {})
-        result['joint_names'] = list(data['joint_names']) + list(held)
         for point in result['points']:
-            point['positions'] = list(point['positions']) + list(held.values())
             for field, multiplier in (('velocities', rate), ('accelerations', rate * rate)):
                 if point.get(field):
-                    point[field] = [v * multiplier for v in point[field]] + [0.0] * len(held)
+                    point[field] = [v * multiplier for v in point[field]]
             nanoseconds = round(duration_seconds(point) / rate * 1e9)
             point['time_from_start'] = {
                 'sec': nanoseconds // 10**9, 'nanosec': nanoseconds % 10**9}

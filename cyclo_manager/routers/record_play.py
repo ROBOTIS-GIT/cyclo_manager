@@ -22,13 +22,8 @@ import asyncio
 from typing import Literal
 
 from cyclo_manager.record_play.bags import RecordingNotFoundError
-from cyclo_manager.routers.websocket_utils import (
-    _close_websocket_ignoring_error, _send_websocket_error,
-    release_subscription_owner, run_until_disconnect, send_subscription_ready,
-)
 from cyclo_manager.state import app_state
-from cyclo_manager.subscriptions import SubscriptionOwner
-from fastapi import APIRouter, HTTPException, Path, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, HTTPException, Path
 from pydantic import BaseModel, ConfigDict, Field
 
 router = APIRouter(prefix='/record_play', tags=['record_play'])
@@ -94,7 +89,6 @@ async def overview(robot: Robot = 'ros'):
     except (ValueError, OSError) as exc:
         raise HTTPException(503, str(exc)) from exc
     return {'state': manager.status(), 'groups': groups, 'recordings': recordings,
-            'feedback_ready': any(g['joints'] for g in groups),
             'storage': str(manager.store.root)}
 
 
@@ -133,31 +127,3 @@ async def stop(body: OwnerInput | None = None):
 async def delete_recording(recording_id: str = Path(pattern=r'^[0-9a-f]{32}$')):
     """Delete one saved recording and return the current server job state."""
     return await execute(service().delete, recording_id)
-
-
-@router.websocket('/watch')
-@router.websocket('/watch/{robot}')
-async def watch_catalog(websocket: WebSocket, robot: Robot = 'ros'):
-    """Keep catalog inputs subscribed only while this page is connected."""
-    await websocket.accept()
-    subscriptions = None
-    try:
-        manager = service()
-        subscriptions = SubscriptionOwner(manager.bridge)
-
-        async def stream():
-            await asyncio.to_thread(manager.catalog, robot, subscriptions)
-            await send_subscription_ready(websocket)
-            while True:
-                await asyncio.to_thread(manager.catalog, robot, subscriptions)
-                await asyncio.sleep(.5)
-
-        await run_until_disconnect(websocket, stream())
-    except WebSocketDisconnect:
-        pass
-    except Exception:
-        await _send_websocket_error(websocket, 'Record & Play topic monitoring unavailable.')
-    finally:
-        if subscriptions is not None:
-            await release_subscription_owner(subscriptions)
-        await _close_websocket_ignoring_error(websocket)

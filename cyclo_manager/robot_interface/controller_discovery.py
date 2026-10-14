@@ -26,6 +26,26 @@ TRAJECTORY_TYPE = 'trajectory_msgs/msg/JointTrajectory'
 STATE_TYPE = 'control_msgs/msg/JointTrajectoryControllerState'
 
 
+def trajectory_topics(bridge):
+    """List command topics for recording without requiring controller feedback."""
+    return _trajectory_topics(bridge.motion_graph())
+
+
+def _trajectory_topics(graph):
+    result = []
+    for topic, info in graph.items():
+        if info['type'] != TRAJECTORY_TYPE:
+            continue
+        recommended = GROUPS.get(topic)
+        result.append({'id': topic, 'topic': topic,
+                       'label': recommended[1] if recommended else topic,
+                       'alias': recommended[0] if recommended else None,
+                       'recommended': bool(recommended),
+                       'subscribed': bool(info['subscribers']),
+                       'receiving': bool(info['publishers'])})
+    return sorted(result, key=lambda item: (not item['recommended'], item['topic']))
+
+
 def catalog(bridge, subscriptions=None):
     """Subscribe only to controller feedback; trajectory payloads are recorded on demand."""
     graph = bridge.motion_graph()
@@ -41,22 +61,14 @@ def catalog(bridge, subscriptions=None):
         names = cached['data'].get('joint_names', [])
         if names and len(set(names)) == len(names) and all(isinstance(n, str) for n in names):
             states[topic] = names
-    result = []
-    for topic, info in graph.items():
-        if info['type'] != TRAJECTORY_TYPE:
-            continue
+    result = _trajectory_topics(graph)
+    for controller in result:
+        info = graph[controller['topic']]
         matches = [names for state, names in states.items()
                    if set(info['subscribers']) & set(graph[state]['publishers'])]
         # Multiple state sources are ambiguous even when a topic name looks familiar.
-        names = matches[0] if len(matches) == 1 else []
-        recommended = GROUPS.get(topic)
-        result.append({'id': topic, 'topic': topic,
-                       'label': recommended[1] if recommended else topic,
-                       'alias': recommended[0] if recommended else None,
-                       'recommended': bool(recommended), 'joints': names,
-                       'subscribed': bool(info['subscribers']),
-                       'receiving': bool(info['publishers'])})
-    return sorted(result, key=lambda item: (not item['recommended'], item['topic']))
+        controller['joints'] = matches[0] if len(matches) == 1 else []
+    return result
 
 
 def base_topics(bridge):

@@ -33,7 +33,7 @@ export type RecordPlayState = {
 export type RecordingGroup = { id: string; label: string; topic: string; receiving: boolean; recommended: boolean };
 export type RecordPlayOverview = {
   state: RecordPlayState; groups: RecordingGroup[]; recordings: Recording[];
-  feedback_ready: boolean; storage: string;
+  storage: string;
 };
 export const GROUP_LABELS: Record<string, string> = {
   arm: "Arm + gripper", arm_l: "Left arm + gripper", arm_r: "Right arm + gripper", head: "Neck", lift: "Lift",

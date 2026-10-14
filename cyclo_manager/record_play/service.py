@@ -31,7 +31,7 @@ from cyclo_manager.record_play.bags import BagStore
 from cyclo_manager.record_play.motion import (
     arrival_errors, arrived, interpolate, MotionPlan, return_duration,
 )
-from cyclo_manager.robot_interface.controller_discovery import catalog
+from cyclo_manager.robot_interface.controller_discovery import trajectory_topics
 from cyclo_manager.robot_interface.motion_interface import (
     position_message, RobotInterface, TRAJECTORY_TYPE,
 )
@@ -74,12 +74,11 @@ class RecordPlayService:
         with self._lock:
             return dict(self._state)
 
-    def _connection(self, robot, subscriptions=None, command_topics=None, publishers=None):
+    def _connection(self, robot, subscriptions=None, publishers=None):
         if subscriptions is not None:
             subscribe_joint_feedback(subscriptions)
-        catalog(self.bridge, subscriptions)
         connection = RobotInterface(
-            self.bridge, robot, command_topics=command_topics, publishers=publishers)
+            self.bridge, robot, publishers=publishers, discover_controllers=False)
         connection.feedback()
         return connection
 
@@ -96,12 +95,9 @@ class RecordPlayService:
                     raise
             self._cancel.wait(.05)
 
-    def catalog(self, robot, subscriptions=None):
-        """Read cached groups; only a connected observer registers subscriptions."""
-        if subscriptions is not None:
-            subscribe_joint_feedback(subscriptions)
-        groups = catalog(self.bridge, subscriptions)
-        return groups
+    def catalog(self, robot):
+        """List trajectory topics for recording without subscribing to feedback."""
+        return trajectory_topics(self.bridge)
 
     def _check(self):
         if self._cancel.is_set():
@@ -242,17 +238,20 @@ class RecordPlayService:
 
     def _run_motion(self, recording_id, robot, rate, repeats, subscriptions,
                     arrival_tolerance_deg, arrival_tolerance_cm, publishers):
-        recorded_topics = self.store.get(recording_id)['topics']
         connection = self._connection(
-            robot, subscriptions, command_topics=recorded_topics, publishers=publishers)
+            robot, subscriptions, publishers=publishers)
         plan = None
         attempted = False
         try:
             self._check()
             self._wait_for_feedback(connection)
             plan = MotionPlan(self.store, recording_id, connection.joints, self._check)
-            connection.pin_topics(plan.first)
-            plan.latch(connection.require_feedback())
+            connection.pin_description()
+            positions = connection.require_feedback()
+            missing = sorted({name for names in plan.schemas.values() for name in names
+                              if name not in positions})
+            if missing:
+                raise ValueError(f'Missing or invalid feedback for {", ".join(missing)}.')
             topics = [(topic, TRAJECTORY_TYPE) for topic in plan.first]
             publishers.acquire(topics)
             self._check()
@@ -273,7 +272,7 @@ class RecordPlayService:
                     if time.monotonic() - start - offset > 0.5:
                         raise ValueError(
                             'Playback fell behind; stopped instead of bursting commands.')
-                    connection.publish(topic, TRAJECTORY_TYPE, plan.message(topic, data, rate))
+                    connection.publish(topic, TRAJECTORY_TYPE, plan.message(data, rate))
                     self.update(elapsed=offset)
                 self._wait_until(start + plan.duration / rate)
                 self.update(phase='settling', elapsed=plan.duration / rate)

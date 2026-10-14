@@ -3,7 +3,9 @@
 Record & Play records selected `trajectory_msgs/msg/JointTrajectory` topics to
 MCAP rosbag2 files on the robot. Recording groups come from discovered ROS topics;
 known topic names receive recommended labels. Playback uses URDF limits and ROS
-joint/controller feedback without Docker, s6 or bringup status checks.
+joint feedback without Docker, s6 or bringup status checks. Playback takes command
+topics and joint membership directly from the bag; it does not require controller
+state topics or match publisher/subscriber node identities.
 
 ## Storage and deployment
 
@@ -72,12 +74,13 @@ one Record & Play job can run across browser clients. Recording may coexist
 with Jog because it only observes commands.
 
 1. Select a recording. The server validates every message's structure, finite
-   values, timing, joint names and controller topics before publishing. Recorded
+   values, timing and joint names against usable URDF joints before publishing. Recorded
    positions are neither rejected nor clamped against URDF position limits.
    Publishers are acquired without waiting for subscriber connections.
 2. **Play** automatically interpolates from fresh measured positions to each
-   topic's first recorded positions. Unrecorded joints on those controllers,
-   including shared grippers, are captured once and explicitly held.
+   topic's first recorded positions. Only recorded joints are commanded; no
+   unrecorded joints or grippers are added. Partial joint goals must be supported
+   by the receiving controller when the bag contains only part of its joint set.
 3. After feedback confirms arrival at the start pose, messages are streamed at their
    recorded relative times. Header stamps are reset to zero (execute from now);
    point durations are divided by playback rate, velocities multiplied by rate,
@@ -88,7 +91,7 @@ with Jog because it only observes commands.
    pose, verifies arrival, and starts the next pass. The repeat count is the
    **total number of passes**; zero means infinite. The bag itself is unchanged.
 
-Current feedback used to latch unrecorded joints and calculate return transitions
+Current feedback used to calculate return transitions
 must be present and finite, but is not rejected or clamped against URDF position
 limits. This also applies when holding the current pose after stop. Arrival checks remain enabled;
 if the controller limits a recorded target and cannot reach it within the selected
@@ -103,16 +106,16 @@ have `time_from_start=0`. These bound the generated targets, not the controller'
 physical motion. **Arrival tolerance** selects the angular tolerance for each
 playback job: 0.5° (default), 1°, 2° or 3°. **Lift / linear tolerance** selects
 1 cm (default), 2 cm or 3 cm for linear joints. These settings apply to the start
-pose, repeat returns and final pose, including held joints.
+pose, repeat returns and final pose for all recorded joints.
 All involved joints must stay within tolerance for 0.3 seconds before proceeding,
 even if the initial pose is already within tolerance. An out-of-range observation
 restarts that interval. Failure to settle within ten seconds after the planned
 interval aborts playback; the error reports the affected joints, targets, measured
 positions, errors and tolerances in degrees or millimeters. Preparation, return
 transitions, arrival checks and stop holds require joint feedback no older than
-500 ms and unchanged controller routes. During bag streaming (including waiting
-for the final trajectory duration), feedback and controller-state/mapping checks
-are not repeated. Feedback loss or mapping changes are therefore checked at the
+500 ms and an unchanged robot description. During bag streaming (including waiting
+for the final trajectory duration), feedback and robot-description checks
+are not repeated. Feedback loss or description changes are therefore checked at the
 next arrival, return or stop stage, not during message replay. Feedback subscriptions
 remain active for those stages. Cancellation, publish failures and the 500 ms
 playback-lag cutoff still interrupt streaming. Playback does not wait for subscriber
@@ -147,7 +150,7 @@ browser closure or client disconnection. No browser heartbeat is required. On
 return, the page shows the active recording, progress, speed and repeat settings;
 any browser can explicitly stop the server job. Infinite repeats continue until
 stopped or an error occurs. Preparation, return, arrival and stop stages validate
-fresh joint/controller feedback, resolved command routes and unchanged URDF limits
+fresh joint feedback and an unchanged robot description
 independently of browser connections. Bag streaming skips these repeated checks.
 
 Playback owns its command publishers for the entire job, including the initial
@@ -164,8 +167,10 @@ The last consumer's departure destroys the ROS subscription and clears its cache
 Duplicate registration or a late disconnect from an older connection cannot
 remove another consumer. Disconnect cleanup runs even for static or silent topics.
 
-Record & Play opens a separate `/record_play/watch` WebSocket for catalog
-monitoring; closing it releases only the page's subscriptions. HTTP overview,
+Record & Play uses HTTP polling for its topic catalog and job status. Opening the
+page creates no feedback subscriptions; playback jobs own their joint-state and
+robot-description subscriptions. The former `/record_play/watch` endpoint and
+controller-feedback availability field have been removed. HTTP overview,
 status and topic reads are read-only. The old global HTTP topic subscribe and
 unsubscribe endpoints have been removed. System uses `/ws/ros2/system-status`
 for low-rate battery values and camera publisher presence, and
@@ -174,8 +179,7 @@ temporary transient-local subscriptions. These reads bypass the shared cache and
 release only their temporary subscription after completion, timeout or disconnect.
 Camera status is
 `Active` when a publisher exists; it never subscribes to image streams.
-The Record & Play catalog observer retries connection closures with backoff while
-mounted. Topic/System observers also distinguish retryable from terminal errors;
+Topic/System observers distinguish retryable from terminal errors;
 Jog uses explicit Reconnect after connection failures.
 A job started without a viewer allows up to two seconds for initial feedback.
 
@@ -190,11 +194,11 @@ observes the job that is already running; it does not start a new job.
 ## Code organization
 
 `robot_interface/urdf_joints.py` parses commanded URDF limits.
-`robot_interface/controller_discovery.py` resolves controller
-joint membership by matching JointTrajectory subscribers to controller-state publishers.
+`robot_interface/controller_discovery.py` lists trajectory topics for recording and
+resolves Jog controller membership by matching subscribers to controller-state publishers.
 `robot_interface/motion_interface.py` reads shared bridge caches, checks feedback freshness and
-resolved routes, and publishes commands through an optional guard used by Jog. It does not
-register subscriptions or run a motion loop. Jog adds
+publishes commands through an optional guard used by Jog. Playback disables controller
+discovery. The interface does not register subscriptions or run a motion loop. Jog adds
 its per-connection command state through `JogSession`; Record & Play uses the
 same robot interface directly, with subscription lifetimes owned by its jobs.
 `record_play/motion.py` validates bags and computes transitions from joint
@@ -216,8 +220,9 @@ using recordings for unattended motion.
   `JointTrajectoryControllerState` feedback. Matching subscriber/publisher node
   identities accounts for remapped command topics. Fresh controller feedback supplies
   the complete joint list. Missing, duplicate, incomplete, or ambiguous mappings do
-  not enable control. Jog restricts discovery to its profile topics; playback uses
-  the stored recording topics to resolve alternatives.
+  not enable Jog control. Jog restricts discovery to its profile topics.
+  Playback does not perform this controller discovery; it uses recorded topic names
+  and each message's joint names, even if no command receiver or state publisher exists.
 - Known command topic names are marked Recommended. Recording lists all discovered
   `JointTrajectory` topics, even without URDF or incoming messages. Publisher detection
   does not subscribe to trajectory payloads; recording subscribes only to selected topics.
@@ -226,33 +231,34 @@ using recordings for unattended motion.
   names. This also supports controllers that reject partial joint goals.
 - AI Worker profiles hide `*_wheel_steer` joints from Joint Jog cards. Their measured
   angles remain in Wheel steering angle; OMY/OMX and other unassigned joints are unchanged.
-- Playback validates against current URDF and discovered command routes; the old
+- Playback validates recorded joint names against the current URDF; the old
   metadata `robot` label is informational. All existing saved recordings remain listed.
-  Controller membership/routes and URDF are pinned at preparation and checked again
-  during return, arrival and stop stages, rather than on every replayed message.
+  The robot description is pinned at preparation and checked again during return,
+  arrival and stop stages, rather than on every replayed message. Controller topic
+  presence, membership and connection ambiguity do not block playback.
 - Base control requires both profile support and a discovered `geometry_msgs/msg/Twist`
   subscriber on the profile base topic. OMY/OMX and stationary AI Worker models have no base controls.
 - This version uses `/robot_description` and `/joint_states` in the manager's ROS
   domain. Multiple robots must not publish conflicting feedback on those same topics.
-  Choosing namespaced feedback sources, Action-only grippers, TwistStamped inputs,
-  and controllers without JointTrajectoryControllerState are outside this version.
+  Choosing namespaced feedback sources, Action-only grippers and TwistStamped inputs
+  are outside this version. Jog requires JointTrajectoryControllerState; playback does not.
 
-Clients use `/ws/jog?container={container}` and `/record_play/watch`.
+Jog clients use `/ws/jog?container={container}`; Record & Play uses HTTP.
 Jog state and `GET /{container}/bringup_status`
 include `robot` status fields (`ready`, `model`, `container`, `generation`, `reason`);
-the GET returns those fields directly. Record & Play overview exposes controller
-feedback availability without a bringup status. The Jog profile is selected from
+the GET returns those fields directly. Record & Play overview lists recording
+choices and saved bags without a controller-feedback or bringup status. The Jog profile is selected from
 the required container query parameter and its bringup status. Record & Play request
 `robot` fields are metadata only and default to `ros`. Old Jog `topic`/`base_topic`
 query parameters do not override profile routes. Playback no longer takes a
-bringup `generation`; it validates the bag against current ROS feedback and routes.
+bringup `generation`; it validates the bag against the URDF and uses joint feedback for transitions.
 
 ## Robot profiles
 
 - `robot_interface/command_profiles.py` defines routes for AI Worker SG2/BG2/SH5/BH5/F1/F2/mobile,
   OMY and OMX. Profiles contain no joint names, joint counts or limits. Custom Jog
-  remaps require updating the profile; manual recording/playback topics still
-  resolve through controller feedback.
+  remaps require updating the profile; recording discovers trajectory topics and
+  playback uses recorded topics directly.
 - Jog uses the same container selection as System and keeps it in `/{container}/jog`.
   Connected pages request `GET /{container}/bringup_status` every two seconds. There is no
   always-running bringup task; with no requests, there are no Docker/s6 observations.
@@ -284,10 +290,9 @@ bringup `generation`; it validates the bag against current ROS feedback and rout
   publishers; controller discovery also rejects ambiguous mappings. Selecting a
   container does not isolate ROS topics. This is polled readiness, not hardware interlocking.
 - Record & Play does not use this profile/status service. Recording needs only
-  discovered command topics; playback preparation requires fresh joint/controller
-  feedback, valid URDF limits and unambiguous command routes. It does not wait for
-  subscriber matching. Bag streaming skips per-publish
-  feedback/controller-state checks.
+  discovered command topics; playback preparation requires fresh joint
+  feedback and valid URDF limits. It does not resolve controller routes or wait for
+  subscriber matching. Bag streaming skips per-publish feedback/description checks.
   Changes to Docker/s6 status alone do not stop playback.
 - Jog verifies its cached bringup status before publishing. A changed or unavailable run also blocks the final
   pose-hold publish, to avoid sending an old session's goals to a different robot.
