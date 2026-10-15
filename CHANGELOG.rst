@@ -2,6 +2,15 @@
 Changelog for package cyclo_manager
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
+1.1.2 (2026-10-15)
+------------------
+* Added PublisherOwner to create publishers on demand, share them across consumers, and release them when no longer needed.
+* Removed subscriber-matching checks before playback.
+* Improved playback performance by reducing message conversion and serialization overhead.
+* Added playback speed controls from 0.5× to 1.5× in 0.1× increments.
+* Added Robotis Hand description and meshes to the Docker image build process.
+* Contributors: Hyungyu Kim
+
 1.1.1 (2026-10-07)
 ------------------
 * Added selectable lift/linear arrival tolerance for playback: 1 cm (default), 2 cm or 3 cm.
