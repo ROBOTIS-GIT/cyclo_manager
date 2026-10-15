@@ -18,12 +18,13 @@
 
 """Validate recorded commands and generate measured, bounded return trajectories."""
 
-from copy import deepcopy
 import math
 import xml.etree.ElementTree as ET
 
-RETURN_SPEED = {'rad': math.radians(10), 'm': 0.01}
-RETURN_ACCELERATION = {'rad': math.radians(20), 'm': 0.02}
+from cyclo_manager.robot_interface.command_profiles import ARRIVAL_CHECKS
+
+RETURN_SPEED = {'rad': math.radians(12), 'm': 0.012}
+RETURN_ACCELERATION = {'rad': math.radians(24), 'm': 0.024}
 
 
 def duration_seconds(point):
@@ -35,13 +36,14 @@ def duration_seconds(point):
     return sec + nano / 1e9
 
 
-def validate_message(topic, data, joints):
-    """Validate trajectory structure and routing without enforcing position limits."""
+def validate_message(data, joints=None):
+    """Validate trajectory data and, for direct commands, usable joint limits."""
     names, points = data.get('joint_names', []), data.get('points', [])
     if not names or len(set(names)) != len(names) or not points:
         raise ValueError('Trajectory has empty or duplicate joint names/points.')
-    if any(name not in joints or joints[name].topic != topic for name in names):
-        raise ValueError('Recording joint names/topics do not match this robot.')
+    unknown = [name for name in names if joints is not None and name not in joints]
+    if unknown:
+        raise ValueError(f'Recording joints lack usable URDF limits: {", ".join(unknown)}')
     previous = -1
     for point in points:
         positions = point.get('positions', [])
@@ -66,76 +68,56 @@ def validate_message(topic, data, joints):
 class MotionPlan:
     """Inspect a bag once and stream each replay without loading the entire bag."""
 
-    def __init__(self, store, recording_id, joints, check=lambda: None):
+    def __init__(self, store, recording_id, joints, check=lambda: None, *, motion_topics):
         """Validate the complete bag and retain first/last poses per topic."""
         self.joints = {joint.name: joint for joint in joints}
         self.first, self.last, self.schemas = {}, {}, {}
+        self.topics = set()
         self.first_timestamp = None
         self.duration = 0.0
         previous = None
         for topic, data, timestamp in store.read(recording_id):
             check()
-            validate_message(topic, data, self.joints)
+            direct_command = topic in motion_topics
+            validate_message(data, self.joints if direct_command else None)
+            self.topics.add(topic)
             if previous is not None and timestamp < previous:
                 raise ValueError('Recording timestamps must be ordered.')
             previous = timestamp
             if self.first_timestamp is None:
                 self.first_timestamp = timestamp
-            schema = frozenset(data['joint_names'])
-            if topic in self.schemas and self.schemas[topic] != schema:
-                raise ValueError(
-                    'Joint membership changes inside a topic; record full groups. '
-                    'Jog recordings with changing joint lists cannot be replayed '
-                    'in Record & Play.')
-            self.schemas[topic] = schema
-            first = dict(zip(data['joint_names'], data['points'][0]['positions']))
-            self.first.setdefault(topic, first)
-            self.last[topic] = dict(zip(data['joint_names'], data['points'][-1]['positions']))
+            if direct_command:
+                schema = frozenset(data['joint_names'])
+                if topic in self.schemas and self.schemas[topic] != schema:
+                    raise ValueError(
+                        f'Joint membership changes inside controller input {topic}; '
+                        'record consistent joint lists for automatic transitions.')
+                self.schemas[topic] = schema
+                first = dict(zip(data['joint_names'], data['points'][0]['positions']))
+                self.first.setdefault(topic, first)
+                self.last[topic] = dict(zip(data['joint_names'], data['points'][-1]['positions']))
             self.duration = max(self.duration, (timestamp - self.first_timestamp) / 1e9
                                 + duration_seconds(data['points'][-1]))
         if self.first_timestamp is None:
             raise ValueError('Recording contains no trajectory messages.')
-        self.held = {}
-
-    def latch(self, positions):
-        """Explicitly hold unrecorded joints, including grippers sharing an arm topic."""
-        for topic, recorded in self.schemas.items():
-            self.held[topic] = {}
-            for name, joint in self.joints.items():
-                if joint.topic == topic and name not in recorded:
-                    value = positions.get(name)
-                    if not isinstance(value, (float, int)) or not math.isfinite(value):
-                        raise ValueError(f'Missing or invalid feedback for {name}.')
-                    self.held[topic][name] = value
+        if not self.first:
+            raise ValueError(
+                'No recorded controller input topics were found. '
+                'Automatic start-pose moves require a recorded topic subscribed by a '
+                'controller that publishes JointTrajectoryControllerState.')
 
     def goals(self, end=False):
-        """Combine recorded endpoints with latched unrecorded joint goals."""
+        """Return recorded endpoints only for direct controller input topics."""
         source = self.last if end else self.first
-        return {topic: {**values, **self.held.get(topic, {})} for topic, values in source.items()}
-
-    def message(self, topic, data, rate):
-        """Rebase stale header stamps and scale point timing and derivatives together."""
-        result = deepcopy(data)
-        result['header'] = {'stamp': {'sec': 0, 'nanosec': 0},
-                            'frame_id': data.get('header', {}).get('frame_id', '')}
-        held = self.held.get(topic, {})
-        result['joint_names'] = list(data['joint_names']) + list(held)
-        for point in result['points']:
-            point['positions'] = list(point['positions']) + list(held.values())
-            for field, multiplier in (('velocities', rate), ('accelerations', rate * rate)):
-                if point.get(field):
-                    point[field] = [v * multiplier for v in point[field]] + [0.0] * len(held)
-            nanoseconds = round(duration_seconds(point) / rate * 1e9)
-            point['time_from_start'] = {
-                'sec': nanoseconds // 10**9, 'nanosec': nanoseconds % 10**9}
-        return result
+        return {topic: dict(values) for topic, values in source.items()}
 
 
-def arrival_errors(goals, positions, joints, arrival_tolerance_deg=0.5,
-                   arrival_tolerance_cm=1.0):
-    """Describe missed targets using separate angular and linear tolerances."""
+def arrival_errors(goals, positions, joints, arrival_tolerance_deg=3.0,
+                   arrival_tolerance_cm=1.0, *, check_all_targets=False):
+    """Check arrival using command-route policy while always validating feedback."""
     errors = []
-    for group in goals.values():
+    for topic, group in goals.items():
+        check_target = check_all_targets or ARRIVAL_CHECKS.get(topic, True)
         for name, target in group.items():
             linear = joints[name].unit == 'm'
             tolerance = (arrival_tolerance_cm / 100 if linear
@@ -143,21 +125,24 @@ def arrival_errors(goals, positions, joints, arrival_tolerance_deg=0.5,
             scale, unit = (1000, 'mm') if linear else (180 / math.pi, 'deg')
             current = positions.get(name)
             measured = current is not None and math.isfinite(current)
+            if measured and not check_target:
+                continue
             error = abs(current - target) if measured else None
             if measured and error <= tolerance:
                 continue
             current_text = f'{current * scale:.3f} {unit}' if measured else 'unavailable'
             error_text = f'{error * scale:.3f} {unit}' if measured else 'unavailable'
-            errors.append(f'{name}: target={target * scale:.3f} {unit}, '
+            errors.append(f'{topic} / {name}: target={target * scale:.3f} {unit}, '
                           f'current={current_text}, error={error_text}, '
                           f'tolerance={tolerance * scale:.3f} {unit}')
     return errors
 
 
-def arrived(goals, positions, joints, arrival_tolerance_deg=0.5, arrival_tolerance_cm=1.0):
-    """Compare every commanded joint using this playback's arrival tolerances."""
+def arrived(goals, positions, joints, arrival_tolerance_deg=3.0, arrival_tolerance_cm=1.0):
+    """Check every joint before skipping a start or return movement, including hands."""
+    # Exempting hands here would skip their generated motion when only hands differ.
     return not arrival_errors(goals, positions, joints, arrival_tolerance_deg,
-                              arrival_tolerance_cm)
+                              arrival_tolerance_cm, check_all_targets=True)
 
 
 def return_duration(goals, positions, joints, description):

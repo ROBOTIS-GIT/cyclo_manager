@@ -26,7 +26,6 @@ from cyclo_manager.models import (
     ROS2TopicDataResponse,
     ROS2TopicsListResponse,
     ROS2TopicStatus,
-    ROS2TwistPublishRequest,
 )
 from cyclo_manager.ros2_node import Ros2Bridge
 from cyclo_manager.state import app_state
@@ -45,19 +44,6 @@ def _require_bridge() -> Ros2Bridge:
             detail='No ROS2 bridge available.',
         )
     return bridge
-
-
-@router.post('/cmd_vel')
-async def publish_cmd_vel(body: ROS2TwistPublishRequest):
-    """Publish geometry_msgs/msg/Twist for web jog control."""
-    bridge = _require_bridge()
-    ok = bridge.publish_twist(body.topic, body.linear_x, body.angular_z, body.linear_y)
-    if not ok:
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail=f"Failed to publish Twist on topic '{body.topic}'.",
-        )
-    return {'ok': True, 'topic': body.topic}
 
 
 @router.get('/topics', response_model=ROS2TopicsListResponse)

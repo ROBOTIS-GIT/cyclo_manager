@@ -92,9 +92,9 @@ export default function JogPage({ container }: { container: string }) {
       </div>
       <div className="jog-actions flex flex-wrap items-center gap-3" style={surface}>
         {!jog.connected && <button type="button" className={btn} style={button} onClick={jog.reconnect}>Reconnect</button>}
-        <label className="text-sm flex gap-2 items-center"><input type="checkbox" checked={enabled} disabled={controlsDisabled} onChange={event => {
+        <label className="text-sm flex gap-2 items-center"><input type="checkbox" checked={enabled || jog.preparing} disabled={controlsDisabled} onChange={event => {
           setActiveJoint(null); jog.setEnabled(event.target.checked);
-        }} />Enable jog</label>
+        }} />{jog.preparing ? "Preparing jog…" : "Enable jog"}</label>
         <button type="button" className={`${btn} font-semibold`} style={danger} onClick={stopAll}>■ Stop jog</button>
       </div>
     </header>

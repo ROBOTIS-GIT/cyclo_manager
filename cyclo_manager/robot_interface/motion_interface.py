@@ -34,9 +34,11 @@ class RobotInterface:
     """Share the bridge while each consumer explicitly owns its subscriptions."""
 
     def __init__(self, bridge, robot_type='ros', command_topic=None, *,
-                 command_topics=None, guard=None):
+                 command_topics=None, guard=None, publishers=None, discover_controllers=True):
         """Keep local model state without subscribing or sending commands."""
         self.bridge = bridge
+        self.publishers = publishers
+        self.discover_controllers = discover_controllers
         self.guard = guard
         self.robot_type = robot_type
         self.command_topics = (frozenset(command_topics) if command_topics is not None
@@ -44,7 +46,7 @@ class RobotInterface:
         self.description = None
         self.unbound_joints = []
         self.controllers = []
-        self.expected_bindings = None
+        self.expected_description = None
         self.joints: list[RobotJoint] = []
         self.feedback_received_at: float | None = None
 
@@ -58,7 +60,7 @@ class RobotInterface:
                 self.unbound_joints = parse_joints(xml) if xml else []
             except ET.ParseError:
                 self.unbound_joints = []
-        self.controllers = catalog(self.bridge)
+        self.controllers = catalog(self.bridge) if self.discover_controllers else []
         self.joints = []
         valid_names = {j.name for j in self.unbound_joints}
         for joint in self.unbound_joints:
@@ -80,31 +82,25 @@ class RobotInterface:
     def require_feedback(self):
         """Require fresh measured positions and usable robot limits."""
         positions, age, received_at = self.feedback()
-        if age is None or age > FEEDBACK_MAX_AGE or not any(j.topic for j in self.joints):
+        if age is None or age > FEEDBACK_MAX_AGE or not self.joints:
             raise ValueError('Fresh joint feedback and robot description are required.')
-        if self.command_topics is not None and not self.command_topics.issubset(
-                {j.topic for j in self.joints if j.topic}):
-            raise ValueError('Selected command topics are unavailable or ambiguous.')
-        if self.expected_bindings is not None:
-            topics = set(self.expected_bindings.values())
-            current = {j.name: j.topic for j in self.joints if j.topic in topics}
-            if current != self.expected_bindings or self.description != self.expected_description:
-                raise ValueError('Controller mapping changed during playback.')
+        if (self.expected_description is not None
+                and self.description != self.expected_description):
+            raise ValueError('Robot description changed during playback.')
         self.feedback_received_at = received_at
         return positions
 
-    def pin_topics(self, topics):
-        """Freeze the resolved command routes for one playback job."""
-        self.expected_bindings = {j.name: j.topic for j in self.joints if j.topic in topics}
+    def pin_description(self):
+        """Keep the robot limits used to calculate playback transitions unchanged."""
         self.expected_description = self.description
 
     def publish(self, topic, msg_type, data):
         """Send through the bridge's expiring command queue."""
         if self.guard is not None:
             self.guard()
-        if not self.bridge.publish_jog(topic, msg_type, data):
-            raise ValueError(
-                'ROS command failed: publish failed or timed out.')
+        if self.publishers is None:
+            raise ValueError('No publisher owner for this operation.')
+        self.publishers.publish(topic, msg_type, data)
 
 
 def position_message(values):

@@ -29,6 +29,7 @@ import math
 import time
 from typing import Literal
 
+from cyclo_manager.publishers import PublisherOwner
 from cyclo_manager.robot_interface.command_profiles import PROFILES
 from cyclo_manager.robot_interface.controller_discovery import base_topics, catalog
 from cyclo_manager.robot_interface.motion_interface import (
@@ -67,7 +68,7 @@ class JogInput(BaseModel):
     """Bounded operator intent, without arbitrary topics or absolute poses."""
 
     model_config = ConfigDict(extra='forbid', allow_inf_nan=False)
-    kind: Literal['idle', 'release', 'stop', 'base', 'joint'] = 'idle'
+    kind: Literal['idle', 'enable', 'release', 'stop', 'base', 'joint'] = 'idle'
     x: float = Field(0, ge=-BASE_LINEAR_MAX, le=BASE_LINEAR_MAX)
     y: float = Field(0, ge=-BASE_LINEAR_MAX, le=BASE_LINEAR_MAX)
     yaw: float = Field(0, ge=-BASE_ANGULAR_MAX, le=BASE_ANGULAR_MAX)
@@ -83,7 +84,8 @@ class JogSession(RobotInterface):
                  *, command_topics=None, guard=None):
         """Initialize an idle session without publishing any commands."""
         super().__init__(bridge, robot_type, command_topic,
-                         command_topics=command_topics, guard=guard)
+                         command_topics=command_topics, guard=guard,
+                         publishers=PublisherOwner(bridge))
         profile = PROFILES.get(robot_type)
         self.hidden_joint_suffixes = profile.hidden_jog_joint_suffixes if profile else ()
         self.base_topic = base_topic
@@ -94,7 +96,8 @@ class JogSession(RobotInterface):
         self.last_tick = time.monotonic()
         self.held_positions: dict[str, float] = {}
         self.active_topic = None
-        self.prepared_topics = set()
+        self.publishers_prepared = False
+        self.publisher_topics = []
 
     def setup(self):
         """Prepare topic connections without sending motion."""
@@ -107,11 +110,24 @@ class JogSession(RobotInterface):
                   and (self.command_topics is None or c['topic'] in self.command_topics)]
         if self.base_topic in base_topics(self.bridge):
             topics.append((self.base_topic, 'geometry_msgs/msg/Twist'))
-        missing = set(topics) - self.prepared_topics
-        if missing:
-            if not self.bridge.prepare_jog_publishers(list(missing)):
-                raise ValueError('Cannot prepare ROS jog publishers')
-            self.prepared_topics.update(missing)
+        self.publisher_topics = topics
+        if self.publishers_prepared:
+            self.publishers.acquire(topics)
+
+    def enable(self):
+        """Acquire publishers once Jog is enabled and retain them for this session."""
+        if self.guard is not None:
+            self.guard()
+        self.refresh_controllers()
+        self.publishers.acquire(self.publisher_topics)
+        self.publishers_prepared = True
+
+    def close(self):
+        """Release both endpoint owners after the final stop has finished."""
+        try:
+            self.publishers.close()
+        finally:
+            self.subscriptions.close()
 
     def snapshot(self):
         """Return display state without sending robot commands."""
@@ -119,6 +135,7 @@ class JogSession(RobotInterface):
         positions, age, _ = self.feedback()
         fresh = age is not None and age <= FEEDBACK_MAX_AGE
         return {
+            'publishers_prepared': self.publishers_prepared,
             'robot_type': self.robot_type,
             'base_supported': self.base_topic in base_topics(self.bridge),
             'controllers': self.controllers,
@@ -195,6 +212,8 @@ class JogSession(RobotInterface):
         if self.guard is not None and (command.kind in ('base', 'joint')
                                        or any(self.base) or self.active_joint):
             self.guard()
+        if command.kind in ('base', 'joint') and not self.publishers_prepared:
+            raise ValueError('Jog publishers are not ready. Enable Jog before moving.')
         now = time.monotonic()
         dt = min(max(now - self.last_tick, BASE_TICK_MIN), BASE_TICK_MAX)
         self.last_tick = now

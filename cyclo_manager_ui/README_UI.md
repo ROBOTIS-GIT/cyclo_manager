@@ -45,20 +45,28 @@ four seconds cannot authorize Jog motion.
 Container selection does not isolate ROS topics. Duplicate publishers on shared
 feedback topics and ambiguous controller mappings block Jog commands.
 
-Record & Play shows **Server connected** and **Controller feedback**, recommends
+Record & Play shows **Server connected**, labels
 known command topic names and also lists other
 discovered `JointTrajectory` topics. Expand **Topic** in a group to see its ROS
-name. Recording needs neither bringup nor an active publisher. Playback preparation
-requires fresh joint/controller feedback, valid URDF limits and verified controller
-routing, without Docker/s6 bringup checks. Recorded positions are neither rejected
+name. The page does not require or subscribe to controller feedback.
+Recording needs neither bringup nor an active publisher. Playback preparation
+requires fresh joint feedback and valid URDF limits, without Docker/s6 bringup checks.
+Command topics and joint names come from the bag. Graph endpoints identify direct
+controller inputs for automatic moves, arrival checks and stop holds; all recorded
+topics are streamed during replay. Controller-state messages are not required.
+Recorded positions are neither rejected
 nor clamped against URDF position limits. Bag structure and finite values are validated
 before motion. Measured positions used for start-pose transitions, repeat returns
-and held joints must be present and finite; they are not checked against URDF
+and stop holds must be present and finite; they are not checked against URDF
 position bounds. Bag streaming does not repeat feedback
-or controller-state/mapping checks; return transitions, arrival checks and stop
+or robot-description checks; return transitions, arrival checks and stop
 holds still validate them. Stop remains available when feedback is unavailable,
-although publishing a pose hold still requires valid feedback and unchanged routes.
-Playback **Arrival tolerance** offers 0.5° (default), 1°, 2° and 3° for angular joints;
+although publishing a pose hold still requires valid feedback and an unchanged robot description.
+Playback speed defaults to 1×; arrow buttons select 0.5×–1.5× in 0.1× steps.
+Playback **Arrival tolerance** offers 3° (default) and 5° for angular joints;
+the two `/leader/joint_trajectory_command_broadcaster_{left,right}_hand/joint_trajectory`
+topics skip position-error arrival checks. Their feedback
+must still be valid and fresh, and generated hand moves are preserved.
 **Lift / linear tolerance** offers 1 cm (default), 2 cm and 3 cm for linear joints. Start, repeat-return and final poses require 0.3 seconds
 continuously within tolerance. While a job is active, the selectors show the server's
 settings and cannot be changed. Timeout errors include joint targets and measured errors.
@@ -87,6 +95,24 @@ npm run dev
 ```
 
 Open **http://localhost:3000** (redirects to `/app`).
+
+### 3D model assets
+
+Both UI Dockerfiles download mesh directories into `public/assets` during the build.
+The hand meshes come from `ROBOTIS-GIT/robotis_hand` on `main`, under
+`robotis_hand_description/meshes`. The viewer maps
+`package://robotis_hand_description/...` to `/assets/robotis_hand_description/...`.
+Rebuild the UI image when adding or updating mesh assets.
+
+The development Compose stack keeps assets in an anonymous volume. From the
+repository root, recreate it along with the UI to pick up newly built meshes:
+
+```bash
+docker compose -f docker-compose.dev.yml up -d --build --no-deps --renew-anon-volumes ui
+```
+
+Running `npm run dev` directly requires the same mesh directories in `public/assets`;
+the URDF itself does not contain mesh file contents.
 
 ### API address
 
@@ -160,8 +186,7 @@ The UI calls the cyclo_manager **REST API** and **WebSockets**:
 | System telemetry | `WebSocket /ws/ros2/system-status?battery=...&camera=...` — repeated query parameters, battery subscriptions only; camera graph inspection |
 | Jog | `WebSocket /ws/jog?container={container}` — operator intent refreshed at 10 Hz; joint targets accumulate at a fixed 10 ms interval (100 Hz) with time from start fixed at 0 ms; base publishing remains 20 Hz, independent status about 10 Hz; closes on page unmount or container change |
 | Jog bringup | `GET /{container}/bringup_status` — page-owned polling every 2 s, no overlapping requests; per-container observations expire after 4 s |
-| Recording catalog | `WebSocket /record_play/watch` — scoped subscriptions for the page; closing it does not stop a recording/playback job |
-| Record & Play status | `GET /record_play` for catalog/library/controller feedback about every 2 s, `GET /record_play/status` for job status every 500 ms |
+| Record & Play status | `GET /record_play` for topic catalog/library about every 2 s, `GET /record_play/status` for job status every 500 ms |
 | Record & Play commands | `POST /record_play/record`, `/record_play/play`, `/record_play/stop` |
 | Delete saved recording | `DELETE /record_play/recordings/{recording_id}` — permanently remove bag files and metadata; an active recording/playback job returns a conflict |
 | Container terminal | `WebSocket /terminal/{name}/ws?session_id=...` |

@@ -30,12 +30,13 @@ export const POSITION_TOLERANCE = { m: 0.0001, rad: Math.PI / 18000 };
 export const COMMAND_MIN_INTERVAL_MS = 90;
 export const JOG_HEARTBEAT_INTERVAL_MS = 100;
 export const FEEDBACK_TIMEOUT_MS = 700;
+export const JOG_PREPARE_TIMEOUT_MS = 5000;
 export const BASE_TRANSLATION = { min: 0.05, max: 0.3, step: 0.05, initial: 0.1 };
 export const BASE_ROTATION = { min: 0.1, max: 0.6, step: 0.1, initial: 0.2 };
 
 export type JogResolution = typeof JOINT_INCREMENTS[number]["value"];
 export type JogCommand =
-  | { kind: "idle" | "release" | "stop" }
+  | { kind: "idle" | "enable" | "release" | "stop" }
   | { kind: "base"; x: number; y: number; yaw: number }
   | { kind: "joint"; joint: string; direction: -1 | 1; resolution: JogResolution };
 
@@ -46,6 +47,7 @@ export type JogJoint = {
 };
 export type JogController = { topic: string; label: string; joints: string[]; subscribed: boolean };
 export type JogState = {
+  publishers_prepared: boolean;
   controllers: JogController[]; robot: RobotRuntime;
   robot_type: string; base_supported: boolean; feedback_fresh: boolean;
   feedback_age: number | null; description_available: boolean;

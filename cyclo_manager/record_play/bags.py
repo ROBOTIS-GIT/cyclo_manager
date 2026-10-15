@@ -97,9 +97,30 @@ class BagStore:
 
     def read(self, recording_id):
         """Stream deserialized trajectories in recorded timestamp order."""
+        from rosidl_runtime_py.convert import message_to_ordereddict
+
+        for topic, message, timestamp in self._read_messages(recording_id):
+            yield topic, message_to_ordereddict(message), timestamp
+
+    def read_serialized(self, recording_id, rate):
+        """Prepare replay bytes without converting messages to dictionaries and back."""
+        from rclpy.serialization import serialize_message
+
+        for topic, message, timestamp in self._read_messages(recording_id):
+            message.header.stamp.sec = 0
+            message.header.stamp.nanosec = 0
+            if rate != 1.0:
+                for point in message.points:
+                    point.velocities = [value * rate for value in point.velocities]
+                    point.accelerations = [value * rate * rate for value in point.accelerations]
+                    duration = point.time_from_start
+                    nanoseconds = round((duration.sec * 10**9 + duration.nanosec) / rate)
+                    duration.sec, duration.nanosec = divmod(nanoseconds, 10**9)
+            yield topic, serialize_message(message), timestamp
+
+    def _read_messages(self, recording_id):
         import rosbag2_py
         from rclpy.serialization import deserialize_message
-        from rosidl_runtime_py.convert import message_to_ordereddict
         from trajectory_msgs.msg import JointTrajectory
 
         path = self.path(recording_id) / 'bag'
@@ -112,8 +133,7 @@ class BagStore:
             raise ValueError('Only JointTrajectory recordings can be played.')
         while reader.has_next():
             topic, raw, timestamp = reader.read_next()
-            message = message_to_ordereddict(deserialize_message(raw, JointTrajectory))
-            yield topic, message, timestamp
+            yield topic, deserialize_message(raw, JointTrajectory), timestamp
 
 
 class BagWriter:

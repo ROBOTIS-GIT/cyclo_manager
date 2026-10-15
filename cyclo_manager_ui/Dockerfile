@@ -27,6 +27,7 @@ COPY . .
 # Use sparse checkout to only download mesh directories used by URDF files.
 RUN mkdir -p \
         public/assets/ffw_description \
+        public/assets/robotis_hand_description \
         public/assets/open_manipulator_description \
         public/assets/realsense2_description/meshes && \
     cd /tmp && \
@@ -36,6 +37,13 @@ RUN mkdir -p \
     cd ai_worker && \
     git sparse-checkout set ffw_description/meshes && \
     cp -r ffw_description/meshes /app/public/assets/ffw_description/ && \
+    cd /tmp && \
+    git clone --filter=blob:none --sparse --depth=1 \
+        --branch main \
+        https://github.com/ROBOTIS-GIT/robotis_hand.git && \
+    cd robotis_hand && \
+    git sparse-checkout set robotis_hand_description/meshes && \
+    cp -r robotis_hand_description/meshes /app/public/assets/robotis_hand_description/ && \
     cd /tmp && \
     git clone --filter=blob:none --sparse --depth=1 \
         --branch jazzy \
@@ -52,7 +60,7 @@ RUN mkdir -p \
     git sparse-checkout set realsense2_description/meshes && \
     cp realsense2_description/meshes/d405.stl /app/public/assets/realsense2_description/meshes/ && \
     cd / && \
-    rm -rf /tmp/ai_worker /tmp/open_manipulator /tmp/realsense-ros && \
+    rm -rf /tmp/ai_worker /tmp/robotis_hand /tmp/open_manipulator /tmp/realsense-ros && \
     echo "Meshes downloaded:" && \
     find /app/public/assets -type f | wc -l && \
     find /app/public/assets -type f | head -5

@@ -18,7 +18,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
-  COMMAND_MIN_INTERVAL_MS, FEEDBACK_TIMEOUT_MS, JOG_HEARTBEAT_INTERVAL_MS,
+  COMMAND_MIN_INTERVAL_MS, FEEDBACK_TIMEOUT_MS, JOG_HEARTBEAT_INTERVAL_MS, JOG_PREPARE_TIMEOUT_MS,
 } from "@/lib/jog";
 import type { JogCommand, JogResolution, JogState } from "@/lib/jog";
 import { getWebSocketBaseUrl } from "@/lib/websocketUtils";
@@ -33,11 +33,16 @@ export function useJogConnection(container: string) {
   const [attempt, setAttempt] = useState(0);
   const desired = useRef<JogCommand>({ kind: "idle" });
   const enabledRef = useRef(false);
+  const enablePending = useRef(false);
+  const enableDeadline = useRef(0);
+  const [preparing, setPreparing] = useState(false);
   const pumpRef = useRef<() => void>(() => {});
 
   const stop = useCallback((disarm = false) => {
     desired.current = { kind: "stop" };
     if (disarm) {
+      enablePending.current = false;
+      setPreparing(false);
       enabledRef.current = false;
       setEnabledState(false);
     }
@@ -63,9 +68,11 @@ export function useJogConnection(container: string) {
   const setEnabled = useCallback((value: boolean) => {
     if (!value) { stop(true); return; }
     if (!connected || !state?.robot.ready) return;
-    desired.current = { kind: "idle" };
-    enabledRef.current = true;
-    setEnabledState(true);
+    desired.current = { kind: "enable" };
+    enablePending.current = true;
+    enableDeadline.current = performance.now() + JOG_PREPARE_TIMEOUT_MS;
+    setPreparing(true);
+    pumpRef.current();
   }, [connected, state?.robot.ready, stop]);
 
   usePolling(async (_, signal) => {
@@ -87,10 +94,19 @@ export function useJogConnection(container: string) {
     let ws: WebSocket | null = null;
     const disarm = () => {
       enabledRef.current = false;
+      enablePending.current = false;
+      setPreparing(false);
       desired.current = { kind: "idle" };
       setEnabledState(false);
       setConnected(false);
       setState(null);
+    };
+    const preparationTimedOut = () => {
+      if (!enablePending.current || performance.now() < enableDeadline.current) return false;
+      setError("Jog preparation timed out. Reconnect to continue.");
+      disarm();
+      ws?.close();
+      return true;
     };
     const pump = () => {
       if (disposed || ws?.readyState !== WebSocket.OPEN) return;
@@ -108,7 +124,7 @@ export function useJogConnection(container: string) {
       lastSend = performance.now();
       ws.send(JSON.stringify(input));
       lastSent = input;
-      if (input.kind === "stop" || input.kind === "release") {
+      if (input.kind === "stop" || input.kind === "release" || input.kind === "enable") {
         desired.current = { kind: "idle" };
         lastSent = desired.current;
       }
@@ -128,7 +144,7 @@ export function useJogConnection(container: string) {
         pump();
       };
       socket.onmessage = event => {
-        if (disposed) return;
+        if (disposed || preparationTimedOut()) return;
         try {
           const message = JSON.parse(event.data) as { state?: JogState; error?: string };
           lastReply = performance.now();
@@ -141,8 +157,16 @@ export function useJogConnection(container: string) {
           if (message.state) {
             if (generation !== message.state.robot.generation || !message.state.robot.ready) {
               enabledRef.current = false;
+              enablePending.current = false;
+              setPreparing(false);
               setEnabledState(false);
               desired.current = { kind: "idle" };
+            }
+            if (enablePending.current && message.state.publishers_prepared && message.state.robot.ready) {
+              enablePending.current = false;
+              setPreparing(false);
+              enabledRef.current = true;
+              setEnabledState(true);
             }
             generation = message.state.robot.generation;
             setState(message.state); setConnected(true);
@@ -161,8 +185,9 @@ export function useJogConnection(container: string) {
       };
     }, 0);
     const timer = setInterval(() => {
-      if (hidden) return;
-      if (ws?.readyState === WebSocket.OPEN && performance.now() - lastReply > FEEDBACK_TIMEOUT_MS) {
+      if (hidden || preparationTimedOut()) return;
+      if (!enablePending.current && ws?.readyState === WebSocket.OPEN
+          && performance.now() - lastReply > FEEDBACK_TIMEOUT_MS) {
         setError("Jog feedback timed out. Reconnect to continue.");
         disarm();
         ws.close();
@@ -196,6 +221,8 @@ export function useJogConnection(container: string) {
     return () => {
       disposed = true;
       enabledRef.current = false;
+      enablePending.current = false;
+      setPreparing(false);
       desired.current = { kind: "idle" };
       pumpRef.current = () => {};
       clearTimeout(connectTimer);
@@ -214,6 +241,7 @@ export function useJogConnection(container: string) {
 
   return {
     state, connected,
+    preparing,
     enabled: connected && !!state?.robot.ready && enabled, error, command, pressJoint, releaseJoint, stop, setEnabled,
     reconnect: () => { stop(true); setState(null); setConnected(false); setAttempt(n => n + 1); },
   };

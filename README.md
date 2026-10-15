@@ -147,8 +147,8 @@ except `/app`. The **System** and **Jog** buttons use `GET /containers?running=t
 to get configured, running robot containers in one lightweight request: one match opens directly,
 multiple matches offer a choice, and no match reports that no robot container is
 running. Jog keeps the selected container in its URL and queries only its bringup
-status on demand. Record & Play opens directly and uses ROS feedback and controller
-routes independently of bringup status.
+status on demand. Record & Play opens directly and uses recorded command topics and ROS joint
+feedback independently of bringup status.
 
 Dashboard system statistics and the CPU process list refresh every second. Their
 CPU summaries use the same host-agent average of the latest three one-second
@@ -196,12 +196,11 @@ Interactive docs: `http://<host>:8081/docs`
 | | `GET /ros2/topics/{topic}/available` | Cheap liveness check (no JSON conversion of payload) |
 | | `GET /ros2/topics/{topic}/info` | `ros2 topic info -v` output |
 | | `GET /ros2/robot-description` | One-shot URDF; optional `topic` (default `/robot_description`); independent transient-local subscription bypasses shared cache and is released after receipt, disconnect or 5 s timeout |
-| | `POST /ros2/cmd_vel` | Publish Twist (`linear_x`, `linear_y`, `angular_z`; optional `topic`); separate from the Jog session API |
 | Jog | `GET /{container}/bringup_status` | Selected container's bringup/profile status; Jog pages poll every 2 s, requests for the same container share a 1 s cache |
-| Record & Play | `GET /record_play` | Shared job state, discovered trajectory groups, saved recordings, controller feedback availability and storage path |
+| Record & Play | `GET /record_play` | Shared job state, discovered trajectory groups, saved recordings and storage path |
 | | `GET /record_play/status` | Read-only job status |
 | | `POST /record_play/record` | Start recording selected topics; bringup and active publishers are not required |
-| | `POST /record_play/play` | Validate ROS feedback, controller routes and bag, move to start pose, then play at 1× or 0.5×; `repeats` is total passes, 0 for infinite; `arrival_tolerance_deg` is 0.5 (default), 1, 2 or 3; `arrival_tolerance_cm` is 1 (default), 2 or 3 for linear joints, with 0.3 s in tolerance required at each arrival |
+| | `POST /record_play/play` | Validate joint feedback, URDF and bag, move to start pose, then play at 0.5×–1.5× (default 1×); `repeats` is total passes, 0 for infinite; `arrival_tolerance_deg` is 3 (default) or 5; `arrival_tolerance_cm` is 1 (default), 2 or 3 for linear joints, with 0.3 s in tolerance required at each arrival |
 | | `POST /record_play/stop` | Stop/save the active job; optional owner-scoped request |
 | | `DELETE /record_play/recordings/{recording_id}` | Permanently delete a saved recording and its rosbag files; reject deletion while any recording/playback job is active |
 | Host | `GET /host/repos`, `GET /host/repos/updates` | Managed host git repos |
@@ -226,7 +225,6 @@ Interactive docs: `http://<host>:8081/docs`
 | | `/ws/ros2/topics/{topic}` | Live topic data (see below) |
 | | `/ws/ros2/system-status` | Repeated `battery` and `camera` query parameters; battery percentages and camera publisher presence every 2 s; no camera image subscriptions |
 | | `/ws/jog?container={container}` | Ordered Jog input and feedback bound to the selected container; profile resolved by the server |
-| | `/record_play/watch` | Own the page's catalog/feedback subscriptions; job status is read over HTTP |
 
 ### Agent log history API
 
@@ -315,8 +313,8 @@ background bringup monitor; requests use a lightweight Docker list without image
 inspection. The type selects the AI Worker, OMY or OMX command routes. Record & Play
 uses discovered trajectory topics and ROS feedback without Docker/s6 status checks;
 known topics receive recommendations. No s6-agent update or new agent endpoint is
-required. Joint names, position limits and
-controller membership come from URDF and ROS feedback. Only one running follower
+required. Joint limits come from URDF. Jog resolves controller membership through
+ROS feedback; playback uses recorded topics and joint names. Only one running follower
 is supported on the shared feedback namespace. Jog uses
 `/ws/jog?container={container}`; the selected container determines the profile.
 Each container has its own

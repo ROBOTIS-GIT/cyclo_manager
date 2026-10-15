@@ -45,6 +45,7 @@ from cyclo_manager.ros2_node.qos import (
 )
 from cyclo_manager.subscriptions import SubscriptionError
 import rclpy
+from rclpy.duration import Duration
 from rclpy.executors import SingleThreadedExecutor
 from rclpy.guard_condition import GuardCondition
 from rclpy.node import Node
@@ -54,6 +55,7 @@ from rclpy.subscription import Subscription
 logger = logging.getLogger(__name__)
 
 RCLPY_NODE_NAME = 'cyclo_manager'
+PUBLISHER_RELEASE_ACK_BUDGET = 0.1
 
 
 class RequestKind:
@@ -65,8 +67,8 @@ class RequestKind:
     ACQUIRE_SUBSCRIPTION = 'acquire_subscription'
     RELEASE_SUBSCRIPTIONS = 'release_subscriptions'
     PUBLISH_TOPIC = 'publish_topic'
-    PREPARE_JOG = 'prepare_jog'
-    CHECK_JOG = 'check_jog'
+    ACQUIRE_PUBLISHERS = 'acquire_publishers'
+    RELEASE_PUBLISHERS = 'release_publishers'
     READ_RETAINED = 'read_retained'
 
 
@@ -130,7 +132,9 @@ class Ros2Bridge:
         self._lock = threading.Lock()
 
         self._subs: dict[str, Subscription] = {}
-        self._pubs: dict[tuple[str, str], Publisher] = {}
+        self._pubs: dict[str, Publisher] = {}
+        self._publisher_users: dict[str, set[str]] = {}
+        self._publisher_types: dict[str, str] = {}
         self._msg_cache: dict[str, TopicCacheEntry] = {}
         self._discovered_topics: dict[str, list[str]] = {}
         self._message_listeners: dict[str, set] = {}
@@ -149,6 +153,10 @@ class Ros2Bridge:
     # ------------------------------------------------------------------
 
     def start(self) -> None:
+        if self._spin_thread and self._spin_thread.is_alive():
+            if self._is_running:
+                return
+            raise RuntimeError('ROS2 bridge is still stopping.')
         if self._is_running:
             return
         _ensure_rclpy_init()
@@ -170,12 +178,30 @@ class Ros2Bridge:
         logger.info('ROS2 bridge started (domain_id=%s)', self.domain_id)
 
     def stop(self) -> None:
-        if not self._is_running:
+        if not self._is_running and self._rclpy_node is None:
             return
-        self._is_running = False
+        with self._lock:
+            self._is_running = False
         self._wake_requests()
         if self._spin_thread and self._spin_thread.is_alive():
+            if self._spin_thread is threading.current_thread():
+                return  # The spin loop's finally block owns resource destruction.
             self._spin_thread.join(timeout=5.0)
+            if self._spin_thread.is_alive():
+                raise RuntimeError('ROS2 spin thread is still stopping; cleanup is deferred.')
+        elif self._spin_thread is None:
+            self._destroy_ros_resources()
+
+    def _destroy_ros_resources(self) -> None:
+        """Destroy endpoints after the spin loop exits, on its owning thread."""
+        try:
+            while True:
+                kind, (_, response) = self._request_queue.get_nowait()
+                result = (SubscriptionError('ROS bridge stopped.')
+                          if kind == RequestKind.READ_RETAINED else False)
+                response.put_nowait(result)
+        except queue.Empty:
+            pass
         self._remove_all_subscriptions()
         self._remove_all_publishers()
         with self._lock:
@@ -222,7 +248,10 @@ class Ros2Bridge:
         if not self._is_running:
             raise SubscriptionError('ROS bridge unavailable.')
         request = RetainedRead(topic, msg_type, time.monotonic() + timeout, cancelled)
-        self._request_queue.put((RequestKind.READ_RETAINED, (request, request.response)))
+        with self._lock:
+            if not self._is_running:
+                raise SubscriptionError('ROS bridge unavailable.')
+            self._request_queue.put((RequestKind.READ_RETAINED, (request, request.response)))
         self._wake_requests()
         try:
             while request.active() and self._is_running:
@@ -250,44 +279,31 @@ class Ros2Bridge:
     # Public API — publish
     # ------------------------------------------------------------------
 
-    def publish_twist(
-        self,
-        topic: str,
-        linear_x: float,
-        angular_z: float,
-        linear_y: float = 0.0,
-    ) -> bool:
-        if not self._is_running:
-            return False
-        data = {
-            'linear': {'x': linear_x, 'y': linear_y, 'z': 0.0},
-            'angular': {'x': 0.0, 'y': 0.0, 'z': angular_z},
-        }
-        return (
-            self._enqueue_request(
-                RequestKind.PUBLISH_TOPIC,
-                (topic, 'geometry_msgs/msg/Twist', data),
-            )
-            is True
-        )
-
-    def publish_jog(self, topic: str, msg_type: str, data: dict[str, Any]) -> bool:
-        """Never execute a jog command that sat in the spin queue too long."""
+    def publish_jog(self, topic: str, msg_type: str, data: dict[str, Any] | bytes,
+                    owner_id: str) -> bool:
+        """Never execute a command after its owner closes or its queue deadline expires."""
         if not self._is_running:
             return False
         return self._enqueue_request(
             RequestKind.PUBLISH_TOPIC,
-            (topic, msg_type, data, time.monotonic() + 0.25),
+            (topic, msg_type, data, owner_id, time.monotonic() + 0.25),
             timeout=0.5,
         ) is True
 
-    def prepare_jog_publishers(self, topics: list[tuple[str, str]]) -> bool:
-        """Allow DDS discovery before the first jog command, without moving."""
-        return self._enqueue_request(RequestKind.PREPARE_JOG, topics) is True
+    def acquire_publishers(self, topics: list[tuple[str, str]], owner_id: str) -> bool:
+        """Register a consumer and allow discovery before its first command."""
+        if not self._is_running:
+            return False
+        return self._enqueue_request(
+            RequestKind.ACQUIRE_PUBLISHERS,
+            (topics, owner_id, time.monotonic() + 5.0),
+        ) is True
 
-    def jog_publishers_ready(self, topics: list[tuple[str, str]]) -> bool:
-        """Check all destination subscribers before starting multi-controller motion."""
-        return self._enqueue_request(RequestKind.CHECK_JOG, topics, timeout=0.5) is True
+    def release_publishers(self, owner_id: str) -> bool:
+        """Remove publishers only after their last consumer leaves."""
+        if not self._is_running:
+            return False
+        return self._enqueue_request(RequestKind.RELEASE_PUBLISHERS, owner_id) is True
 
     # ------------------------------------------------------------------
     # Public API — read cache / topic metadata
@@ -372,22 +388,29 @@ class Ros2Bridge:
     # ------------------------------------------------------------------
 
     def _spin_loop(self) -> None:
-        while self._is_running and self._executor and self._rclpy_node:
-            try:
-                self._cleanup_retained_reads()
-                self._process_request()
-            except Exception as e:
-                logger.debug('Request process error: %s', e)
-            try:
-                self._executor.spin_once(timeout_sec=0.1)
-            except Exception as e:
-                if self._is_running:
-                    logger.debug('Spin once error: %s', e)
+        try:
+            while self._is_running and self._executor and self._rclpy_node:
+                try:
+                    self._cleanup_retained_reads()
+                    self._process_request()
+                except Exception as e:
+                    logger.debug('Request process error: %s', e)
+                if not self._is_running:
+                    break
+                try:
+                    self._executor.spin_once(timeout_sec=0.1)
+                except Exception as e:
+                    if self._is_running:
+                        logger.debug('Spin once error: %s', e)
+        finally:
+            with self._lock:
+                self._is_running = False
+            self._destroy_ros_resources()
 
     def _process_request(self) -> None:
         """Process requests from queue (run from spin thread)."""
         try:
-            while True:
+            while self._is_running:
                 kind, payload = self._request_queue.get_nowait()
                 request_payload, response_queue = payload
                 if kind == RequestKind.READ_RETAINED:
@@ -428,32 +451,27 @@ class Ros2Bridge:
                     except Exception as e:
                         logger.warning('Subscription release failed: %s', e)
                         result = False
-                elif kind in (RequestKind.PREPARE_JOG, RequestKind.CHECK_JOG):
+                elif kind == RequestKind.ACQUIRE_PUBLISHERS:
+                    topics, owner_id, deadline = request_payload
                     try:
-                        publishers = [self._get_or_create_publisher(topic, msg_type)
-                                      for topic, msg_type in request_payload]
-                        result = all(pub is not None and (
-                            kind == RequestKind.PREPARE_JOG
-                            or self._has_external_subscriber(topic, pub))
-                            for (topic, _), pub in zip(request_payload, publishers))
-                    except Exception as e:
-                        logger.warning('Jog publisher preparation failed: %s', e)
+                        result = time.monotonic() < deadline and self._handle_acquire_publishers(
+                            topics, owner_id)
+                    except Exception as exc:
+                        logger.warning('Publisher acquisition failed: %s', exc)
+                        result = False
+                elif kind == RequestKind.RELEASE_PUBLISHERS:
+                    try:
+                        result = self._handle_release_publishers(request_payload)
+                    except Exception as exc:
+                        logger.warning('Publisher release failed: %s', exc)
                         result = False
                 elif kind == RequestKind.PUBLISH_TOPIC:
-                    topic, msg_type, data, *deadline = request_payload
+                    topic, msg_type, data, owner_id, deadline = request_payload
                     try:
-                        result = (
-                            self._handle_publish_topic(topic, msg_type, data)
-                            if not deadline or time.monotonic() < deadline[0]
-                            else False
-                        )
-                    except Exception as e:
-                        logger.warning(
-                            'Publish request failed: topic=%s msg_type=%s error=%s',
-                            topic,
-                            msg_type,
-                            e,
-                        )
+                        result = time.monotonic() < deadline and self._handle_publish_topic(
+                            topic, msg_type, data, owner_id)
+                    except Exception as exc:
+                        logger.warning('Publish request failed: topic=%s error=%s', topic, exc)
                         result = False
                 else:
                     logger.warning('Unknown request type: op=%s', kind)
@@ -476,7 +494,10 @@ class Ros2Bridge:
     ) -> Any:
         """Enqueue request and wait for its response value."""
         response_queue: queue.Queue[Any] = queue.Queue(maxsize=1)
-        self._request_queue.put((kind, (payload, response_queue)))
+        with self._lock:
+            if not self._is_running:
+                return None
+            self._request_queue.put((kind, (payload, response_queue)))
         self._wake_requests()
         try:
             return response_queue.get(timeout=timeout)
@@ -631,24 +652,59 @@ class Ros2Bridge:
             return True
         return False
 
-    def _get_or_create_publisher(self, topic: str, msg_type: str):
-        pub_key = (topic, msg_type)
-        with self._lock:
-            pub = self._pubs.get(pub_key)
-        if pub is None and self._rclpy_node:
-            msg_class = get_message_class(msg_type)
-            if msg_class is None:
-                return None
-            pub = self._rclpy_node.create_publisher(msg_class, topic, 5)
-            with self._lock:
-                self._pubs[pub_key] = pub
-        return pub
+    def _handle_acquire_publishers(self, topics, owner_id):
+        for topic, msg_type in topics:
+            if topic in self._pubs:
+                if self._publisher_types[topic] != msg_type:
+                    raise ValueError(f'Conflicting publisher message type for {topic}.')
+            else:
+                msg_class = get_message_class(msg_type)
+                if msg_class is None or not self._rclpy_node:
+                    return False
+                self._pubs[topic] = self._rclpy_node.create_publisher(msg_class, topic, 5)
+                self._publisher_types[topic] = msg_type
+                self._publisher_users[topic] = set()
+            self._publisher_users[topic].add(owner_id)
+        return True
+
+    def _handle_release_publishers(self, owner_id):
+        success = True
+        ack_deadline = time.monotonic() + PUBLISHER_RELEASE_ACK_BUDGET
+        for topic, users in list(self._publisher_users.items()):
+            users.discard(owner_id)
+            if users:
+                continue
+            pub = self._pubs[topic]
+            # Share one ACK budget across all topics so cleanup cannot stall other owners.
+            try:
+                remaining = max(0.0, ack_deadline - time.monotonic())
+                if not pub.wait_for_all_acked(Duration(seconds=remaining)):
+                    logger.warning('Final publish acknowledgement timed out: %s', topic)
+            except Exception as exc:
+                logger.warning('Cannot wait for publisher %s: %s', topic, exc)
+            try:
+                self._rclpy_node.destroy_publisher(pub)
+            except Exception as exc:
+                logger.warning('Cannot destroy publisher %s: %s', topic, exc)
+                success = False
+                continue
+            del self._pubs[topic]
+            del self._publisher_types[topic]
+            del self._publisher_users[topic]
+        return success
+
+    def _owned_publisher(self, topic, msg_type, owner_id):
+        if (owner_id in self._publisher_users.get(topic, ())
+                and self._publisher_types.get(topic) == msg_type):
+            return self._pubs.get(topic)
+        return None
 
     def _handle_publish_topic(
         self,
         topic: str,
         msg_type: str,
-        data: dict[str, Any],
+        data: dict[str, Any] | bytes,
+        owner_id: str,
     ) -> bool:
         if not self._rclpy_node:
             return False
@@ -657,12 +713,15 @@ class Ros2Bridge:
             logger.error('Unknown message type for publish: %s', msg_type)
             return False
 
-        pub = self._get_or_create_publisher(topic, msg_type)
+        pub = self._owned_publisher(topic, msg_type, owner_id)
         if pub is None:
             logger.warning('Publisher unavailable for topic: %s', topic)
             return False
 
         try:
+            if isinstance(data, bytes):
+                pub.publish(data)
+                return True
             msg = msg_class()
             if msg_type == 'trajectory_msgs/msg/JointTrajectory':
                 # Nested message arrays need actual JointTrajectoryPoint instances.
@@ -680,14 +739,6 @@ class Ros2Bridge:
                 e,
             )
             return False
-
-    def _has_external_subscriber(self, topic, publisher):
-        """Do not count this bridge's recorder/cache subscription as a motion receiver."""
-        if not self._rclpy_node or publisher.get_subscription_count() == 0:
-            return False
-        own = (self._rclpy_node.get_name(), self._rclpy_node.get_namespace())
-        return any((endpoint.node_name, endpoint.node_namespace) != own
-                   for endpoint in self._rclpy_node.get_subscriptions_info_by_topic(topic))
 
     # ------------------------------------------------------------------
     # Spin thread — rclpy helpers
@@ -801,12 +852,14 @@ class Ros2Bridge:
                 logger.warning('Error destroying sub %s: %s', topic, e)
 
     def _remove_all_publishers(self) -> None:
+        """Clear publisher state on the spin thread after request processing ends."""
         if not self._rclpy_node:
             return
-        with self._lock:
-            pubs = list(self._pubs.items())
-            self._pubs.clear()
-        for (topic, _msg_type), pub in pubs:
+        pubs = list(self._pubs.items())
+        self._pubs.clear()
+        self._publisher_users.clear()
+        self._publisher_types.clear()
+        for topic, pub in pubs:
             try:
                 self._rclpy_node.destroy_publisher(pub)
             except Exception as e:
