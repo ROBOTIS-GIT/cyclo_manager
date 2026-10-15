@@ -112,10 +112,18 @@ limits (10°/s and 20°/s²; lift 10 mm/s and 20 mm/s²). Duration accounts for 
 peak speed and acceleration and is limited to 120 seconds. Position commands
 have `time_from_start=0`. These bound the generated targets, not the controller's
 physical motion. **Arrival tolerance** selects the angular tolerance for each
-playback job: 0.5° (default), 1°, 2° or 3°. **Lift / linear tolerance** selects
+playback job: 0.5° (default), 1°, 2° or 3°.
+The two hand command topics
+`/leader/joint_trajectory_command_broadcaster_left_hand/joint_trajectory` and
+`/leader/joint_trajectory_command_broadcaster_right_hand/joint_trajectory`
+are exempt from position-error arrival checks. Other topics retain the selected
+tolerances, including topics that contain finger joints. Hand feedback must still
+be present, finite and fresh. Generated hand moves and recorded targets are
+unchanged: the pre-move check still includes hands so a hand-only displacement
+does not skip the start or return movement. **Lift / linear tolerance** selects
 1 cm (default), 2 cm or 3 cm for linear joints. These settings apply to the start
 pose, repeat returns and final pose for joints recorded on direct controller inputs.
-All involved joints must stay within tolerance for 0.3 seconds before proceeding,
+All non-exempt joints must stay within tolerance for 0.3 seconds before proceeding,
 even if the initial pose is already within tolerance. An out-of-range observation
 restarts that interval. Failure to settle within ten seconds after the planned
 interval aborts playback; the error reports the affected joints, targets, measured

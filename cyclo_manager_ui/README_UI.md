@@ -63,6 +63,9 @@ or robot-description checks; return transitions, arrival checks and stop
 holds still validate them. Stop remains available when feedback is unavailable,
 although publishing a pose hold still requires valid feedback and an unchanged robot description.
 Playback **Arrival tolerance** offers 0.5° (default), 1°, 2° and 3° for angular joints;
+the two `/leader/joint_trajectory_command_broadcaster_{left,right}_hand/joint_trajectory`
+topics skip position-error arrival checks, as noted in the UI. Their feedback
+must still be valid and fresh, and generated hand moves are preserved.
 **Lift / linear tolerance** offers 1 cm (default), 2 cm and 3 cm for linear joints. Start, repeat-return and final poses require 0.3 seconds
 continuously within tolerance. While a job is active, the selectors show the server's
 settings and cannot be changed. Timeout errors include joint targets and measured errors.

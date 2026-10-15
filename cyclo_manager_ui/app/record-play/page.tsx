@@ -219,6 +219,7 @@ export default function RecordPlayPage() {
                     <option value={1}>1 cm</option><option value={2}>2 cm</option><option value={3}>3 cm</option>
                   </select>
                 </label>
+                <p className="col-span-2 text-right text-xs" style={secondary}>Hand command topics skip position-error arrival checks.</p>
                 {shownMode !== "once" && <p className="col-span-2 text-xs leading-relaxed" style={secondary}>Returns to the start pose between plays.</p>}
               </fieldset>
 

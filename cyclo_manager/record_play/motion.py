@@ -21,6 +21,8 @@
 import math
 import xml.etree.ElementTree as ET
 
+from cyclo_manager.robot_interface.command_profiles import ARRIVAL_CHECKS
+
 RETURN_SPEED = {'rad': math.radians(10), 'm': 0.01}
 RETURN_ACCELERATION = {'rad': math.radians(20), 'm': 0.02}
 
@@ -111,10 +113,11 @@ class MotionPlan:
 
 
 def arrival_errors(goals, positions, joints, arrival_tolerance_deg=0.5,
-                   arrival_tolerance_cm=1.0):
-    """Describe missed targets using separate angular and linear tolerances."""
+                   arrival_tolerance_cm=1.0, *, check_all_targets=False):
+    """Check arrival using command-route policy while always validating feedback."""
     errors = []
     for topic, group in goals.items():
+        check_target = check_all_targets or ARRIVAL_CHECKS.get(topic, True)
         for name, target in group.items():
             linear = joints[name].unit == 'm'
             tolerance = (arrival_tolerance_cm / 100 if linear
@@ -122,6 +125,8 @@ def arrival_errors(goals, positions, joints, arrival_tolerance_deg=0.5,
             scale, unit = (1000, 'mm') if linear else (180 / math.pi, 'deg')
             current = positions.get(name)
             measured = current is not None and math.isfinite(current)
+            if measured and not check_target:
+                continue
             error = abs(current - target) if measured else None
             if measured and error <= tolerance:
                 continue
@@ -134,9 +139,10 @@ def arrival_errors(goals, positions, joints, arrival_tolerance_deg=0.5,
 
 
 def arrived(goals, positions, joints, arrival_tolerance_deg=0.5, arrival_tolerance_cm=1.0):
-    """Compare every commanded joint using this playback's arrival tolerances."""
+    """Check every joint before skipping a start or return movement, including hands."""
+    # Exempting hands here would skip their generated motion when only hands differ.
     return not arrival_errors(goals, positions, joints, arrival_tolerance_deg,
-                              arrival_tolerance_cm)
+                              arrival_tolerance_cm, check_all_targets=True)
 
 
 def return_duration(goals, positions, joints, description):
