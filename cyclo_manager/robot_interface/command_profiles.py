@@ -34,6 +34,13 @@ GROUPS = {
     '/leader/joint_trajectory': ('arm', 'Arm + gripper'),
 }
 
+# Known hand command routes do not require position-error convergence. Unknown
+# topics keep arrival checks enabled; feedback validity is always required.
+ARRIVAL_CHECKS = {
+    topic: alias not in ('hand_l', 'hand_r')
+    for topic, (alias, _) in GROUPS.items()
+}
+
 
 @dataclass(frozen=True)
 class RobotProfile:

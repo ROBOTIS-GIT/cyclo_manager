@@ -43,7 +43,7 @@ export default function RecordPlayPage() {
   const [rate, setRate] = useState(1);
   const [repeatMode, setRepeatMode] = useState<RepeatMode>("once");
   const [repeats, setRepeats] = useState(5);
-  const [arrivalTolerance, setArrivalTolerance] = useState(0.5);
+  const [arrivalTolerance, setArrivalTolerance] = useState(3);
   const [linearArrivalTolerance, setLinearArrivalTolerance] = useState(1);
   const { overview, state } = api;
   const recordings = overview?.recordings ?? [];
@@ -56,12 +56,11 @@ export default function RecordPlayPage() {
   const active = !!state?.active;
   const locked = active || api.busy;
   const available = api.connected;
-  const canPlay = available && !!overview?.feedback_ready;
   const sameRecording = !!recording && state?.recording_id === recording.id;
   const shownRate = activeMotion ? state.rate ?? 1 : rate;
   const shownMode = activeMotion ? state.repeats === 0 ? "infinite" : state.repeats === 1 ? "once" : "repeat" : repeatMode;
   const shownRepeats = activeMotion && state.repeats > 0 ? state.repeats : repeats;
-  const shownArrivalTolerance = activeMotion ? state.arrival_tolerance_deg ?? 0.5 : arrivalTolerance;
+  const shownArrivalTolerance = activeMotion ? state.arrival_tolerance_deg ?? 3 : arrivalTolerance;
   const shownLinearArrivalTolerance = activeMotion ? state.arrival_tolerance_cm ?? 1 : linearArrivalTolerance;
   const showProgress = sameRecording && (activeMotion || (state?.phase === "completed" && rate === (state.rate ?? 1)));
   const elapsed = showProgress ? state?.elapsed ?? 0 : 0;
@@ -100,10 +99,6 @@ export default function RecordPlayPage() {
         <div className="flex items-center gap-2 text-xs mt-1" style={secondary}>
           <StatusBadge status={api.connected} dotOnly label={api.connected ? "Connected" : "Disconnected"} />
           {api.connected ? "Server connected" : "Server disconnected"}
-        </div>
-        <div className="flex items-center gap-2 text-xs mt-1" style={secondary} aria-live="polite">
-          <StatusBadge status={!!overview?.feedback_ready} dotOnly label="Controller feedback" />
-          Controller feedback: {overview ? overview.feedback_ready ? "Available" : "Unavailable" : "Checking…"}
         </div>
       </div>
     </header>
@@ -185,7 +180,7 @@ export default function RecordPlayPage() {
                   <div className="h-full transition-[width] duration-300" style={{ width: `${progress}%`, background: "var(--vscode-focusBorder)" }} />
                 </div>
                 <div className="mt-5 grid grid-cols-[minmax(0,1fr)_auto] gap-2">
-                  <button type="button" className={button} style={primary} disabled={!canPlay || locked}
+                  <button type="button" className={button} style={primary} disabled={!available || locked}
                     onClick={() => void api.action("play", command)}><TransportIcon />Play</button>
                   {stopButton}
                 </div>
@@ -194,37 +189,49 @@ export default function RecordPlayPage() {
                 </p>
               </div>
 
-              <fieldset className="grid grid-cols-2 gap-3 border-t p-4 md:p-5" disabled={locked} style={border}>
+              <fieldset className="space-y-3 border-t p-4 md:p-5" disabled={locked} style={border}>
                 <legend className="sr-only">Playback settings</legend>
-                <label className="min-w-0 text-xs" style={secondary}>Speed
-                  <select aria-label="Playback speed" className={`${field} mt-2`} style={control} value={shownRate} onChange={event => setRate(Number(event.target.value))}>
-                    <option value={0.5}>0.5×</option><option value={1}>1×</option>
-                  </select>
-                </label>
-                <label className="min-w-0 text-xs" style={secondary}>Playback
-                  <select aria-label="Repeat mode" className={`${field} mt-2`} style={control} value={shownMode} onChange={event => setRepeatMode(event.target.value as RepeatMode)}>
-                    <option value="once">Once</option><option value="repeat">Repeat</option><option value="infinite">Infinite</option>
-                  </select>
-                </label>
-                {shownMode === "repeat" && <label className="col-span-2 flex flex-wrap items-center justify-between gap-3 text-xs" style={secondary}>Total plays
-                  <input aria-label="Total plays" type="number" min={1} max={10000} className="w-24 rounded border p-1.5 text-sm tabular-nums" style={control} value={shownRepeats}
+                <div className="flex flex-wrap items-start justify-end gap-x-4 gap-y-3">
+                  <div className="grid w-32 shrink-0 gap-2 text-xs" style={secondary}>
+                    <span id="playback-speed-label" className="flex h-11 items-center md:h-8">Speed</span>
+                    <div role="group" aria-labelledby="playback-speed-label" className="flex h-11 items-center rounded border md:h-8" style={control}>
+                      <button type="button" aria-label="Decrease playback speed" disabled={locked || shownRate <= 0.5}
+                        className="flex h-full w-8 shrink-0 items-center justify-center disabled:opacity-40"
+                        onClick={() => setRate(current => Math.max(0.5, Math.round((current - 0.1) * 10) / 10))}>
+                        <svg aria-hidden="true" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><path d="m14 7-5 5 5 5" /></svg>
+                      </button>
+                      <output aria-label="Playback speed" aria-live="polite" className="min-w-0 flex-1 text-center text-sm font-normal tabular-nums">{shownRate.toFixed(1)}×</output>
+                      <button type="button" aria-label="Increase playback speed" disabled={locked || shownRate >= 1.5}
+                        className="flex h-full w-8 shrink-0 items-center justify-center disabled:opacity-40"
+                        onClick={() => setRate(current => Math.min(1.5, Math.round((current + 0.1) * 10) / 10))}>
+                        <svg aria-hidden="true" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><path d="m10 7 5 5-5 5" /></svg>
+                      </button>
+                    </div>
+                  </div>
+                  <label className="grid w-32 shrink-0 gap-2 text-xs" style={secondary}>
+                    <span className="flex h-11 items-center md:h-8">Playback</span>
+                    <select aria-label="Repeat mode" className="h-11 w-full rounded border px-1.5 text-sm disabled:opacity-50 md:h-8" style={control} value={shownMode} onChange={event => setRepeatMode(event.target.value as RepeatMode)}>
+                      <option value="once">Once</option><option value="repeat">Repeat</option><option value="infinite">Infinite</option>
+                    </select>
+                  </label>
+                  <div className="grid grid-cols-[auto_6rem] items-center gap-x-3 gap-y-2 text-xs" style={secondary}>
+                    <label htmlFor="arrival-tolerance" className="text-right">Arrival tolerance</label>
+                    <select id="arrival-tolerance" aria-label="Arrival tolerance" className="h-11 w-24 rounded border px-1.5 text-sm disabled:opacity-50 md:h-8" style={control}
+                      value={shownArrivalTolerance} onChange={event => setArrivalTolerance(Number(event.target.value))}>
+                      <option value={3}>3°</option><option value={5}>5°</option>
+                    </select>
+                    <label htmlFor="linear-arrival-tolerance" className="text-right">Lift / linear tolerance</label>
+                    <select id="linear-arrival-tolerance" aria-label="Linear arrival tolerance" className="h-11 w-24 rounded border px-1.5 text-sm disabled:opacity-50 md:h-8" style={control}
+                      value={shownLinearArrivalTolerance} onChange={event => setLinearArrivalTolerance(Number(event.target.value))}>
+                      <option value={1}>1 cm</option><option value={2}>2 cm</option><option value={3}>3 cm</option>
+                    </select>
+                  </div>
+                </div>
+                {shownMode === "repeat" && <label className="flex flex-wrap items-center justify-end gap-3 text-xs" style={secondary}>Total plays
+                  <input aria-label="Total plays" type="number" min={1} max={10000} className="h-11 w-24 rounded border px-1.5 text-sm tabular-nums md:h-8" style={control} value={shownRepeats}
                     onChange={event => setRepeats(Math.max(1, Math.min(10000, Math.trunc(Number(event.target.value)) || 1)))} />
                 </label>}
-                <label className="col-span-2 flex flex-wrap items-center justify-end gap-3 text-xs" style={secondary}>
-                  <span>Arrival tolerance</span>
-                  <select aria-label="Arrival tolerance" className="w-24 rounded border p-1.5 text-sm disabled:opacity-50" style={control}
-                    value={shownArrivalTolerance} onChange={event => setArrivalTolerance(Number(event.target.value))}>
-                    <option value={0.5}>0.5°</option><option value={1}>1°</option><option value={2}>2°</option><option value={3}>3°</option>
-                  </select>
-                </label>
-                <label className="col-span-2 flex flex-wrap items-center justify-end gap-3 text-xs" style={secondary}>
-                  <span>Lift / linear tolerance</span>
-                  <select aria-label="Linear arrival tolerance" className="w-24 rounded border p-1.5 text-sm disabled:opacity-50" style={control}
-                    value={shownLinearArrivalTolerance} onChange={event => setLinearArrivalTolerance(Number(event.target.value))}>
-                    <option value={1}>1 cm</option><option value={2}>2 cm</option><option value={3}>3 cm</option>
-                  </select>
-                </label>
-                {shownMode !== "once" && <p className="col-span-2 text-xs leading-relaxed" style={secondary}>Returns to the start pose between plays.</p>}
+                {shownMode !== "once" && <p className="text-right text-xs leading-relaxed" style={secondary}>Returns to the start pose between plays.</p>}
               </fieldset>
 
               <details className="border-t px-4 py-3 text-xs md:px-5" style={{ ...border, ...secondary }}>
@@ -261,7 +268,7 @@ export default function RecordPlayPage() {
               {supportedGroups.map(group => <div key={group.id} className="min-w-0 rounded-lg border px-3 py-2" style={chosen.includes(group.id) ? { ...border, background: "var(--vscode-editor-background)" } : border}>
                 <label className="flex min-h-10 items-center gap-2.5 text-sm">
                   <input type="checkbox" checked={chosen.includes(group.id)} disabled={locked} onChange={event => setGroups(previous => event.target.checked ? [...previous, group.id] : previous.filter(value => value !== group.id))} />
-                  <span className="break-all">{group.label}{group.recommended && <small className="ml-2" style={secondary}>Recommended</small>}</span>
+                  <span className="break-all">{group.label}</span>
                 </label>
                 <div className="flex flex-wrap items-start justify-between gap-x-3 text-xs" style={secondary}>
                   <span className="flex min-h-8 items-center gap-1.5"><StatusBadge status={group.receiving} dotOnly label={group.receiving ? "Publisher detected" : "No publisher"} />{group.receiving ? "Publisher detected" : "No publisher"}</span>
