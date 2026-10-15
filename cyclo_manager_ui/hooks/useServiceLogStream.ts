@@ -17,211 +17,199 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { clearServiceLogs } from "@/lib/api";
+import { getServiceLogSnapshot } from "@/lib/api";
 import { createLogsWebSocket } from "@/lib/logWebsocket";
+import { appendLogBlocks, limitLogBlocks, MAX_LOG_LINES, MAX_LOG_CHARS, type LogBlock } from "@/lib/logBuffer";
 
-const LOG_UPDATE_DEBOUNCE_MS = 200;
-const RECONNECT_DELAY_MS = 3000;
-const WS_CLOSE_CODE_NORMAL = 1000;
-const WS_CLOSE_CODE_GOING_AWAY = 1001;
-const WS_CLOSE_CODE_POLICY_VIOLATION = 1008;
-const MAX_LOG_LINES = 5000;
-
-type UseServiceLogStreamResult = {
-  lines: string[];
-  error: string | null;
-  isConnected: boolean;
-  isClearing: boolean;
-  clearLogs: () => Promise<void>;
+export type LogBuffer = {
+  blocks: LogBlock[];
+  charCount: number;
+  logId: string | null;
+  end: number;
+  revision: number;
+};
+const emptyBuffer = (): LogBuffer => ({ blocks: [], charCount: 0, logId: null, end: 0, revision: 0 });
+const boundedBuffer = (buffer: LogBuffer): LogBuffer => {
+  const { blocks, charCount } = limitLogBlocks(buffer.blocks, buffer.charCount);
+  return { ...buffer, blocks, charCount };
 };
 
-function trimLogLines(lines: string[]): string[] {
-  return lines.length <= MAX_LOG_LINES ? lines : lines.slice(-MAX_LOG_LINES);
-}
+// Each mounted panel owns its history cache; live logs are never collected in the background.
+export function useServiceLogStream(container: string, service: string, logId: string | null,
+  cache: Map<string, LogBuffer>) {
+  const [buffer, setBuffer] = useState<LogBuffer>(() => logId ? cache.get(logId) ?? emptyBuffer() : emptyBuffer());
+  const bufferRef = useRef(buffer);
+  const [errors, setErrors] = useState<Record<string, string>>({});
+  const [disconnected, setDisconnected] = useState(false);
+  const [supported, setSupported] = useState<boolean | null>(logId ? true : null);
+  const [loading, setLoading] = useState(false);
+  const active = useRef(false);
+  const historyRequest = useRef<AbortController | null>(null);
+  const socket = useRef<WebSocket | null>(null);
+  const reloadRef = useRef<() => void>(() => {});
 
-export function useServiceLogStream(
-  container: string,
-  service: string
-): UseServiceLogStreamResult {
-  const [lines, setLines] = useState<string[]>([]);
-  const [isConnected, setIsConnected] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [isClearing, setIsClearing] = useState(false);
-
-  const wsRef = useRef<WebSocket | null>(null);
-  const reconnectTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const isMountedRef = useRef(true);
-  const shouldReconnectRef = useRef(true);
-  const pendingRef = useRef<string>("");
-  const partialLineRef = useRef<string>("");
-  const logUpdateTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const isEmptyLogsRef = useRef(true);
-
-  const flushPending = useCallback(() => {
-    const raw = partialLineRef.current + pendingRef.current;
-    pendingRef.current = "";
-
-    const parts = raw.split("\n");
-    if (raw.endsWith("\n")) {
-      partialLineRef.current = "";
-    } else {
-      partialLineRef.current = parts.pop() ?? "";
-    }
-
-    if (parts.length === 0) {
-      return;
-    }
-
-    setLines((prev) => trimLogLines([...prev, ...parts]));
+  const commit = useCallback((next: LogBuffer) => {
+    bufferRef.current = next;
+    setBuffer(next);
+  }, []);
+  const report = useCallback((source: string, message?: string) => {
+    setErrors(previous => {
+      const next = { ...previous };
+      if (message) next[source] = message;
+      else delete next[source];
+      return next;
+    });
   }, []);
 
-  const connectWebSocket = useCallback(() => {
-    if (!isMountedRef.current) return;
-
-    if (wsRef.current) {
-      wsRef.current.close(WS_CLOSE_CODE_NORMAL, "Reconnecting");
-      wsRef.current = null;
-    }
-
-    if (reconnectTimeoutRef.current) {
-      clearTimeout(reconnectTimeoutRef.current);
-      reconnectTimeoutRef.current = null;
-    }
-
-    setError(null);
-    setIsConnected(false);
-    shouldReconnectRef.current = true;
-    setLines([]);
-    pendingRef.current = "";
-    partialLineRef.current = "";
-    isEmptyLogsRef.current = true;
-
+  const loadSnapshot = useCallback(async () => {
+    if (!logId || historyRequest.current) return;
+    const request = new AbortController();
+    historyRequest.current = request;
+    setLoading(true);
+    report("history");
     try {
+      const snapshot = await getServiceLogSnapshot(container, service, logId, request.signal);
+      if (!active.current || request.signal.aborted) return;
+      commit(boundedBuffer({ ...emptyBuffer(), blocks: appendLogBlocks([], snapshot.logs),
+        charCount: snapshot.logs.length, logId: snapshot.log_id,
+        revision: bufferRef.current.revision + 1 }));
+    } catch (error) {
+      if (active.current && !request.signal.aborted) report("history", error instanceof Error ? error.message : "Could not read log.");
+    } finally {
+      if (historyRequest.current === request) {
+        historyRequest.current = null;
+        if (active.current) setLoading(false);
+      }
+    }
+  }, [container, service, logId, commit, report]);
+
+  useEffect(() => {
+    active.current = true;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    let flushTimer: ReturnType<typeof setTimeout> | undefined;
+    let failures = 0;
+    let permanent = false;
+    let pending = "";
+    let receivedEnd = bufferRef.current.end;
+    let supportedLive = true;
+    let pendingBreaks = 0;
+
+    const flush = () => {
+      clearTimeout(flushTimer);
+      flushTimer = undefined;
+      if (!pending) return;
+      const current = bufferRef.current;
+      const next = { ...current, blocks: appendLogBlocks(current.blocks, pending),
+        charCount: current.charCount + pending.length, end: receivedEnd };
+      pending = "";
+      pendingBreaks = 0;
+      commit(boundedBuffer(next));
+    };
+    const reset = (id: string | null = null, cursor = 0) => {
+      clearTimeout(flushTimer);
+      flushTimer = undefined;
+      pending = "";
+      receivedEnd = cursor;
+      pendingBreaks = 0;
+      historyRequest.current?.abort();
+      historyRequest.current = null;
+      setLoading(false);
+      commit({ ...emptyBuffer(), logId: id, end: cursor,
+        revision: bufferRef.current.revision + 1 });
+    };
+    const connect = () => {
+      if (!active.current) return;
+      clearTimeout(timer);
+      permanent = false;
+      const current = bufferRef.current;
+      // Legacy cursors have no execution identity; start a fresh tail on reconnect.
+      if (!supportedLive) reset();
+      setDisconnected(false);
       const ws = createLogsWebSocket(container, service, {
-        onMessage: (data: string) => {
-          if (!isMountedRef.current) return;
-
-          if (data.length === 0) {
-            setIsConnected(true);
-            return;
-          }
-
-          pendingRef.current += data;
-
-          if (isEmptyLogsRef.current) {
-            flushPending();
-            isEmptyLogsRef.current = false;
-            setIsConnected(true);
-          } else {
-            if (logUpdateTimeoutRef.current) {
-              clearTimeout(logUpdateTimeoutRef.current);
-            }
-            logUpdateTimeoutRef.current = setTimeout(() => {
-              if (!isMountedRef.current) return;
-              flushPending();
-            }, LOG_UPDATE_DEBOUNCE_MS);
-          }
-        },
-        onError: (err: Error) => {
-          if (!isMountedRef.current) return;
-          setError(err.message);
-          setIsConnected(false);
-
-          if (err.message.includes("stopped") || err.message.includes("both stopped")) {
-            shouldReconnectRef.current = false;
-          }
-        },
+        resume: supportedLive && current.logId ? { logId: current.logId, cursor: current.end } : undefined,
         onOpen: () => {
-          if (!isMountedRef.current) return;
-          setIsConnected(true);
-          setError(null);
+          if (socket.current !== ws || !active.current) return;
+          setDisconnected(false);
+          report("connection");
         },
-        onClose: (event?: CloseEvent) => {
-          if (!isMountedRef.current) return;
-          setIsConnected(false);
-
-          const shouldReconnect =
-            isMountedRef.current &&
-            wsRef.current === ws &&
-            shouldReconnectRef.current &&
-            event?.code !== WS_CLOSE_CODE_NORMAL &&
-            event?.code !== WS_CLOSE_CODE_GOING_AWAY &&
-            event?.code !== WS_CLOSE_CODE_POLICY_VIOLATION;
-
-          if (shouldReconnect) {
-            reconnectTimeoutRef.current = setTimeout(() => {
-              if (isMountedRef.current && shouldReconnectRef.current) {
-                connectWebSocket();
-              }
-            }, RECONNECT_DELAY_MS);
+        onError: error => { if (active.current && socket.current === ws) report("connection", error.message); },
+        onEvent: event => {
+          if (!active.current || socket.current !== ws || permanent) return;
+          failures = 0;
+          if (["logs", "reset", "state", "heartbeat"].includes(event.type)) report("connection");
+          if (event.type === "capabilities") {
+            supportedLive = event.history === true;
+            setSupported(supportedLive);
+          } else if (event.type === "reset") {
+            reset(event.log_id ?? null, event.cursor ?? 0);
+          } else if (event.type === "logs") {
+            const text = event.logs ?? event.data ?? "";
+            const current = bufferRef.current;
+            if (event.log_id && current.logId !== event.log_id) reset(event.log_id, event.start_cursor ?? 0);
+            if (typeof event.end_cursor === "number" && event.end_cursor <= receivedEnd) return;
+            if (event.log_id && typeof event.start_cursor === "number" && event.start_cursor !== receivedEnd) {
+              report("read", "Log position changed. Reload to continue.");
+              permanent = true;
+              ws.close(1000);
+              return;
+            }
+            if (!text) return;
+            // Count only new text so oversized bursts flush before the pending buffer grows.
+            let newBreaks = 0;
+            for (let i = text.indexOf("\n"); i !== -1; i = text.indexOf("\n", i + 1)) newBreaks++;
+            receivedEnd = event.end_cursor ?? event.cursor ?? receivedEnd;
+            pending += text;
+            pendingBreaks += newBreaks;
+            if (pending.length >= MAX_LOG_CHARS || pendingBreaks >= MAX_LOG_LINES) flush();
+            else if (!flushTimer) flushTimer = setTimeout(flush, 100);
+          } else if (event.type === "error") {
+            report(event.source ?? "connection", event.message ?? event.data ?? "Log stream error.");
+            if (event.retryable === false) permanent = true;
+          } else if (event.type === "recovered") report(event.source ?? "connection");
+        },
+        onClose: event => {
+          if (!active.current || socket.current !== ws) return;
+          flush();
+          const retry = !permanent && ![1000, 1001, 1008].includes(event.code);
+          setDisconnected(!retry);
+          if (retry) {
+            timer = setTimeout(connect, Math.min(30000, 1000 * 2 ** failures++));
           }
         },
       });
-
-      wsRef.current = ws;
-    } catch (err) {
-      if (!isMountedRef.current) return;
-      setError(err instanceof Error ? err.message : "Failed to connect to WebSocket");
-    }
-  }, [container, service, flushPending]);
-
-  const clearLogs = useCallback(async () => {
-    setIsClearing(true);
-    setError(null);
-
-    try {
-      await clearServiceLogs(container, service);
-      if (!isMountedRef.current) return;
-
-      setLines([]);
-      pendingRef.current = "";
-      partialLineRef.current = "";
-      isEmptyLogsRef.current = true;
-    } catch (err) {
-      if (!isMountedRef.current) return;
-      setError(err instanceof Error ? err.message : "Failed to clear logs");
-    } finally {
-      if (isMountedRef.current) {
-        setIsClearing(false);
-      }
-    }
-  }, [container, service]);
-
-  useEffect(() => {
-    isMountedRef.current = true;
-    shouldReconnectRef.current = true;
-    isEmptyLogsRef.current = true;
-    connectWebSocket();
-
-    return () => {
-      isMountedRef.current = false;
-      shouldReconnectRef.current = false;
-
-      if (wsRef.current) {
-        wsRef.current.close(WS_CLOSE_CODE_NORMAL, "Component unmounting");
-        wsRef.current = null;
-      }
-
-      if (reconnectTimeoutRef.current) {
-        clearTimeout(reconnectTimeoutRef.current);
-        reconnectTimeoutRef.current = null;
-      }
-
-      if (logUpdateTimeoutRef.current) {
-        clearTimeout(logUpdateTimeoutRef.current);
-        logUpdateTimeoutRef.current = null;
-      }
-
-      pendingRef.current = "";
-      partialLineRef.current = "";
+      socket.current = ws;
     };
-  }, [connectWebSocket]);
+    reloadRef.current = () => {
+      clearTimeout(timer);
+      socket.current?.close(1000);
+      socket.current = null;
+      setErrors({});
+      reset();
+      if (logId) { cache.delete(logId); void loadSnapshot(); }
+      else connect();
+    };
+    if (logId) {
+      if (!cache.has(logId)) void loadSnapshot();
+    } else connect();
+    return () => {
+      active.current = false;
+      clearTimeout(timer);
+      clearTimeout(flushTimer);
+      historyRequest.current?.abort();
+      historyRequest.current = null;
+      socket.current?.close(1000);
+      socket.current = null;
+      const current = bufferRef.current;
+      if (logId && current.logId === logId) {
+        cache.delete(logId);
+        cache.set(logId, current);
+        if (cache.size > 3) cache.delete(cache.keys().next().value!);
+      }
+    };
+  }, [container, service, logId, cache, commit, report, loadSnapshot]);
 
   return {
-    lines,
-    error,
-    isConnected,
-    isClearing,
-    clearLogs,
+    buffer, error: Object.values(errors).join(" · "), disconnected, supported, loading,
+    reload: () => reloadRef.current(),
   };
 }

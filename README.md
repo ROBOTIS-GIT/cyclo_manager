@@ -134,7 +134,7 @@ and required ROS bag packages.
 |------|------|-------|
 | Apps hub | `/app` | Links to Cyclo Manager (dashboard) and Cyclo Intelligence (port 7080) |
 | Dashboard | `/dashboard` | Host stats, Docker containers/images, logs, bashrc, version management (host git repos + s6 agent compatibility) |
-| System | `/{container}/system` | s6 bringup, launch args, URDF viewer, streaming service logs (download/clear), robot status |
+| System | `/{container}/system` | s6 bringup, launch args, URDF viewer, live and historical service logs (recent 5,000 lines/download), robot status |
 | Jog | `/{container}/jog` | Selected container's profile + dynamic URDF/controller feedback; `/jog` opens container selection |
 | Record & Play | `/record-play` | Record trajectory topics to rosbag2/MCAP; playback with start-pose transition, speed selection and repeat returns |
 | Topics | `/topics` | ROS 2 topic browser; live data via WebSocket |
@@ -234,8 +234,9 @@ Interactive docs: `http://<host>:8081/docs`
 The manager proxies the agent endpoints below at
 `/{container}/services/{service}/logs/history`, with the same `/{log_id}` and
 `/{log_id}/download` suffixes. Pages and byte cursors pass through unchanged;
-downloads are streamed without buffering the whole file. The history UI is not
-connected yet. Existing current-log download and clear endpoints remain unchanged.
+downloads are streamed without buffering the whole file. System uses these routes
+for the History selector and recent-log snapshots. Existing current-log download
+and clear endpoints remain available; the UI does not truncate saved logs.
 
 The manager's list response adds `supported: true`. An agent without the history
 endpoint (404 with `detail: "Not Found"`, or 405/501) returns `supported: false`,
@@ -296,7 +297,7 @@ The manager first sends `capabilities` with `history: true` or `false`. An older
 agent triggers `reset` with `reason: legacy`; dated resume coordinates are discarded
 and the current-file stream is used. A `live=true` client still receives raw events
 (`logs`/`message`, not `data`), but legacy agents cannot supply execution metadata.
-The extended agent mode requires dated log folders. History UI integration is pending.
+The extended agent mode requires dated log folders. The System log panel uses this extended mode.
 
 Invalid cursors and other permanent request errors close the WebSocket with code
 1008 after an error event; clients must not automatically reconnect with the same
@@ -332,7 +333,19 @@ Container selection does not isolate ROS traffic; Jog rejects multiple publisher
 on shared feedback topics and ambiguous controller mappings.
 See [motion profiles](docs/record-play.md#robot-profiles).
 
-**Service logs:** Live logs are streamed over WebSocket (not polled). Opening a new browser session re-tails recent lines from the agent, then follows new output. Download returns the current `/var/log/{service}/current` file with ANSI codes removed.
+**Service logs:** System provides current logs and a right-aligned History dropdown.
+Both views request the most recent 5,000 lines (agent byte caps still apply), with
+an additional 4 Mi character limit in the UI. Scrolling upward only browses loaded
+logs; it does not request older pages. Live output follows the bottom and removes
+the oldest lines as new logs arrive, even while scrolled upward. Reading older
+output does not pause the stream; those lines disappear when they leave the
+retained window. Reconnect is offered when the connection stops.
+History lists dated executions and their sizes. Selecting one closes the live
+connection and loads one snapshot; Reload refreshes it. The last three snapshots
+are cached only while the panel remains mounted. Select Current logs to return
+to live output. Download retrieves the full displayed execution (original bytes),
+or the legacy current log (ANSI stripped). These view limits do not modify the
+stored files. Older agents keep live logs without history.
 
 **ROS 2 WebSocket behavior:** Each connection registers a unique subscription owner after resolving the topic message type (known types, discovery, or existing subscription). Connections share one ROS subscription and cache per topic. The API pushes `{topic, msg_type, data, available}` when data changes (throttled); `metadata_only=true` sends availability without payloads. Disconnecting releases only that connection's ownership. The ROS subscription and cache are removed when the last owner leaves. `GET /ros2/topics/{topic}` only reads the cache; the former REST subscribe/unsubscribe endpoints have been removed.
 

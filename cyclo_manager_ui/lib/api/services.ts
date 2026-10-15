@@ -15,8 +15,9 @@
 // Author: Hyungyu Kim
 
 import { API_BASE_URL, request } from "./client";
+import { MAX_LOG_LINES } from "@/lib/logBuffer";
 import type { RobotRuntime } from "@/lib/robotRuntime";
-import type { S6AgentStatusListResponse, S6AgentUpdateResponse, SupportedRobotContainersResponse, ServiceStatusResponse, ServiceControlResponse, ServiceLogsClearResponse, ServiceActionRequest, BashrcResponse, RobotType } from "@/types/api";
+import type { S6AgentStatusListResponse, S6AgentUpdateResponse, SupportedRobotContainersResponse, ServiceStatusResponse, ServiceControlResponse, ServiceActionRequest, BashrcResponse, RobotType } from "@/types/api";
 
 export async function getSupportedRobotContainers(running = false): Promise<SupportedRobotContainersResponse> {
   return request<SupportedRobotContainersResponse>({
@@ -71,16 +72,6 @@ export async function controlService(
   });
 }
 
-export async function clearServiceLogs(
-  container: string,
-  service: string
-): Promise<ServiceLogsClearResponse> {
-  return request<ServiceLogsClearResponse>({
-    method: "DELETE",
-    url: `/${container}/services/${service}/logs`,
-  });
-}
-
 export async function getBashrc(container: string): Promise<BashrcResponse> {
   return request<BashrcResponse>({ method: "GET", url: `/${container}/bashrc` });
 }
@@ -96,6 +87,32 @@ export async function updateBashrc(
   });
 }
 
-export function getServiceLogDownloadUrl(container: string, service: string): string {
-  return `${API_BASE_URL}/${encodeURIComponent(container)}/services/${encodeURIComponent(service)}/logs/download`;
+const serviceLogsPath = (container: string, service: string) =>
+  `/${encodeURIComponent(container)}/services/${encodeURIComponent(service)}/logs`;
+
+export type ServiceLogHistory = {
+  supported: boolean;
+  current_log_id: string | null;
+  history: { log_id: string; size_bytes: number }[];
+};
+
+type ServiceLogSnapshot = {
+  log_id: string;
+  logs: string;
+};
+
+export function getServiceLogHistory(container: string, service: string, signal?: AbortSignal) {
+  return request<ServiceLogHistory>({ url: `${serviceLogsPath(container, service)}/history`, signal, timeout: 10000 });
+}
+
+export function getServiceLogSnapshot(container: string, service: string, logId: string, signal?: AbortSignal) {
+  return request<ServiceLogSnapshot>({
+    url: `${serviceLogsPath(container, service)}/history/${encodeURIComponent(logId)}`,
+    params: { lines: MAX_LOG_LINES }, signal, timeout: 10000,
+  });
+}
+
+export function getServiceLogDownloadUrl(container: string, service: string, logId?: string | null): string {
+  const suffix = logId ? `/history/${encodeURIComponent(logId)}/download` : "/download";
+  return `${API_BASE_URL}${serviceLogsPath(container, service)}${suffix}`;
 }
