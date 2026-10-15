@@ -45,7 +45,7 @@ four seconds cannot authorize Jog motion.
 Container selection does not isolate ROS topics. Duplicate publishers on shared
 feedback topics and ambiguous controller mappings block Jog commands.
 
-Record & Play shows **Server connected**, recommends
+Record & Play shows **Server connected**, labels
 known command topic names and also lists other
 discovered `JointTrajectory` topics. Expand **Topic** in a group to see its ROS
 name. The page does not require or subscribe to controller feedback.
@@ -62,9 +62,10 @@ position bounds. Bag streaming does not repeat feedback
 or robot-description checks; return transitions, arrival checks and stop
 holds still validate them. Stop remains available when feedback is unavailable,
 although publishing a pose hold still requires valid feedback and an unchanged robot description.
-Playback **Arrival tolerance** offers 0.5° (default), 1°, 2° and 3° for angular joints;
+Playback speed defaults to 1×; arrow buttons select 0.5×–1.5× in 0.1× steps.
+Playback **Arrival tolerance** offers 3° (default) and 5° for angular joints;
 the two `/leader/joint_trajectory_command_broadcaster_{left,right}_hand/joint_trajectory`
-topics skip position-error arrival checks, as noted in the UI. Their feedback
+topics skip position-error arrival checks. Their feedback
 must still be valid and fresh, and generated hand moves are preserved.
 **Lift / linear tolerance** offers 1 cm (default), 2 cm and 3 cm for linear joints. Start, repeat-return and final poses require 0.3 seconds
 continuously within tolerance. While a job is active, the selectors show the server's

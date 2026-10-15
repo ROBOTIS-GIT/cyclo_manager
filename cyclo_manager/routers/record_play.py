@@ -51,9 +51,9 @@ class PlaybackInput(OwnerInput):
 
     recording_id: str = Field(pattern=r'^[0-9a-f]{32}$')
     robot: Robot = 'ros'
-    rate: Literal[0.5, 1.0] = 1.0
+    rate: float = Field(default=1.0, ge=0.5, le=1.5)
     repeats: int = Field(default=1, ge=0, le=10000)
-    arrival_tolerance_deg: Literal[0.5, 1.0, 2.0, 3.0] = 0.5
+    arrival_tolerance_deg: Literal[3.0, 5.0] = 3.0
     arrival_tolerance_cm: Literal[1.0, 2.0, 3.0] = 1.0
 
 

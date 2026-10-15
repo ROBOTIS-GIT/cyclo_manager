@@ -2,7 +2,7 @@
 
 Record & Play records selected `trajectory_msgs/msg/JointTrajectory` topics to
 MCAP rosbag2 files on the robot. Recording groups come from discovered ROS topics;
-known topic names receive recommended labels. Playback uses URDF limits and ROS
+known topic names receive readable labels. Playback uses URDF limits and ROS
 joint feedback without Docker, s6 or bringup status checks. Playback takes command
 topics and joint membership directly from the bag. Automatic start-pose moves,
 repeat returns, arrival checks and stop holds use only recorded direct controller
@@ -93,7 +93,8 @@ with Jog because it only observes commands.
    recorded relative times. Header stamps are reset to zero (execute from now);
    point durations are divided by playback rate, velocities multiplied by rate,
    and accelerations multiplied by its square. Existing zero-duration points
-   remain zero. Rates are 1× and 0.5×.
+   remain zero. Playback defaults to 1×; the speed arrows select 0.5×–1.5×
+   in 0.1× steps.
 4. After the final message and its trajectory duration, fresh feedback must
    reach the final targets of the direct controller inputs. For repetitions, the manager returns to the initial
    pose, verifies arrival, and starts the next pass. The repeat count is the
@@ -108,11 +109,11 @@ tolerance, playback can stop with an arrival timeout.
 Return trajectories use quintic position interpolation at approximately 10 Hz,
 with zero endpoint slope/acceleration. All selected groups share a duration
 calculated from displacement, URDF velocity limits and conservative return
-limits (10°/s and 20°/s²; lift 10 mm/s and 20 mm/s²). Duration accounts for quintic
+limits (12°/s and 24°/s²; lift 12 mm/s and 24 mm/s²). Duration accounts for quintic
 peak speed and acceleration and is limited to 120 seconds. Position commands
 have `time_from_start=0`. These bound the generated targets, not the controller's
 physical motion. **Arrival tolerance** selects the angular tolerance for each
-playback job: 0.5° (default), 1°, 2° or 3°.
+playback job: 3° (default) or 5°.
 The two hand command topics
 `/leader/joint_trajectory_command_broadcaster_left_hand/joint_trajectory` and
 `/leader/joint_trajectory_command_broadcaster_right_hand/joint_trajectory`
@@ -252,7 +253,7 @@ using recordings for unattended motion.
   endpoint identities once to identify direct controller inputs for generated motion
   and arrival checks; recorded joint names supply their membership. All bag topics
   are streamed, including those without a matching controller or subscriber.
-- Known command topic names are marked Recommended. Recording lists all discovered
+- Known command topic names receive readable labels. Recording lists all discovered
   `JointTrajectory` topics, even without URDF or incoming messages. Publisher detection
   does not subscribe to trajectory payloads; recording subscribes only to selected topics.
 - Jog publishes a complete controller joint set. The selected joint gets a measured

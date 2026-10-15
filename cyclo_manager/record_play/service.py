@@ -47,7 +47,7 @@ IDLE_STATE = {'phase': 'idle', 'active': False, 'error': None, 'owner': None,
               'recording_id': None, 'robot': None, 'cycle': 0, 'repeats': 1,
               'elapsed': 0.0, 'duration': 0.0, 'return_duration': 0.0,
               'messages': 0, 'rate': 1.0,
-              'arrival_tolerance_deg': 0.5, 'arrival_tolerance_cm': 1.0}
+              'arrival_tolerance_deg': 3.0, 'arrival_tolerance_cm': 1.0}
 
 
 class Cancelled(Exception):
@@ -140,7 +140,7 @@ class RecordPlayService:
             self._start('recording', robot, owner,
                         lambda: self._record(name, robot, group_topics),
                         recording_id=None, repeats=1, duration=0.0, rate=1.0,
-                        arrival_tolerance_deg=0.5, arrival_tolerance_cm=1.0)
+                        arrival_tolerance_deg=3.0, arrival_tolerance_cm=1.0)
 
     def _record(self, name, robot, group_topics):
         with SubscriptionOwner(self.bridge) as subscriptions:
@@ -215,7 +215,7 @@ class RecordPlayService:
         self.update(phase='idle', duration=metadata['duration'])
 
     def motion(self, recording_id, robot, owner, rate=1.0, repeats=1,
-               arrival_tolerance_deg=0.5, arrival_tolerance_cm=1.0):
+               arrival_tolerance_deg=3.0, arrival_tolerance_cm=1.0):
         """Move to the start pose and replay as one interruptible server job."""
         with self._commands:
             metadata = self.store.get(recording_id)

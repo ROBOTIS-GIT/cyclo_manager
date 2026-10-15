@@ -23,8 +23,8 @@ import xml.etree.ElementTree as ET
 
 from cyclo_manager.robot_interface.command_profiles import ARRIVAL_CHECKS
 
-RETURN_SPEED = {'rad': math.radians(10), 'm': 0.01}
-RETURN_ACCELERATION = {'rad': math.radians(20), 'm': 0.02}
+RETURN_SPEED = {'rad': math.radians(12), 'm': 0.012}
+RETURN_ACCELERATION = {'rad': math.radians(24), 'm': 0.024}
 
 
 def duration_seconds(point):
@@ -112,7 +112,7 @@ class MotionPlan:
         return {topic: dict(values) for topic, values in source.items()}
 
 
-def arrival_errors(goals, positions, joints, arrival_tolerance_deg=0.5,
+def arrival_errors(goals, positions, joints, arrival_tolerance_deg=3.0,
                    arrival_tolerance_cm=1.0, *, check_all_targets=False):
     """Check arrival using command-route policy while always validating feedback."""
     errors = []
@@ -138,7 +138,7 @@ def arrival_errors(goals, positions, joints, arrival_tolerance_deg=0.5,
     return errors
 
 
-def arrived(goals, positions, joints, arrival_tolerance_deg=0.5, arrival_tolerance_cm=1.0):
+def arrived(goals, positions, joints, arrival_tolerance_deg=3.0, arrival_tolerance_cm=1.0):
     """Check every joint before skipping a start or return movement, including hands."""
     # Exempting hands here would skip their generated motion when only hands differ.
     return not arrival_errors(goals, positions, joints, arrival_tolerance_deg,
