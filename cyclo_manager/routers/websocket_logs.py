@@ -19,15 +19,18 @@
 """WebSocket endpoint for service log streaming."""
 
 import asyncio
+from contextlib import aclosing
 import logging
 
+from cyclo_manager.agent.log_history import LOG_ID_PATTERN
 from cyclo_manager.routers.websocket_utils import (
     _close_websocket_ignoring_error,
     _send_websocket_error,
-    _send_websocket_logs,
+    run_until_disconnect,
 )
 from cyclo_manager.state import app_state
-from fastapi import APIRouter, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, Query, WebSocket, WebSocketDisconnect
+import httpx
 
 logger = logging.getLogger(__name__)
 
@@ -73,7 +76,7 @@ async def _setup_log_stream_client(websocket: WebSocket, container: str):
 
 
 def _coerce_cursor(value: object) -> int | None:
-    if isinstance(value, int):
+    if type(value) is int and value >= 0:
         return value
     return None
 
@@ -83,66 +86,94 @@ async def websocket_service_logs(
     websocket: WebSocket,
     container: str,
     service: str,
+    live: bool = False,
+    log_id: str | None = Query(default=None, pattern=f'^{LOG_ID_PATTERN.pattern}$'),
+    cursor: int | None = Query(default=None, ge=0),
+    tail: int = Query(default=INITIAL_LOG_TAIL, ge=0, le=5000),
 ):
-    """Stream service logs in real-time over a WebSocket connection."""
+    """Forward extended events or legacy type/data messages, according to the request."""
     await websocket.accept()
-    logger.info(f'WebSocket connection established for {container}/{service} logs')
+
+    async def send_event(event):
+        if live:
+            await websocket.send_json(event)
+        elif event['type'] in {'logs', 'error'}:
+            key = 'logs' if event['type'] == 'logs' else 'message'
+            await websocket.send_json({'type': event['type'], 'data': event.get(key, '')})
+
+    error = None
+    if not live and log_id is not None:
+        error = 'log_id requires live=true.'
+    elif live and (log_id is None) != (cursor is None):
+        error = 'Live resume requires both log_id and cursor.'
+    if error:
+        await send_event({'type': 'error', 'message': error, 'retryable': False})
+        await websocket.close(code=1008)
+        return
 
     client = await _setup_log_stream_client(websocket, container)
     if client is None:
         return
 
-    last_cursor: int | None = None
-
-    try:
+    async def forward():
+        last_cursor, last_log_id = cursor, log_id
+        use_live = live
+        checked = not live
         while True:
             try:
-                async for event in client.stream_service_logs(
-                    service,
-                    tail=INITIAL_LOG_TAIL,
-                    cursor=last_cursor,
-                ):
-                    event_type = event.get('type', 'logs')
-                    event_cursor = _coerce_cursor(event.get('cursor'))
-                    if event_cursor is not None:
-                        last_cursor = event_cursor
+                if not checked:
+                    history = await client.get_service_log_history(service)
+                    use_live = history.get('supported', True)
+                    checked = True
+                    await websocket.send_json({'type': 'capabilities', 'history': use_live})
+                    if not use_live:
+                        # A dated cursor must never be applied to an unidentified legacy file.
+                        last_log_id, last_cursor = None, None
+                        await websocket.send_json({'type': 'reset', 'reason': 'legacy'})
 
-                    if event_type == 'heartbeat':
-                        continue
-                    if event_type == 'error':
-                        message = event.get('message') or 'Log stream error'
-                        if not await _send_websocket_error(websocket, str(message)):
-                            return
-                        continue
-                    if event_type != 'logs':
-                        logger.warning(
-                            'Unknown log stream event type for %s/%s: %s',
-                            container,
-                            service,
-                            event_type,
-                        )
-                        continue
-
-                    logs = event.get('logs', '')
-                    if not await _send_websocket_logs(websocket, logs):
-                        logger.info(f'WebSocket disconnected for {container}/{service}')
-                        return
-                logger.warning(f'Agent log stream ended for {container}/{service}; reconnecting')
-                await asyncio.sleep(STREAM_RECONNECT_DELAY)
-            except WebSocketDisconnect:
-                logger.info(f'WebSocket disconnected for {container}/{service}')
-                return
-            except Exception as e:
-                logger.error(
-                    f'Agent log stream error for {container}/{service}: {e}',
-                    exc_info=True,
+                events = client.stream_service_logs(
+                    service, tail=tail, cursor=last_cursor,
+                    live=use_live, log_id=last_log_id,
                 )
-                if not await _send_websocket_error(websocket, f'Error streaming logs: {str(e)}'):
+                async with aclosing(events):
+                    async for event in events:
+                        event_type = event.get('type', 'logs')
+                        if event_type in {'logs', 'reset'}:
+                            event_cursor = _coerce_cursor(event.get('cursor'))
+                            if event_cursor is not None:
+                                last_cursor = event_cursor
+                                if use_live:
+                                    last_log_id = event.get('log_id')
+                        await send_event(event)
+                        if event_type == 'error' and event.get('retryable') is False:
+                            await websocket.close(code=1008)
+                            return
+                logger.warning(
+                    'Agent log stream ended for %s/%s; reconnecting', container, service)
+            except WebSocketDisconnect:
+                return
+            except Exception as exc:
+                retryable = not (
+                    isinstance(exc, httpx.HTTPStatusError)
+                    and 400 <= exc.response.status_code < 500
+                    and exc.response.status_code not in {408, 429}
+                )
+                if isinstance(exc, (httpx.HTTPStatusError, httpx.RequestError)):
+                    logger.warning('Agent log stream error for %s/%s: %s', container, service, exc)
+                else:
+                    logger.exception('Unexpected log stream error for %s/%s', container, service)
+                await send_event({
+                    'type': 'error', 'source': 'connection',
+                    'message': f'Error streaming logs: {exc}', 'retryable': retryable,
+                })
+                if not retryable:
+                    await websocket.close(code=1008)
                     return
-                await asyncio.sleep(STREAM_RECONNECT_DELAY)
+            await asyncio.sleep(STREAM_RECONNECT_DELAY)
 
+    try:
+        await run_until_disconnect(websocket, forward())
     except WebSocketDisconnect:
-        logger.info(f'WebSocket disconnected normally for {container}/{service}')
-    except Exception as e:
-        logger.error(f'Unexpected WebSocket error for {container}/{service}: {e}', exc_info=True)
+        pass
+    finally:
         await _close_websocket_ignoring_error(websocket)

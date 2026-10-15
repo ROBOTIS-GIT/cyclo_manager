@@ -81,7 +81,10 @@ def _follow_current(root, name, requested_id, requested_cursor, tail, strip_ansi
         identity = (type(exc).__name__, message)
         if last_errors.get(source) != identity:
             last_errors[source] = identity
-            yield event('error', source=source, message=message, state='unknown')
+            retryable = not (
+                source == 'read' and isinstance(exc, HTTPException) and exc.status_code == 400)
+            yield event('error', source=source, message=message, state='unknown',
+                        retryable=retryable)
 
     def recover(source):
         if last_errors.pop(source, None) is not None:
@@ -233,7 +236,7 @@ async def stream_service_log_events(
                 if event['type'] in {'reset', 'recovered'}:
                     continue
                 event = {key: value for key, value in event.items()
-                         if key in {'type', 'cursor', 'logs', 'message'}}
+                         if key in {'type', 'cursor', 'logs', 'message', 'retryable'}}
             elif event['type'] == 'heartbeat':
                 event['state'] = last_state[1] if last_state else 'unknown'
             yield (json.dumps(event) + '\n').encode('utf-8')

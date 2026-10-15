@@ -119,11 +119,13 @@ class AgentClient(SocketHttpClient):
         tail: int = 100,
         cursor: Optional[int] = None,
         strip_ansi: bool = False,
+        live: bool = False,
+        log_id: Optional[str] = None,
     ) -> AsyncIterator[dict[str, Any]]:
         """
         Stream logs for a service from agent as NDJSON events.
 
-        Each yielded event contains ``logs`` and ``cursor`` fields.
+        Preserve agent event fields, including identity/state in live mode.
         """
         client = await self._ensure_httpx_client()
         logger.debug(
@@ -134,6 +136,10 @@ class AgentClient(SocketHttpClient):
             'tail': tail,
             'strip_ansi': strip_ansi,
         }
+        if live:
+            params['live'] = True
+        if log_id is not None:
+            params['log_id'] = log_id
         if cursor is not None:
             params['cursor'] = cursor
 
@@ -174,9 +180,38 @@ class AgentClient(SocketHttpClient):
             logger.error(f"Agent log stream failed for service '{service_name}': {e}")
             raise
 
-    async def open_service_log_download(self, service_name: str) -> httpx.Response:
+    async def get_service_log_history(self, service_name: str) -> dict:
+        """List dated logs, explicitly reporting agents without the history API."""
+        try:
+            history = await self.request_json('GET', f'/services/{service_name}/logs/history')
+            return {**history, 'supported': True}
+        except httpx.HTTPStatusError as exc:
+            response = exc.response
+            try:
+                missing_route = response.status_code == 404 and response.json() == {
+                    'detail': 'Not Found'}
+            except ValueError:
+                missing_route = False
+            if missing_route or response.status_code in {405, 501}:
+                return {'supported': False, 'history': [], 'current_log_id': None}
+            raise
+
+    async def get_service_log_history_page(
+        self, service_name: str, log_id: str, before: int | None = None, lines: int = 500,
+    ) -> dict:
+        """Read a history page without changing the agent's byte cursors."""
+        params = {'lines': lines}
+        if before is not None:
+            params['before'] = before
+        return await self.request_json(
+            'GET', f'/services/{service_name}/logs/history/{log_id}', params=params,
+        )
+
+    async def open_service_log_download(
+        self, service_name: str, log_id: str | None = None,
+    ) -> httpx.Response:
         """
-        Open a streaming response for a service's downloadable current log file.
+        Open a streaming response for a current or dated log file.
 
         The caller is responsible for closing the returned response.
         """
@@ -188,7 +223,8 @@ class AgentClient(SocketHttpClient):
         try:
             request = client.build_request(
                 'GET',
-                f'/services/{service_name}/logs/download',
+                (f'/services/{service_name}/logs/history/{log_id}/download' if log_id
+                 else f'/services/{service_name}/logs/download'),
             )
             response = await client.send(request, stream=True)
             response.raise_for_status()
@@ -197,7 +233,10 @@ class AgentClient(SocketHttpClient):
             logger.error(f'Failed to download logs from agent at {self.socket_path}: {e}')
             raise
         except httpx.HTTPStatusError as e:
-            await e.response.aclose()
+            try:
+                await e.response.aread()
+            finally:
+                await e.response.aclose()
             logger.error(f"Agent returned error status for log download '{service_name}': {e}")
             raise
         except Exception as e:

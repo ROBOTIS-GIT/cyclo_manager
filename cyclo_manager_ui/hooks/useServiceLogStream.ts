@@ -24,6 +24,7 @@ const LOG_UPDATE_DEBOUNCE_MS = 200;
 const RECONNECT_DELAY_MS = 3000;
 const WS_CLOSE_CODE_NORMAL = 1000;
 const WS_CLOSE_CODE_GOING_AWAY = 1001;
+const WS_CLOSE_CODE_POLICY_VIOLATION = 1008;
 const MAX_LOG_LINES = 5000;
 
 type UseServiceLogStreamResult = {
@@ -144,7 +145,8 @@ export function useServiceLogStream(
             wsRef.current === ws &&
             shouldReconnectRef.current &&
             event?.code !== WS_CLOSE_CODE_NORMAL &&
-            event?.code !== WS_CLOSE_CODE_GOING_AWAY;
+            event?.code !== WS_CLOSE_CODE_GOING_AWAY &&
+            event?.code !== WS_CLOSE_CODE_POLICY_VIOLATION;
 
           if (shouldReconnect) {
             reconnectTimeoutRef.current = setTimeout(() => {
