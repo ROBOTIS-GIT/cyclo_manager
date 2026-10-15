@@ -96,6 +96,24 @@ npm run dev
 
 Open **http://localhost:3000** (redirects to `/app`).
 
+### 3D model assets
+
+Both UI Dockerfiles download mesh directories into `public/assets` during the build.
+The hand meshes come from `ROBOTIS-GIT/robotis_hand` on `main`, under
+`robotis_hand_description/meshes`. The viewer maps
+`package://robotis_hand_description/...` to `/assets/robotis_hand_description/...`.
+Rebuild the UI image when adding or updating mesh assets.
+
+The development Compose stack keeps assets in an anonymous volume. From the
+repository root, recreate it along with the UI to pick up newly built meshes:
+
+```bash
+docker compose -f docker-compose.dev.yml up -d --build --no-deps --renew-anon-volumes ui
+```
+
+Running `npm run dev` directly requires the same mesh directories in `public/assets`;
+the URDF itself does not contain mesh file contents.
+
 ### API address
 
 REST and WebSocket connections originate in the **browser**. With no

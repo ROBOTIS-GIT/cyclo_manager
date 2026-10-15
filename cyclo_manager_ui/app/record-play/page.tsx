@@ -193,7 +193,7 @@ export default function RecordPlayPage() {
                 <legend className="sr-only">Playback settings</legend>
                 <div className="min-w-0 text-xs" style={secondary}>
                   <span id="playback-speed-label">Speed</span>
-                  <div role="group" aria-labelledby="playback-speed-label" className="mt-2 flex items-center rounded border" style={control}>
+                  <div role="group" aria-labelledby="playback-speed-label" className="mt-2 flex w-32 max-w-full items-center rounded border" style={control}>
                     <button type="button" aria-label="Decrease playback speed" disabled={locked || shownRate <= 0.5}
                       className="px-3 py-1.5 text-sm disabled:opacity-40"
                       onClick={() => setRate(current => Math.max(0.5, Math.round((current - 0.1) * 10) / 10))}>◀</button>
@@ -204,7 +204,7 @@ export default function RecordPlayPage() {
                   </div>
                 </div>
                 <label className="min-w-0 text-xs" style={secondary}>Playback
-                  <select aria-label="Repeat mode" className={`${field} mt-2`} style={control} value={shownMode} onChange={event => setRepeatMode(event.target.value as RepeatMode)}>
+                  <select aria-label="Repeat mode" className={`${field} mt-2 block max-w-32`} style={control} value={shownMode} onChange={event => setRepeatMode(event.target.value as RepeatMode)}>
                     <option value="once">Once</option><option value="repeat">Repeat</option><option value="infinite">Infinite</option>
                   </select>
                 </label>
