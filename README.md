@@ -228,6 +228,85 @@ Interactive docs: `http://<host>:8081/docs`
 | | `/ws/jog?container={container}` | Ordered Jog input and feedback bound to the selected container; profile resolved by the server |
 | | `/record_play/watch` | Own the page's catalog/feedback subscriptions; job status is read over HTTP |
 
+### Agent log history API
+
+These endpoints are available on the container's s6 agent only. Manager proxy
+routes and the history UI are not connected yet. The existing stream endpoint
+and legacy event format are retained.
+
+| Method & path | Behavior |
+|---------------|----------|
+| `GET /services/{name}/logs/history` | Return `history` newest first (`log_id`, `size_bytes`) and `current_log_id` from the `current` symlink. This is not a running-state indicator. Missing or legacy-only log directories return an empty list. |
+| `GET /services/{name}/logs/history/{log_id}` | Read the last `lines` (default 500, maximum 5000), capped at 256 KiB of source bytes. Pass `before=<start_cursor>` to read the preceding page. |
+| `GET /services/{name}/logs/history/{log_id}/download` | Download original bytes, including ANSI sequences, up to the size captured when the file is opened. Later appends are not included. |
+
+Log IDs are directory names such as `2026_10_14_09_45` or `2026_10_14_09_45_2`
+under `/var/log/{name}`. Numeric suffixes are sorted numerically. The timestamp
+uses the logger's local time; no timezone or exit metadata is inferred.
+
+Pages return `log_id`, `logs`, `start_cursor`, `end_cursor`, `has_more_before`,
+`starts_mid_line`, and `ends_mid_line`. Cursors are byte offsets in the original
+file, with an exclusive end; do not calculate them from decoded string lengths.
+Prepend each preceding page's text without inserting separators. Pages prefer
+whole lines, but a line exceeding the byte cap is returned in fragments with
+the boundary flags set. UTF-8 characters are not split across pages; an
+incomplete trailing character still being written is deferred. Invalid UTF-8
+is displayed with replacement characters. ANSI sequences are preserved, so
+renderers should handle escapes across page boundaries.
+
+Appending to the file does not change earlier cursors. A missing/retained-away
+log returns 404; a cursor beyond the current file size returns 409, requiring
+the log to be reloaded. Invalid log IDs or cursors inside a UTF-8 character
+return 400, and invalid query ranges return 422. Symlinked run folders/files
+and non-regular log files are not exposed. History reads do not create folders,
+truncate files, or change retention.
+
+The agent also supports an opt-in dated live stream:
+`GET /services/{name}/logs/stream?live=true&tail=5000`. A fresh connection shows
+recent logs only when the producer or its logger is running; a stopped service's remaining
+`current` link is not treated as an active execution. The initial tail uses the
+same 256 KiB limit as history reads. To resume after a history-page snapshot or
+connection loss, send both `log_id` and `cursor=<end_cursor>`. The same log resumes
+at that byte; a newly observed execution starts at byte zero. The initial snapshot
+and subsequent reads use the same open file descriptor, avoiding a tail/stat race.
+
+NDJSON events in this mode always include `log_id` (nullable) and `cursor`:
+
+| `type` | Additional fields and behavior |
+|--------|--------------------------------|
+| `reset` | `reason`: `initial`, `new_log`, `truncated`, or `replaced`. Clear the displayed log and start from this event's cursor. |
+| `logs` | `logs`, `start_cursor`, `end_cursor`. Append the text exactly; chunks may end mid-line. Cursors count original bytes even with `strip_ansi=true`. |
+| `state` | `state`: `running`, `stopping`, `stopped`, or `waiting` (producer up, log not available yet). |
+| `heartbeat` | Current `state`, sent after 15 seconds without other events. |
+| `error` | `message`, `source` (`read` or `status`), `state: unknown`. A status/read failure must not be interpreted as a stopped service. The same failure is sent once until it changes or recovers. |
+| `recovered` | `source` (`read` or `status`). Clear only the error for this operation; the other operation may still be failing. |
+
+File growth is checked every 100 ms while connected. Producer and logger status
+are sampled once per second using s6; after both stop, remaining file bytes are
+sent before `stopped`. When executions change, the old file is drained before a
+`reset` for the new one. Incomplete UTF-8 characters are held until complete, or
+decoded with replacement at final EOF. The connection stays open while stopped
+to observe a later start. Closing it releases the file and stops polling; it does
+not stop logging. This describes bytes actually written to the file, not data
+lost inside an application or the producer/logger pipeline.
+
+File-read failures are retried after one second; successful reads return to the
+normal 100 ms interval. Status-query failures do not slow down working log reads.
+Read and status errors are tracked independently, so success in one does not
+clear an error in the other. Repeated failures do not resend unchanged states.
+Recovery events are exposed only in the extended (`live=true`) protocol.
+
+Requests without `live=true` retain the legacy stream protocol and fixed-path
+log behavior, including reading stored logs while stopped without querying s6
+status. Both request styles use one shared file reader, cursor handler and polling
+loop; `live=true` enables execution/status handling and the extended event format.
+The loop follows the `current` link directly. It yields the previous file's final
+output before attempting to open the next file; a link pointing to a file that
+has not been created yet is retried on the next poll without dropping that output.
+The shared reader caps the initial tail at 256 KiB and sends subsequent bytes in
+bounded chunks. The new mode requires dated log folders. Manager forwarding and
+UI handling of the new events will be connected in subsequent steps.
+
 **Jog robot selection:** The existing container router's `GET /{container}/bringup_status` checks only the selected
 container's existing s6 service status and
 reads `/run/robot_type` through Docker when a bringup process is first observed or
