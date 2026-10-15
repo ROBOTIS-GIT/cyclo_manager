@@ -144,6 +144,8 @@ async def websocket_service_logs(
                                 last_cursor = event_cursor
                                 if use_live:
                                     last_log_id = event.get('log_id')
+                                    if last_log_id is None:
+                                        last_cursor = None
                         await send_event(event)
                         if event_type == 'error' and event.get('retryable') is False:
                             await websocket.close(code=1008)

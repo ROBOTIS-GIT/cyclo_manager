@@ -130,7 +130,7 @@ def _follow_current(root, name, requested_id, requested_cursor, tail, strip_ansi
                     resume = first and requested_cursor is not None and (
                         not live or requested_id == target_id)
                     active = status_known and (producer_up or logger_up)
-                    if live and (target_id is None or not (active or changed or resume)):
+                    if live and target_id is not None and not (active or changed or resume):
                         state = 'unknown' if not status_known else (
                             'waiting' if producer_up else 'stopped')
                         yield event('state', state=state)
@@ -141,7 +141,9 @@ def _follow_current(root, name, requested_id, requested_cursor, tail, strip_ansi
                     selected, log_id = target, target_id
                     size = os.fstat(stream.fileno()).st_size
                     cursor = requested_cursor if resume and requested_cursor <= size else 0
-                    recent = first and requested_cursor is None and (not live or not changed)
+                    # Fixed-path logs have no execution identity; reconnect with a fresh tail.
+                    recent = first and (requested_cursor is None or (
+                        live and target_id is None)) and (not live or not changed)
                     if recent:
                         page = read_log_page_from_file(stream, log_id, None, max(1, tail))
                         cursor = page['start_cursor'] if tail else page['end_cursor']

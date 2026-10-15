@@ -297,7 +297,10 @@ The manager first sends `capabilities` with `history: true` or `false`. An older
 agent triggers `reset` with `reason: legacy`; dated resume coordinates are discarded
 and the current-file stream is used. A `live=true` client still receives raw events
 (`logs`/`message`, not `data`), but legacy agents cannot supply execution metadata.
-The extended agent mode requires dated log folders. The System log panel uses this extended mode.
+The System log panel uses this extended mode. New agents also read fixed-path
+`current` files from older services, including while stopped, with `log_id: null`.
+These services have no dated history; reconnecting reads a fresh tail instead of
+resuming an unidentified file. Dated logs retain the running-state and resume rules above.
 
 Invalid cursors and other permanent request errors close the WebSocket with code
 1008 after an error event; clients must not automatically reconnect with the same
