@@ -21,7 +21,7 @@ import { getServiceLogSnapshot } from "@/lib/api";
 import { createLogsWebSocket } from "@/lib/logWebsocket";
 import { appendLogBlocks, limitLogBlocks, MAX_LOG_LINES, MAX_LOG_CHARS, type LogBlock } from "@/lib/logBuffer";
 
-export type LogBuffer = {
+type LogBuffer = {
   blocks: LogBlock[];
   charCount: number;
   logId: string | null;
@@ -34,10 +34,9 @@ const boundedBuffer = (buffer: LogBuffer): LogBuffer => {
   return { ...buffer, blocks, charCount };
 };
 
-// Each mounted panel owns its history cache; live logs are never collected in the background.
-export function useServiceLogStream(container: string, service: string, logId: string | null,
-  cache: Map<string, LogBuffer>) {
-  const [buffer, setBuffer] = useState<LogBuffer>(() => logId ? cache.get(logId) ?? emptyBuffer() : emptyBuffer());
+// Keep only the selected log's display buffer while the panel is mounted.
+export function useServiceLogStream(container: string, service: string, logId: string | null) {
+  const [buffer, setBuffer] = useState<LogBuffer>(emptyBuffer);
   const bufferRef = useRef(buffer);
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [disconnected, setDisconnected] = useState(false);
@@ -185,12 +184,11 @@ export function useServiceLogStream(container: string, service: string, logId: s
       socket.current = null;
       setErrors({});
       reset();
-      if (logId) { cache.delete(logId); void loadSnapshot(); }
+      if (logId) void loadSnapshot();
       else connect();
     };
-    if (logId) {
-      if (!cache.has(logId)) void loadSnapshot();
-    } else connect();
+    if (logId) void loadSnapshot();
+    else connect();
     return () => {
       active.current = false;
       clearTimeout(timer);
@@ -199,14 +197,8 @@ export function useServiceLogStream(container: string, service: string, logId: s
       historyRequest.current = null;
       socket.current?.close(1000);
       socket.current = null;
-      const current = bufferRef.current;
-      if (logId && current.logId === logId) {
-        cache.delete(logId);
-        cache.set(logId, current);
-        if (cache.size > 3) cache.delete(cache.keys().next().value!);
-      }
     };
-  }, [container, service, logId, cache, commit, report, loadSnapshot]);
+  }, [container, service, logId, commit, report, loadSnapshot]);
 
   return {
     buffer, error: Object.values(errors).join(" · "), disconnected, supported, loading,

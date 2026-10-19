@@ -18,7 +18,7 @@
 
 import { useEffect, useId, useRef, useState, type ReactNode } from "react";
 import LogViewer from "./LogViewer";
-import { useServiceLogStream, type LogBuffer } from "@/hooks/useServiceLogStream";
+import { useServiceLogStream } from "@/hooks/useServiceLogStream";
 import { getServiceLogDownloadUrl, getServiceLogHistory, type ServiceLogHistory } from "@/lib/api";
 
 interface FixedLogPanelProps { container: string; service: string; onClose: () => void }
@@ -29,7 +29,7 @@ const formatId = (id: string) => {
 };
 const formatSize = (bytes: number) => bytes < 1024 ? `${bytes} B` : bytes < 1024 * 1024 ? `${(bytes / 1024).toFixed(1)} KB` : `${(bytes / 1024 / 1024).toFixed(1)} MB`;
 
-// Changing container/service discards requests, sockets and cached history from the previous target.
+// Changing container/service discards requests, sockets and displayed logs from the previous target.
 export default function FixedLogPanel(props: FixedLogPanelProps) {
   return <ServiceLogPanel key={`${props.container}/${props.service}`} {...props} />;
 }
@@ -40,11 +40,11 @@ function ServiceLogPanel({ container, service, onClose }: FixedLogPanelProps) {
   const historyMenu = useRef<HTMLDivElement>(null);
   const [menuPosition, setMenuPosition] = useState({ top: 0, right: 12, maxHeight: 320 });
   const [selected, setSelected] = useState<string | null>(null);
+  const [selectionRevision, setSelectionRevision] = useState(0);
   const [history, setHistory] = useState<ServiceLogHistory | null>(null);
   const [listError, setListError] = useState("");
   const [listing, setListing] = useState(false);
   const [refresh, setRefresh] = useState(0);
-  const [cache] = useState(() => new Map<string, LogBuffer>());
 
   useEffect(() => {
     if (!historyOpen) return;
@@ -68,12 +68,13 @@ function ServiceLogPanel({ container, service, onClose }: FixedLogPanelProps) {
 
   const selectLog = (id: string | null) => {
     setSelected(id);
+    if (id !== null) setSelectionRevision(value => value + 1);
     historyMenu.current?.hidePopover();
   };
 
   return <section className="flex h-full min-h-0 flex-col overflow-hidden rounded border"
     style={{ background: "var(--vscode-editor-background)", borderColor: "var(--vscode-panel-border)", color: "var(--vscode-foreground)" }}>
-    <LogContent key={selected ?? "live"} container={container} service={service} logId={selected} cache={cache}
+    <LogContent key={`${selected ?? "live"}:${selectionRevision}`} container={container} service={service} logId={selected}
       headerActions={<>
         <button className={buttonClass} popoverTarget={historyId} aria-expanded={historyOpen}
           aria-controls={historyId} onClick={event => {
@@ -113,10 +114,10 @@ function ServiceLogPanel({ container, service, onClose }: FixedLogPanelProps) {
   </section>;
 }
 
-function LogContent({ container, service, logId, cache, headerActions }: {
-  container: string; service: string; logId: string | null; cache: Map<string, LogBuffer>; headerActions: ReactNode;
+function LogContent({ container, service, logId, headerActions }: {
+  container: string; service: string; logId: string | null; headerActions: ReactNode;
 }) {
-  const log = useServiceLogStream(container, service, logId, cache);
+  const log = useServiceLogStream(container, service, logId);
   return <div className="flex min-h-0 flex-1 flex-col">
     <header className="flex shrink-0 flex-wrap items-center justify-between gap-2 border-b px-3 py-2"
       style={{ borderColor: "var(--vscode-panel-border)", background: "var(--vscode-titleBar-activeBackground)" }}>

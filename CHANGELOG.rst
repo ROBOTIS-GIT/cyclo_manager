@@ -9,7 +9,7 @@ Changelog for package cyclo_manager
 * Added s6-agent and manager APIs for listing dated executions, reading log pages with byte cursors, and streaming original log files for download. History requires dated log folders; legacy live-log fallback remains available for older agents.
 * Improved live log streaming with execution-aware reconnects, service-state events, file replacement and truncation handling, and error recovery.
 * Changed log views to request the most recent 5,000 lines, subject to the agent's 256 KiB read cap and the UI's 4 Mi character limit. Scrolling does not load older pages; full logs remain available through Download.
-* Added a cache for the last three viewed history snapshots and closed the live connection while viewing history. Live output continues receiving and discarding the oldest lines at the display limit, including while scrolled upward.
+* Changed history viewing to fetch a fresh snapshot on every selection, including reselecting the same execution, with the live connection closed. Live output continues receiving and discarding the oldest lines at the display limit, including while scrolled upward.
 * Removed the log-clearing control from the UI while retaining the existing API.
 * Serialized s6 service-control requests and increased the manager-to-agent control timeout to 30 seconds.
 * Fixed Stop and Restart to stop registered service pipeline bundles, including their loggers.

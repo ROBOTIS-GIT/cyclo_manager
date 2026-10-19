@@ -344,11 +344,11 @@ the oldest lines as new logs arrive, even while scrolled upward. Reading older
 output does not pause the stream; those lines disappear when they leave the
 retained window. Reconnect is offered when the connection stops.
 History lists dated executions and their sizes. Selecting one closes the live
-connection and loads one snapshot; Reload refreshes it. The last three snapshots
-are cached only while the panel remains mounted. Select Current logs to return
-to live output. Download retrieves the full displayed execution (original bytes),
-or the legacy current log (ANSI stripped). These view limits do not modify the
-stored files. Older agents keep live logs without history.
+connection and fetches a fresh snapshot, including when selecting the same execution
+again; Reload also refreshes it. Only the displayed log is kept in memory.
+Select Current logs to return to live output. Download retrieves the full displayed
+execution (original bytes), or the legacy current log (ANSI stripped). These view
+limits do not modify the stored files. Older agents keep live logs without history.
 
 **ROS 2 WebSocket behavior:** Each connection registers a unique subscription owner after resolving the topic message type (known types, discovery, or existing subscription). Connections share one ROS subscription and cache per topic. The API pushes `{topic, msg_type, data, available}` when data changes (throttled); `metadata_only=true` sends availability without payloads. Disconnecting releases only that connection's ownership. The ROS subscription and cache are removed when the last owner leaves. `GET /ros2/topics/{topic}` only reads the cache; the former REST subscribe/unsubscribe endpoints have been removed.
 
