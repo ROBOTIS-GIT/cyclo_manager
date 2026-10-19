@@ -16,115 +16,105 @@
 
 "use client";
 
-import { useRef, useState, useMemo, useLayoutEffect, useCallback } from "react";
+import { memo, useRef, useState, useLayoutEffect } from "react";
 import { useAnsiConverter } from "@/hooks/useAnsiConverter";
-import { useTheme } from "@/contexts/ThemeContext";
+import type { LogBlock } from "@/lib/logBuffer";
 
 interface LogViewerProps {
-  lines: string[];
-  autoScroll?: boolean;
-  className?: string;
+  blocks: readonly LogBlock[];
+  resetKey: number;
+  emptyMessage?: string;
 }
 
-export default function LogViewer({
-  lines,
-  autoScroll = true,
-  className = "",
-}: LogViewerProps) {
+const LogLine = memo(function LogLine({ text, lineNumber, convert }: {
+  text: string;
+  lineNumber: number;
+  convert: ReturnType<typeof useAnsiConverter>;
+}) {
+  return <div data-log-line={lineNumber}
+    style={{ whiteSpace: "pre-wrap", overflowWrap: "anywhere", minHeight: "18px" }}
+    dangerouslySetInnerHTML={{ __html: convert.toHtml(text) || "\u00a0" }} />;
+});
+
+// Unchanged blocks skip even the per-line React element creation and comparison.
+const LogBlockView = memo(function LogBlockView({ block, last, convert }: {
+  block: LogBlock;
+  last: boolean;
+  convert: ReturnType<typeof useAnsiConverter>;
+}) {
+  return <>{block.lines.map((line, index) => {
+    // Keep the unfinished empty fragment in the buffer, but do not display it as a log line.
+    if (last && index === block.lines.length - 1 && line === "") return null;
+    return <LogLine key={block.firstLine + index} lineNumber={block.firstLine + index} text={line} convert={convert} />;
+  })}</>;
+});
+
+export default function LogViewer({ blocks, resetKey,
+  emptyMessage = "No logs available." }: LogViewerProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
-  const isAtBottomRef = useRef(true);
-  const [showScrollButton, setShowScrollButton] = useState(false);
-
-  const { theme } = useTheme();
-
+  const linesRef = useRef<HTMLDivElement>(null);
+  const following = useRef(true);
+  const anchor = useRef<{ id: string; offset: number } | null>(null);
+  const previousReset = useRef(-1);
+  const [showBottom, setShowBottom] = useState({ key: -1, visible: false });
   const convert = useAnsiConverter();
 
-  const htmlLines = useMemo(
-    () => lines.map((line) => convert.toHtml(line)),
-    [lines, convert]
-  );
+  const captureAnchor = () => {
+    const viewport = scrollRef.current;
+    const children = linesRef.current?.children;
+    if (!viewport || !children?.length) { anchor.current = null; return; }
+    const top = viewport.getBoundingClientRect().top;
+    let low = 0, high = children.length - 1;
+    while (low < high) {
+      const mid = (low + high) >> 1;
+      if (children[mid].getBoundingClientRect().bottom <= top) low = mid + 1;
+      else high = mid;
+    }
+    const element = children[low] as HTMLElement;
+    anchor.current = { id: element.dataset.logLine!, offset: element.getBoundingClientRect().top - top };
+  };
 
   useLayoutEffect(() => {
-    const container = scrollRef.current;
-    if (!container) return;
-    if (autoScroll && isAtBottomRef.current) {
-      container.scrollTop = container.scrollHeight;
+    const viewport = scrollRef.current;
+    if (!viewport) return;
+    if (previousReset.current !== resetKey) {
+      previousReset.current = resetKey;
+      following.current = true;
     }
-  }, [htmlLines, autoScroll]);
-
-  const handleScroll = useCallback(() => {
-    const container = scrollRef.current;
-    if (!container) return;
-    const { scrollTop, scrollHeight, clientHeight } = container;
-    const distanceFromBottom = scrollHeight - (scrollTop + clientHeight);
-    isAtBottomRef.current = distanceFromBottom < 50;
-    setShowScrollButton(!isAtBottomRef.current);
-  }, []);
+    if (following.current) viewport.scrollTop = viewport.scrollHeight;
+    else if (anchor.current) {
+      const element = linesRef.current?.querySelector<HTMLElement>(`[data-log-line="${anchor.current.id}"]`);
+      if (element) viewport.scrollTop += element.getBoundingClientRect().top - viewport.getBoundingClientRect().top - anchor.current.offset;
+      else viewport.scrollTop = 0; // The line being read has left the retained window.
+    }
+    captureAnchor();
+  }, [blocks, resetKey, convert]);
 
   return (
-    <div
-      className={`relative flex flex-col ${className}`}
-      style={{ height: "100%", minHeight: 0, position: "relative", overflow: "hidden" }}
-    >
-      <div
-        ref={scrollRef}
-        onScroll={handleScroll}
-        className="p-4 rounded"
-        style={{
-          fontFamily: "monospace",
-          fontSize: "12px",
-          backgroundColor: theme === "dark" ? "#1e1e1e" : "#ffffff",
-          color: theme === "dark" ? "#d4d4d4" : "#333333",
-          border: "1px solid var(--vscode-panel-border)",
-          overflowY: "auto",
-          overflowX: "auto",
-          flex: 1,
-          height: 0,
-          minHeight: 0,
-          maxHeight: "100%",
-          position: "relative",
-          overflowAnchor: "none",
-          scrollBehavior: "auto",
-        }}
-      >
-        {htmlLines.length === 0 ? (
-          <div style={{ color: theme === "dark" ? "#666666" : "#999999" }}>No logs available</div>
-        ) : (
-          htmlLines.map((html, i) => (
-            <div
-              key={i}
-              style={{ whiteSpace: "pre-wrap", wordBreak: "break-all", minHeight: "1em", fontFamily: "monospace" }}
-              dangerouslySetInnerHTML={{ __html: html || "\u00a0" }}
-            />
-          ))
-        )}
+    <div className="relative flex h-full min-h-0 flex-col" style={{ background: "var(--vscode-editor-background)" }}>
+      <div ref={scrollRef} role="region" aria-label="Log output" tabIndex={0}
+        className="min-h-0 flex-1 overflow-auto px-3 pb-3 font-mono text-xs"
+        style={{ overflowAnchor: "none", lineHeight: "18px" }}
+        onScroll={() => {
+          const viewport = scrollRef.current!;
+          following.current = viewport.scrollHeight - viewport.scrollTop - viewport.clientHeight < 32;
+          setShowBottom({ key: resetKey, visible: !following.current });
+          captureAnchor();
+        }}>
+        <div ref={linesRef}>
+          {blocks.length ? blocks.map((block, index) => (
+            <LogBlockView key={block.id} block={block} last={index === blocks.length - 1} convert={convert} />
+          )) : <p style={{ color: "var(--vscode-descriptionForeground)" }}>{emptyMessage}</p>}
+        </div>
       </div>
-
-      {showScrollButton && autoScroll && (
-        <button
-          onClick={() => {
-            if (scrollRef.current) {
-              scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
-              isAtBottomRef.current = true;
-              setShowScrollButton(false);
-            }
-          }}
-          className="absolute px-3 py-1 rounded text-xs shadow-md opacity-90 hover:opacity-100"
-          style={{
-            bottom: "16px",
-            right: "16px",
-            backgroundColor: "var(--vscode-button-background, #007acc)",
-            color: "var(--vscode-button-foreground, white)",
-            border: "none",
-            cursor: "pointer",
-            transition: "all 0.2s",
-            zIndex: 100,
-            pointerEvents: "auto",
-          }}
-        >
-          ⬇ Scroll to Bottom
-        </button>
-      )}
+      {showBottom.key === resetKey && showBottom.visible && <button className="absolute bottom-3 right-3 rounded px-3 py-1 text-xs shadow"
+        style={{ background: "var(--vscode-button-background)", color: "var(--vscode-button-foreground)" }}
+        onClick={() => {
+          const viewport = scrollRef.current;
+          if (viewport) viewport.scrollTop = viewport.scrollHeight;
+          following.current = true;
+          setShowBottom({ key: resetKey, visible: false });
+        }}>Scroll to bottom ↓</button>}
     </div>
   );
 }

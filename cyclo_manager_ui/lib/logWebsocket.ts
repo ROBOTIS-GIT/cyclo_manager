@@ -14,58 +14,42 @@
 //
 // Author: Hyungyu Kim
 
-import {
-  getWebSocketBaseUrl,
-  parseJsonMessage,
-  setupWebSocketHandlers,
-  stringifyMessageData,
-  type WebSocketLifecycleOptions,
-} from "@/lib/websocketUtils";
+import { MAX_LOG_LINES } from "@/lib/logBuffer";
+import { getWebSocketBaseUrl, parseJsonMessage } from "@/lib/websocketUtils";
 
-type WebSocketErrorMessage = {
-  type: "error";
-  data: unknown;
+type LogEvent = {
+  type: string;
+  logs?: string;
+  data?: string;
+  message?: string;
+  log_id?: string | null;
+  cursor?: number;
+  start_cursor?: number;
+  end_cursor?: number;
+  history?: boolean;
+  source?: string;
+  retryable?: boolean;
 };
 
-export type LogWebSocketMessage = WebSocketErrorMessage | {
-  type: "logs";
-  data: unknown;
-};
-
-export type LogWebSocketOptions = WebSocketLifecycleOptions & {
-  onMessage?: (data: string) => void;
-};
-
-function parseLogWebSocketMessage(
-  event: MessageEvent,
-  options: LogWebSocketOptions
-): void {
-  try {
-    const message = parseJsonMessage(event.data);
-
-    if (message.type === "logs") {
-      const logs = stringifyMessageData(message.data);
-      options.onMessage?.(logs);
-    } else if (message.type === "error") {
-      options.onError?.(new Error(stringifyMessageData(message.data)));
-    }
-  } catch (error) {
-    options.onError?.(error instanceof Error ? error : new Error("Unknown error"));
+export function createLogsWebSocket(container: string, service: string, options: {
+  resume?: { logId: string; cursor: number };
+  onEvent: (event: LogEvent) => void;
+  onOpen: () => void;
+  onClose: (event: CloseEvent) => void;
+  onError: (error: Error) => void;
+}): WebSocket {
+  const params = new URLSearchParams({ live: "true", tail: String(MAX_LOG_LINES) });
+  if (options.resume) {
+    params.set("log_id", options.resume.logId);
+    params.set("cursor", String(options.resume.cursor));
   }
-}
-
-export function createLogsWebSocket(
-  container: string,
-  service: string,
-  options: LogWebSocketOptions = {}
-): WebSocket {
-  const baseUrl = getWebSocketBaseUrl();
-  const wsUrl = `${baseUrl}/ws/${container}/services/${service}/logs`;
-
-  const ws = new WebSocket(wsUrl);
-
-  ws.onmessage = (event) => parseLogWebSocketMessage(event, options);
-  setupWebSocketHandlers(ws, options);
-
+  const ws = new WebSocket(`${getWebSocketBaseUrl()}/ws/${encodeURIComponent(container)}/services/${encodeURIComponent(service)}/logs?${params}`);
+  ws.onmessage = event => {
+    try { options.onEvent(parseJsonMessage(event.data) as LogEvent); }
+    catch (error) { options.onError(error instanceof Error ? error : new Error("Invalid log event")); }
+  };
+  ws.onopen = options.onOpen;
+  ws.onclose = options.onClose;
+  ws.onerror = () => options.onError(new Error("Log connection unavailable."));
   return ws;
 }

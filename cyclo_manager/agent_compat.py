@@ -20,8 +20,8 @@
 
 import re
 
-# Change this version when the s6 agent API changes.
-MIN_COMPATIBLE_S6_AGENT_VERSION = '1.0.0'
+# Minimum agent release required for supported service and log behavior.
+MIN_COMPATIBLE_S6_AGENT_VERSION = '1.2.0'
 
 
 def _parse_release_version(version: str) -> tuple[int, int, int] | None:

@@ -68,13 +68,6 @@ export interface ServiceControlResponse {
   result: string;
 }
 
-export interface ServiceLogsClearResponse {
-  container: string;
-  service: string;
-  message: string;
-  log_path: string | null;
-}
-
 export interface BashrcResponse {
   container: string;
   path: string;

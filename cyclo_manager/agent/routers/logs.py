@@ -18,23 +18,28 @@
 
 """Router for log management endpoints."""
 
-import asyncio
-import json
 import logging
+import os
 from pathlib import Path
-import subprocess
 from typing import Optional
 
+from cyclo_manager.agent.log_history import (
+    iter_log_download,
+    list_log_history,
+    LOG_ID_PATTERN,
+    open_history_log,
+    read_log_page,
+)
+from cyclo_manager.agent.log_stream import stream_service_log_events
 from cyclo_manager.agent.utils import strip_ansi_codes
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, HTTPException, Query, status
 from fastapi.responses import StreamingResponse
+from starlette.background import BackgroundTask
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix='/services', tags=['services'])
 
-LOG_STREAM_POLL_INTERVAL = 0.1
-LOG_STREAM_HEARTBEAT_INTERVAL = 15.0
 LOG_BASE_PATH = Path('/var/log')
 
 
@@ -48,61 +53,43 @@ def _get_service_log_path(name: str) -> Path:
     return LOG_BASE_PATH / name / 'current'
 
 
-def _tail_log_file(log_path: Path, tail: int, strip_ansi: bool) -> tuple[str, int, int]:
-    """Return the last tail lines, current byte cursor, and inode."""
-    result = subprocess.run(
-        ['tail', '-n', str(tail), str(log_path)],
-        capture_output=True,
-        text=True,
-        timeout=5,
-    )
-    if result.returncode != 0:
-        logger.error(f'Failed to tail log file {log_path}: {result.stderr}')
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f'Failed to read log file: {result.stderr}',
-        )
-    stat = log_path.stat()
-    logs = strip_ansi_codes(result.stdout) if strip_ansi else result.stdout
-    return logs, stat.st_size, stat.st_ino
-
-
-def _read_log_file_from_cursor(
-    log_path: Path, cursor: int, strip_ansi: bool
-) -> tuple[str, int, int]:
-    """Read log bytes from cursor, returning decoded logs, new cursor, and inode."""
-    stat = log_path.stat()
-    if cursor < 0 or cursor > stat.st_size:
-        cursor = 0
-    with log_path.open('rb') as f:
-        f.seek(cursor)
-        logs_bytes = f.read()
-        new_cursor = f.tell()
-    logs = logs_bytes.decode('utf-8', errors='replace')
-    logs = strip_ansi_codes(logs) if strip_ansi else logs
-    return logs, new_cursor, stat.st_ino
-
-
-def _encode_log_stream_event(
-    event_type: str,
-    cursor: int,
-    logs: str = '',
-    message: Optional[str] = None,
-) -> bytes:
-    """Encode one log stream event as NDJSON."""
-    payload: dict[str, object] = {'type': event_type, 'cursor': cursor}
-    if logs:
-        payload['logs'] = logs
-    if message:
-        payload['message'] = message
-    return (json.dumps(payload) + '\n').encode('utf-8')
-
-
 def _iter_stripped_log_file(log_path: Path):
     """Yield log file lines with ANSI escape codes removed."""
     with log_path.open('r', encoding='utf-8', errors='replace') as f:
         for line in f:
             yield strip_ansi_codes(line).encode('utf-8')
+
+
+@router.get('/{name}/logs/history', summary='List service log history')
+def get_service_log_history(name: str):
+    """List dated log folders; current_log_id identifies a link, not service status."""
+    return list_log_history(_get_service_log_path(name).parent)
+
+
+@router.get('/{name}/logs/history/{log_id}', summary='Read a service log history page')
+def get_service_log_history_page(
+    name: str,
+    log_id: str,
+    before: Optional[int] = Query(default=None, ge=0),
+    lines: int = Query(default=500, ge=1, le=5000),
+):
+    """Read recent lines or a page before an exclusive byte cursor, up to 256 KiB."""
+    return read_log_page(_get_service_log_path(name).parent, log_id, before, lines)
+
+
+@router.get(
+    '/{name}/logs/history/{log_id}/download', summary='Download a service log history entry',
+)
+def download_service_log_history(name: str, log_id: str):
+    """Download original bytes up to the file size captured when the request opens."""
+    stream = open_history_log(_get_service_log_path(name).parent, log_id)
+    size = os.fstat(stream.fileno()).st_size
+    return StreamingResponse(
+        iter_log_download(stream, size),
+        media_type='text/plain; charset=utf-8',
+        headers={'Content-Disposition': f'attachment; filename="{log_id}.log"'},
+        background=BackgroundTask(stream.close),
+    )
 
 
 @router.get(
@@ -112,109 +99,31 @@ def _iter_stripped_log_file(log_path: Path):
 )
 async def stream_service_logs(
     name: str,
-    tail: int = 100,
+    tail: int = Query(default=100, ge=0, le=5000),
     strip_ansi: bool = False,
-    cursor: Optional[int] = None,
+    cursor: Optional[int] = Query(default=None, ge=0),
+    live: bool = False,
+    log_id: Optional[str] = None,
 ):
     """
     Stream logs for a service as NDJSON events.
 
     Each event has ``logs`` and ``cursor`` fields. The cursor is a byte offset in
     /var/log/{service_name}/current and can be passed back on reconnect.
+    Opt into dated live logs with ``live=true``; resume with both log_id and cursor.
     """
     log_path = _get_service_log_path(name)
-
-    async def generate():
-        current_cursor = cursor
-        inode: Optional[int] = None
-        last_event_time = asyncio.get_running_loop().time()
-
-        if not log_path.exists():
-            yield _encode_log_stream_event('heartbeat', 0)
-            last_event_time = asyncio.get_running_loop().time()
-        while not log_path.exists():
-            if (
-                asyncio.get_running_loop().time() - last_event_time
-                >= LOG_STREAM_HEARTBEAT_INTERVAL
-            ):
-                yield _encode_log_stream_event('heartbeat', 0)
-                last_event_time = asyncio.get_running_loop().time()
-            await asyncio.sleep(LOG_STREAM_POLL_INTERVAL)
-
-        try:
-            if current_cursor is None:
-                logs, current_cursor, inode = await asyncio.to_thread(
-                    _tail_log_file,
-                    log_path,
-                    tail,
-                    strip_ansi,
-                )
-            else:
-                logs, current_cursor, inode = await asyncio.to_thread(
-                    _read_log_file_from_cursor,
-                    log_path,
-                    current_cursor,
-                    strip_ansi,
-                )
-            yield _encode_log_stream_event('logs', current_cursor, logs=logs)
-            last_event_time = asyncio.get_running_loop().time()
-        except asyncio.CancelledError:
-            raise
-        except Exception as e:
-            logger.error(f"Error initializing log stream for service '{name}': {e}")
-            yield _encode_log_stream_event(
-                'error',
-                0,
-                message=f'Error initializing log stream: {str(e)}',
-            )
-            current_cursor = 0
-
-        while True:
-            try:
-                if not log_path.exists():
-                    current_cursor = 0
-                    inode = None
-                    await asyncio.sleep(LOG_STREAM_POLL_INTERVAL)
-                    continue
-
-                stat = log_path.stat()
-                if inode is None:
-                    inode = stat.st_ino
-                if stat.st_ino != inode or current_cursor is None or stat.st_size < current_cursor:
-                    inode = stat.st_ino
-                    current_cursor = 0
-
-                if stat.st_size > current_cursor:
-                    logs, current_cursor, inode = await asyncio.to_thread(
-                        _read_log_file_from_cursor,
-                        log_path,
-                        current_cursor,
-                        strip_ansi,
-                    )
-                    if logs:
-                        yield _encode_log_stream_event('logs', current_cursor, logs=logs)
-                        last_event_time = asyncio.get_running_loop().time()
-                elif (
-                    asyncio.get_running_loop().time() - last_event_time
-                    >= LOG_STREAM_HEARTBEAT_INTERVAL
-                ):
-                    yield _encode_log_stream_event('heartbeat', current_cursor)
-                    last_event_time = asyncio.get_running_loop().time()
-
-                await asyncio.sleep(LOG_STREAM_POLL_INTERVAL)
-            except asyncio.CancelledError:
-                raise
-            except Exception as e:
-                logger.error(f"Error streaming logs for service '{name}': {e}")
-                yield _encode_log_stream_event(
-                    'error',
-                    current_cursor or 0,
-                    message=f'Error streaming logs: {str(e)}',
-                )
-                await asyncio.sleep(1.0)
-
+    if live:
+        if (log_id is None) != (cursor is None):
+            raise HTTPException(400, 'Live resume requires both log_id and cursor.')
+        if log_id is not None and not LOG_ID_PATTERN.fullmatch(log_id):
+            raise HTTPException(400, 'Invalid log ID.')
+    elif log_id is not None:
+        raise HTTPException(400, 'log_id requires live=true.')
     return StreamingResponse(
-        generate(),
+        stream_service_log_events(
+            log_path.parent, name, log_id, cursor, tail, strip_ansi, live=live,
+        ),
         media_type='application/x-ndjson',
     )
 

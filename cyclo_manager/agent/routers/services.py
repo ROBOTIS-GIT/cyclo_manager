@@ -111,7 +111,7 @@ async def get_service_status_endpoint(name: str) -> ServiceStatus:
     summary='Control a service',
     description='Start, stop, or restart a service',
 )
-async def control_service_endpoint(
+def control_service_endpoint(
     name: str, request: ServiceActionRequest
 ) -> ServiceControlResponse:
     """
