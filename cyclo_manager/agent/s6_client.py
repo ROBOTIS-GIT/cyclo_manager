@@ -156,7 +156,7 @@ LEADER_TYPE_FILE = Path('/run/leader_type')
 
 
 _ROBOT_TYPE_BY_SERVICE = {
-    'avatar_bringup': frozenset({'lg2', 'a2'}),
+    'avatar_bringup': frozenset({'lg2', 'a1', 'a2'}),
     'ai_worker_bringup': frozenset({'sg2', 'bg2', 'sh5', 'bh5', 'f1', 'f2', 'mobile'}),
     'open_manipulator_bringup': frozenset({'omy', 'omx'}),
     'leader_bringup': frozenset({'omy', 'omx'}),

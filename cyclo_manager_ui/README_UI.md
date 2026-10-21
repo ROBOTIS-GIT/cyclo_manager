@@ -8,7 +8,7 @@ Next.js web interface for **cyclo_manager** (ROS 2 robot containers, s6 services
 - **Dashboard** (`/dashboard`): Host stats, Docker container list (start/stop/restart), logs, bashrc editing, version management (host git repos)
   - System stats and the CPU process list refresh every second. The dashboard and CPU detail summary share the host agent's moving average of the latest three consecutive one-second CPU samples; during startup, the available samples are used. Process rows retain their short 0.2-second measurement window.
 - **System** (`/{container}/system`):
-  - **AI Worker**: follower `ai_worker_bringup` with **SG2 / BG2 / SH5 / BH5 / F1 / F2 / Mobile**, and **A2 (default) / LG2** leader `avatar_bringup`. Existing browser selections are preserved.
+  - **AI Worker**: follower `ai_worker_bringup` with **SG2 / BG2 / SH5 / BH5 / F1 / F2 / Mobile**, and **A2 (default) / A1 / LG2** leader `avatar_bringup`. Existing browser selections are preserved.
   - **Open Manipulator**: follower `open_manipulator_bringup` with **OMY / OMX**, and OMY-L / OMX-L leader `leader_bringup`
   - **Launch arguments** popup (gear icon): bool/string fields; **Init Position File** as dropdown (model default YAML, `pack_position.yaml`, or custom filename)
   - **Cyclo Intelligence** (`cyclo_intelligence`) and Zenoh daemon controls
@@ -200,6 +200,18 @@ Jog profile, which comes from the server's request-driven running-robot observat
 Record & Play uses ROS topics and feedback directly.
 
 Configuration for default launch args lives in **`config/launchArgs.ts`** (edited in the UI popup, not in this file at runtime).
+
+AI Worker Leader Bringup supports A1, A2, and LG2 through `avatar_bringup`.
+A2 remains the default selection. A1/A2 expose all six arguments from their
+`ffw_bringup/ffw_a{1,2}_leader_ai.launch.py` launch files: `description_file`,
+`leader_input_file`, `use_mock_hardware`, `mock_sensor_commands`,
+`trigger_left_neutral_position`, and `trigger_right_neutral_position` (radians).
+Leave the input file and trigger positions blank to use the installed package's
+input YAML and controller YAML defaults (currently -0.4 rad for both triggers).
+Custom input paths must refer to files inside the AI Worker container.
+Saved settings are separate for each leader; obsolete arguments such as
+`start_teleoperation_controller` are discarded when loading or sending settings.
+The AI Worker container must include the matching A1/A2 launch files and s6 dispatch.
 
 ## Pages (summary)
 

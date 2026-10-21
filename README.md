@@ -96,6 +96,14 @@ s6 **service names** are not listed in config. System profiles define the servic
 names used by the UI; the Jog status GET checks the existing agent status endpoints
 for `ai_worker_bringup` and `open_manipulator_bringup`.
 
+AI Worker Leader Bringup supports **A2 (default), A1, and LG2** through
+`avatar_bringup`. A1/A2 settings match their `ffw_bringup` launch files,
+including the leader input YAML, mock hardware/sensor commands, and left/right
+trigger neutral positions in radians. Blank input-file and trigger overrides
+use the installed package defaults. The AI Worker image must include the
+corresponding launch files and s6 service dispatch, and its s6-agent must accept
+`a1`/`a2` as the leader type.
+
 ### Example
 
 ```yaml

@@ -33,6 +33,9 @@ export interface LaunchArgDef {
   label: string;
   type: LaunchArgType;
   default: string;
+  /** Omit blank overrides so the launch file resolves its own runtime default. */
+  omitIfEmpty?: boolean;
+  placeholder?: string;
   selectOptions?: LaunchArgSelectOption[];
 }
 
@@ -72,7 +75,7 @@ export function getDefaultArgs(config: LaunchArgsConfig): Record<string, string>
 }
 
 /**
- * Merge stored args with config defaults (missing keys get defaults)
+ * Merge declared stored args with defaults, dropping obsolete keys.
  */
 export function mergeWithDefaults(
   config: LaunchArgsConfig,
@@ -80,7 +83,21 @@ export function mergeWithDefaults(
 ): Record<string, string> {
   const defaults = getDefaultArgs(config);
   if (!stored) return { ...defaults };
-  return { ...defaults, ...stored };
+  for (const def of config.args) {
+    if (typeof stored[def.key] === "string") defaults[def.key] = stored[def.key];
+  }
+  return defaults;
+}
+
+/** Build overrides without replacing package/YAML defaults with empty strings. */
+export function getLaunchOverrides(
+  config: LaunchArgsConfig,
+  args: Record<string, string>,
+): Record<string, string> {
+  const merged = mergeWithDefaults(config, args);
+  return Object.fromEntries(config.args
+    .filter(def => !def.omitIfEmpty || merged[def.key].trim() !== "")
+    .map(def => [def.key, merged[def.key]]));
 }
 
 /** ai_worker_bringup - SG2 variant (model contains sg2 -> ffw_sg2_follower_ai.launch.py) */
@@ -236,17 +253,37 @@ export const LG2_CONFIG: LaunchArgsConfig = {
   ],
 };
 
-/** avatar_bringup - ffw_a2_leader_ai.launch.py */
-export const A2_CONFIG: LaunchArgsConfig = {
-  serviceId: "avatar_bringup",
-  storageKey: "avatar_bringup_a2",
-  title: "Leader Bringup (A2) Launch Arguments",
-  args: [
-    { key: "description_file", label: "Description File (URDF/XACRO)", type: "string", default: "ffw_a2_leader.urdf.xacro" },
-    { key: "use_mock_hardware", label: "Use Mock Hardware", type: "bool", default: "false" },
-    { key: "start_teleoperation_controller", label: "Start Teleoperation Controller", type: "bool", default: "true" },
-  ],
-};
+/** avatar_bringup - ffw_a1_leader_ai / ffw_a2_leader_ai.launch.py */
+function avatarLeaderConfig(model: "a1" | "a2"): LaunchArgsConfig {
+  return {
+    serviceId: "avatar_bringup",
+    storageKey: `avatar_bringup_${model}`,
+    title: `Leader Bringup (${model.toUpperCase()}) Launch Arguments`,
+    args: [
+      { key: "description_file", label: "Description File (URDF/XACRO)", type: "string", default: `ffw_${model}_leader.urdf.xacro` },
+      {
+        key: "leader_input_file", label: "Leader Input File (blank: package default)",
+        type: "string", default: "", omitIfEmpty: true,
+        placeholder: `ffw_bringup/config/ffw_${model}_leader/ffw_${model}_leader_input.yaml`,
+      },
+      { key: "use_mock_hardware", label: "Use Mock Hardware", type: "bool", default: "false" },
+      { key: "mock_sensor_commands", label: "Mock Sensor Commands", type: "bool", default: "false" },
+      {
+        key: "trigger_left_neutral_position", label: "Left Trigger Neutral Position (rad)",
+        type: "string", default: "", omitIfEmpty: true,
+        placeholder: "Blank: left_neutral_position from controller YAML",
+      },
+      {
+        key: "trigger_right_neutral_position", label: "Right Trigger Neutral Position (rad)",
+        type: "string", default: "", omitIfEmpty: true,
+        placeholder: "Blank: right_neutral_position from controller YAML",
+      },
+    ],
+  };
+}
+
+export const A1_CONFIG = avatarLeaderConfig("a1");
+export const A2_CONFIG = avatarLeaderConfig("a2");
 
 /** open_manipulator_bringup - OMY F3M follower profile. */
 export const OMY_CONFIG: LaunchArgsConfig = {
