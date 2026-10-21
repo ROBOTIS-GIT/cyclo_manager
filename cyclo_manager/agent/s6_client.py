@@ -18,6 +18,8 @@
 
 """Helper functions to interact with s6-overlay services."""
 
+from contextlib import contextmanager
+import fcntl
 import logging
 from pathlib import Path
 import re
@@ -32,6 +34,15 @@ logger = logging.getLogger(__name__)
 
 # Default s6 service directory
 S6_SERVICE_DIR = Path('/run/service')
+CONTROL_LOCK = Path('/run/cyclo-service-control.lock')
+
+
+@contextmanager
+def service_control_lock():
+    """Serialize configuration updates and s6 service commands."""
+    with CONTROL_LOCK.open('a') as stream:
+        fcntl.flock(stream, fcntl.LOCK_EX)
+        yield
 
 
 def list_services() -> list[str]:
@@ -190,6 +201,25 @@ def _write_launch_args(name: str, launch_args: dict[str, str]) -> None:
     logger.info(f"Wrote launch args for service '{name}' to {args_file}")
 
 
+def _s6rc_stop_target(name: str) -> str:
+    """Select a registered service pipeline when it contains the requested service."""
+    pipeline = f'{name}-pipeline'
+    try:
+        members = subprocess.check_output(
+            ['s6-rc-db', 'contents', pipeline],
+            stderr=subprocess.STDOUT,
+            text=True,
+            timeout=5,
+        ).splitlines()
+    except subprocess.CalledProcessError as exc:
+        # Missing identifiers and non-bundles have no pipeline to stop.
+        # Other failures must surface rather than silently leaving a logger up.
+        if exc.returncode in (3, 5):
+            return name
+        raise
+    return pipeline if name in members else name
+
+
 def control_service(
     name: str,
     action: str,
@@ -199,7 +229,9 @@ def control_service(
     """
     Control an s6 service (start, stop, or restart).
 
-    For s6-rc services (especially those with pipelines), uses s6-rc commands.
+    For s6-rc services, stops the registered <name>-pipeline bundle when present,
+    so the producer finishes before its log consumer is stopped.
+    Start leaves running services alone and clears stale s6-rc state for stopped services.
     For legacy services, falls back to s6-svc.
 
     Args
@@ -216,6 +248,16 @@ def control_service(
     subprocess.CalledProcessError: If command fails.
 
     """
+    with service_control_lock():
+        _control_service(name, action, launch_args, robot_type)
+
+
+def _control_service(name, action, launch_args, robot_type):
+    """Control services while holding the agent's service transaction lock."""
+    if not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9_.-]*', name):
+        raise ValueError('Invalid service name')
+    if action not in ('up', 'down', 'restart'):
+        raise ValueError(f'Invalid action: {action}')
     service_path = S6_SERVICE_DIR / name
 
     if not service_path.exists():
@@ -253,22 +295,22 @@ def control_service(
     except Exception:
         pass
 
-    if action not in ['up', 'down', 'restart']:
-        raise ValueError(f"Invalid action: {action}. Must be one of: ['up', 'down', 'restart']")
-
     try:
         if is_s6rc_service:
             # For s6-rc services, use s6-rc commands
             # For pipelines, starting the producer service will start the entire pipeline
-            if action == 'up':
-                cmd = ['s6-rc', '-u', 'change', name]
-            elif action == 'down':
-                cmd = ['s6-rc', '-d', 'change', name]
-            else:  # restart
-                cmd = ['s6-rc', '-d', 'change', name]
+            if action == 'up' and get_service_status(name).is_up:
+                logger.info("Service '%s' is already running; skipping Start", name)
+                return
+            stop_target = _s6rc_stop_target(name)
+            if action == 'down':
+                cmd = ['s6-rc', '-d', 'change', stop_target]
+            else:  # start or restart
+                # A process can exit while s6-rc still considers its pipeline up.
+                cmd = ['s6-rc', '-d', 'change', stop_target]
                 subprocess.check_output(cmd, stderr=subprocess.STDOUT, timeout=10)
-                # Wait a moment, then bring it back up
-                time.sleep(1)
+                if action == 'restart':
+                    time.sleep(1)
                 cmd = ['s6-rc', '-u', 'change', name]
 
             subprocess.check_output(cmd, stderr=subprocess.STDOUT, timeout=10)

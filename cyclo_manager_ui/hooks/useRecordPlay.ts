@@ -16,7 +16,6 @@
 
 "use client";
 
-import { getWebSocketBaseUrl, maintainWebSocket } from "@/lib/websocketUtils";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { deleteRecording, getRecordPlay, getRecordPlayStatus, recordPlayCommand } from "@/lib/recordPlay";
 import type { RecordPlayOverview, RecordPlayState } from "@/lib/recordPlay";
@@ -35,9 +34,6 @@ export function useRecordPlay() {
   const update = useCallback((value: RecordPlayState) => { setState(value); }, []);
 
   useEffect(() => {
-    const closeObserver = maintainWebSocket(() => new WebSocket(
-      `${getWebSocketBaseUrl()}/record_play/watch`
-    ));
     mounted.current = true;
     // Identify the originating page; server jobs do not depend on page lifetime.
     owner.current = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
@@ -83,7 +79,6 @@ export function useRecordPlay() {
     void load();
     const timer = setInterval(() => void tick(), 500);
     return () => {
-      closeObserver();
       disposed = true; mounted.current = false; refresh.current = null; clearInterval(timer);
     };
   }, [update]);

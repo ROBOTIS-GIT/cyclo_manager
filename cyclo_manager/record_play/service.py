@@ -19,6 +19,7 @@
 """One server-owned recording/playback job with interruptible return transitions."""
 
 from datetime import datetime, timezone
+from itertools import chain
 import logging
 import queue
 import shutil
@@ -26,11 +27,14 @@ import threading
 import time
 
 from cyclo_manager.motion_guard import motion_lock
+from cyclo_manager.publishers import PublisherOwner
 from cyclo_manager.record_play.bags import BagStore
 from cyclo_manager.record_play.motion import (
     arrival_errors, arrived, interpolate, MotionPlan, return_duration,
 )
-from cyclo_manager.robot_interface.controller_discovery import catalog
+from cyclo_manager.robot_interface.controller_discovery import (
+    controller_input_topics, trajectory_topics,
+)
 from cyclo_manager.robot_interface.motion_interface import (
     position_message, RobotInterface, TRAJECTORY_TYPE,
 )
@@ -43,7 +47,7 @@ IDLE_STATE = {'phase': 'idle', 'active': False, 'error': None, 'owner': None,
               'recording_id': None, 'robot': None, 'cycle': 0, 'repeats': 1,
               'elapsed': 0.0, 'duration': 0.0, 'return_duration': 0.0,
               'messages': 0, 'rate': 1.0,
-              'arrival_tolerance_deg': 0.5, 'arrival_tolerance_cm': 1.0}
+              'arrival_tolerance_deg': 3.0, 'arrival_tolerance_cm': 1.0}
 
 
 class Cancelled(Exception):
@@ -73,12 +77,11 @@ class RecordPlayService:
         with self._lock:
             return dict(self._state)
 
-    def _connection(self, robot, subscriptions=None, command_topics=None):
+    def _connection(self, robot, subscriptions=None, publishers=None):
         if subscriptions is not None:
             subscribe_joint_feedback(subscriptions)
-        catalog(self.bridge, subscriptions)
         connection = RobotInterface(
-            self.bridge, robot, command_topics=command_topics)
+            self.bridge, robot, publishers=publishers, discover_controllers=False)
         connection.feedback()
         return connection
 
@@ -95,12 +98,9 @@ class RecordPlayService:
                     raise
             self._cancel.wait(.05)
 
-    def catalog(self, robot, subscriptions=None):
-        """Read cached groups; only a connected observer registers subscriptions."""
-        if subscriptions is not None:
-            subscribe_joint_feedback(subscriptions)
-        groups = catalog(self.bridge, subscriptions)
-        return groups
+    def catalog(self, robot):
+        """List trajectory topics for recording without subscribing to feedback."""
+        return trajectory_topics(self.bridge)
 
     def _check(self):
         if self._cancel.is_set():
@@ -140,7 +140,7 @@ class RecordPlayService:
             self._start('recording', robot, owner,
                         lambda: self._record(name, robot, group_topics),
                         recording_id=None, repeats=1, duration=0.0, rate=1.0,
-                        arrival_tolerance_deg=0.5, arrival_tolerance_cm=1.0)
+                        arrival_tolerance_deg=3.0, arrival_tolerance_cm=1.0)
 
     def _record(self, name, robot, group_topics):
         with SubscriptionOwner(self.bridge) as subscriptions:
@@ -215,7 +215,7 @@ class RecordPlayService:
         self.update(phase='idle', duration=metadata['duration'])
 
     def motion(self, recording_id, robot, owner, rate=1.0, repeats=1,
-               arrival_tolerance_deg=0.5, arrival_tolerance_cm=1.0):
+               arrival_tolerance_deg=3.0, arrival_tolerance_cm=1.0):
         """Move to the start pose and replay as one interruptible server job."""
         with self._commands:
             metadata = self.store.get(recording_id)
@@ -232,33 +232,32 @@ class RecordPlayService:
         if not motion_lock.acquire(blocking=False):
             raise ValueError('Jog is moving. Stop Jog before playback.')
         try:
-            with SubscriptionOwner(self.bridge) as subscriptions:
+            with (SubscriptionOwner(self.bridge) as subscriptions,
+                  PublisherOwner(self.bridge) as publishers):
                 self._run_motion(recording_id, robot, rate, repeats, subscriptions,
-                                 arrival_tolerance_deg, arrival_tolerance_cm)
+                                 arrival_tolerance_deg, arrival_tolerance_cm, publishers)
         finally:
             motion_lock.release()
 
     def _run_motion(self, recording_id, robot, rate, repeats, subscriptions,
-                    arrival_tolerance_deg, arrival_tolerance_cm):
-        recorded_topics = self.store.get(recording_id)['topics']
-        connection = self._connection(robot, subscriptions, command_topics=recorded_topics)
+                    arrival_tolerance_deg, arrival_tolerance_cm, publishers):
+        connection = self._connection(
+            robot, subscriptions, publishers=publishers)
         plan = None
         attempted = False
         try:
             self._check()
             self._wait_for_feedback(connection)
-            plan = MotionPlan(self.store, recording_id, connection.joints, self._check)
-            connection.pin_topics(plan.first)
-            plan.latch(connection.require_feedback())
-            topics = [(topic, TRAJECTORY_TYPE) for topic in plan.first]
-            if not self.bridge.prepare_jog_publishers(topics):
-                raise ValueError('Cannot prepare trajectory publishers.')
-            deadline = time.monotonic() + 2
-            while not self.bridge.jog_publishers_ready(topics):
-                self._check()
-                if time.monotonic() >= deadline:
-                    raise ValueError('One or more trajectory controllers have no subscriber.')
-                self._cancel.wait(0.1)
+            plan = MotionPlan(self.store, recording_id, connection.joints, self._check,
+                              motion_topics=controller_input_topics(self.bridge))
+            connection.pin_description()
+            positions = connection.require_feedback()
+            missing = sorted({name for names in plan.schemas.values() for name in names
+                              if name not in positions})
+            if missing:
+                raise ValueError(f'Missing or invalid feedback for {", ".join(missing)}.')
+            topics = [(topic, TRAJECTORY_TYPE) for topic in sorted(plan.topics)]
+            publishers.acquire(topics)
             self._check()
             connection.require_feedback()
             self.update(duration=plan.duration / rate)
@@ -270,15 +269,35 @@ class RecordPlayService:
                 self._check()
                 cycle += 1
                 self.update(phase='playing', cycle=cycle, elapsed=0.0)
+                messages = self.store.read_serialized(recording_id, rate)
+                first = next(messages, None)
+                if first is None:
+                    raise ValueError('Recording contains no trajectory messages.')
+                self._check()
+                # Opening MCAP and preparing its first message are setup, not replay lag.
                 start = time.monotonic()
-                for topic, data, timestamp in self.store.read(recording_id):
+                previous_publish = 0.0
+                last_status = start
+                last_publish_end = start
+                for topic, data, timestamp in chain((first,), messages):
+                    read_prepare = time.monotonic() - last_publish_end
                     offset = (timestamp - plan.first_timestamp) / 1e9 / rate
                     self._wait_until(start + offset)
-                    if time.monotonic() - start - offset > 0.5:
+                    lag = time.monotonic() - start - offset
+                    if lag > 0.5:
                         raise ValueError(
-                            'Playback fell behind; stopped instead of bursting commands.')
-                    connection.publish(topic, TRAJECTORY_TYPE, plan.message(topic, data, rate))
-                    self.update(elapsed=offset)
+                            'Playback fell behind; stopped instead of bursting commands. '
+                            f'cycle={cycle}, topic={topic}, offset={offset:.3f}s, '
+                            f'lag={lag:.3f}s, previous_publish={previous_publish:.3f}s, '
+                            f'read_prepare={read_prepare:.3f}s')
+                    publish_start = time.monotonic()
+                    connection.publish(topic, TRAJECTORY_TYPE, data)
+                    now = time.monotonic()
+                    previous_publish = now - publish_start
+                    last_publish_end = now
+                    if now - last_status >= 0.1:
+                        self.update(elapsed=offset)
+                        last_status = now
                 self._wait_until(start + plan.duration / rate)
                 self.update(phase='settling', elapsed=plan.duration / rate)
                 self._arrive(connection, plan, plan.goals(end=True), arrival_tolerance_deg,

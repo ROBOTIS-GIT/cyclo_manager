@@ -134,7 +134,7 @@ and required ROS bag packages.
 |------|------|-------|
 | Apps hub | `/app` | Links to Cyclo Manager (dashboard) and Cyclo Intelligence (port 7080) |
 | Dashboard | `/dashboard` | Host stats, Docker containers/images, logs, bashrc, version management (host git repos + s6 agent compatibility) |
-| System | `/{container}/system` | s6 bringup, launch args, URDF viewer, streaming service logs (download/clear), robot status |
+| System | `/{container}/system` | s6 bringup, launch args, URDF viewer, live and historical service logs (recent 5,000 lines/download), robot status |
 | Jog | `/{container}/jog` | Selected container's profile + dynamic URDF/controller feedback; `/jog` opens container selection |
 | Record & Play | `/record-play` | Record trajectory topics to rosbag2/MCAP; playback with start-pose transition, speed selection and repeat returns |
 | Topics | `/topics` | ROS 2 topic browser; live data via WebSocket |
@@ -147,8 +147,8 @@ except `/app`. The **System** and **Jog** buttons use `GET /containers?running=t
 to get configured, running robot containers in one lightweight request: one match opens directly,
 multiple matches offer a choice, and no match reports that no robot container is
 running. Jog keeps the selected container in its URL and queries only its bringup
-status on demand. Record & Play opens directly and uses ROS feedback and controller
-routes independently of bringup status.
+status on demand. Record & Play opens directly and uses recorded command topics and ROS joint
+feedback independently of bringup status.
 
 Dashboard system statistics and the CPU process list refresh every second. Their
 CPU summaries use the same host-agent average of the latest three one-second
@@ -177,8 +177,11 @@ Interactive docs: `http://<host>:8081/docs`
 | System | `GET /system/info`, `GET /system/status`, `GET /system/processes` | Hostname, internet, CPU/memory/disk, top processes |
 | | `GET /system/serial-ports` | Serial device candidates from the host `/dev` tree |
 | Services | `GET /{container}/services/{service}/status` | Single s6 service status |
-| | `POST /{container}/services/{service}` | `up` / `down` / `restart`; optional `launch_args`, `robot_type` (AI Worker: SG2/BG2/SH5/BH5/F1/F2/Mobile; Open Manipulator: OMY/OMX) |
+| | `POST /{container}/services/{service}` | `up` / `down` / `restart`; Start leaves running services unchanged and clears stale s6-rc state before starting stopped services; Stop/Restart stop registered `<service>-pipeline` bundles; optional `launch_args`, `robot_type` (AI Worker: SG2/BG2/SH5/BH5/F1/F2/Mobile; Open Manipulator: OMY/OMX) |
 | | `GET /{container}/services/{service}/logs/download` | Download current s6 log file (ANSI stripped) |
+| | `GET /{container}/services/{service}/logs/history` | List dated logs and agent history support |
+| | `GET /{container}/services/{service}/logs/history/{log_id}` | Read recent or preceding log pages with `before` and `lines` |
+| | `GET /{container}/services/{service}/logs/history/{log_id}/download` | Stream the selected execution's original log file |
 | | `DELETE /{container}/services/{service}/logs` | Truncate s6 log file |
 | Container | `GET`, `PUT /{container}/bashrc` | Via `docker exec` |
 | Docker | `GET /docker/containers` | Optional `?all=true` |
@@ -196,12 +199,11 @@ Interactive docs: `http://<host>:8081/docs`
 | | `GET /ros2/topics/{topic}/available` | Cheap liveness check (no JSON conversion of payload) |
 | | `GET /ros2/topics/{topic}/info` | `ros2 topic info -v` output |
 | | `GET /ros2/robot-description` | One-shot URDF; optional `topic` (default `/robot_description`); independent transient-local subscription bypasses shared cache and is released after receipt, disconnect or 5 s timeout |
-| | `POST /ros2/cmd_vel` | Publish Twist (`linear_x`, `linear_y`, `angular_z`; optional `topic`); separate from the Jog session API |
 | Jog | `GET /{container}/bringup_status` | Selected container's bringup/profile status; Jog pages poll every 2 s, requests for the same container share a 1 s cache |
-| Record & Play | `GET /record_play` | Shared job state, discovered trajectory groups, saved recordings, controller feedback availability and storage path |
+| Record & Play | `GET /record_play` | Shared job state, discovered trajectory groups, saved recordings and storage path |
 | | `GET /record_play/status` | Read-only job status |
 | | `POST /record_play/record` | Start recording selected topics; bringup and active publishers are not required |
-| | `POST /record_play/play` | Validate ROS feedback, controller routes and bag, move to start pose, then play at 1× or 0.5×; `repeats` is total passes, 0 for infinite; `arrival_tolerance_deg` is 0.5 (default), 1, 2 or 3; `arrival_tolerance_cm` is 1 (default), 2 or 3 for linear joints, with 0.3 s in tolerance required at each arrival |
+| | `POST /record_play/play` | Validate joint feedback, URDF and bag, move to start pose, then play at 0.5×–1.5× (default 1×); `repeats` is total passes, 0 for infinite; `arrival_tolerance_deg` is 3 (default) or 5; `arrival_tolerance_cm` is 1 (default), 2 or 3 for linear joints, with 0.3 s in tolerance required at each arrival |
 | | `POST /record_play/stop` | Stop/save the active job; optional owner-scoped request |
 | | `DELETE /record_play/recordings/{recording_id}` | Permanently delete a saved recording and its rosbag files; reject deletion while any recording/playback job is active |
 | Host | `GET /host/repos`, `GET /host/repos/updates` | Managed host git repos |
@@ -226,7 +228,95 @@ Interactive docs: `http://<host>:8081/docs`
 | | `/ws/ros2/topics/{topic}` | Live topic data (see below) |
 | | `/ws/ros2/system-status` | Repeated `battery` and `camera` query parameters; battery percentages and camera publisher presence every 2 s; no camera image subscriptions |
 | | `/ws/jog?container={container}` | Ordered Jog input and feedback bound to the selected container; profile resolved by the server |
-| | `/record_play/watch` | Own the page's catalog/feedback subscriptions; job status is read over HTTP |
+
+### Service log history API
+
+The manager proxies the agent endpoints below at
+`/{container}/services/{service}/logs/history`, with the same `/{log_id}` and
+`/{log_id}/download` suffixes. Pages and byte cursors pass through unchanged;
+downloads are streamed without buffering the whole file. System uses these routes
+for the History selector and recent-log snapshots. Existing current-log download
+and clear endpoints remain available; the UI does not truncate saved logs.
+
+The manager's list response adds `supported: true`. An agent without the history
+endpoint (404 with `detail: "Not Found"`, or 405/501) returns `supported: false`,
+an empty `history`, and
+`current_log_id: null`; transport failures and server errors remain errors.
+An empty list with `supported: true` means no dated logs are available.
+Check this flag before offering history reads/downloads on older agents.
+
+| Method & path | Behavior |
+|---------------|----------|
+| `GET /services/{name}/logs/history` | Return `history` newest first (`log_id`, `size_bytes`) and `current_log_id` from the `current` symlink. This is not a running-state indicator. Missing or legacy-only log directories return an empty list. |
+| `GET /services/{name}/logs/history/{log_id}` | Read the last `lines` (default 500, maximum 5000), capped at 256 KiB of source bytes. Pass `before=<start_cursor>` to read the preceding page. |
+| `GET /services/{name}/logs/history/{log_id}/download` | Download original bytes, including ANSI sequences, up to the size captured when the file is opened. Later appends are not included. |
+
+Log IDs are directory names such as `2026_10_14_09_45` or `2026_10_14_09_45_2`
+under `/var/log/{name}`. Numeric suffixes are sorted numerically. The timestamp
+uses the logger's local time; no timezone or exit metadata is inferred.
+
+Pages return `log_id`, `logs`, `start_cursor`, `end_cursor`, `has_more_before`,
+`starts_mid_line`, and `ends_mid_line`. Cursors are byte offsets in the original
+file, with an exclusive end; do not calculate them from decoded string lengths.
+Prepend each preceding page's text without inserting separators. Pages prefer
+whole lines, but a line exceeding the byte cap is returned in fragments with
+the boundary flags set. UTF-8 characters are not split across pages; an
+incomplete trailing character still being written is deferred. Invalid UTF-8
+is displayed with replacement characters. ANSI sequences are preserved, so
+renderers should handle escapes across page boundaries.
+
+Appending to the file does not change earlier cursors. A missing/retained-away
+log returns 404; a cursor beyond the current file size returns 409, requiring
+the log to be reloaded. Invalid log IDs or cursors inside a UTF-8 character
+return 400, and invalid query ranges return 422. Symlinked run folders/files
+and non-regular log files are not exposed. History reads do not create folders,
+truncate files, or change retention.
+
+### Service log streaming
+
+The manager WebSocket `/ws/{container}/services/{service}/logs` retains the legacy
+`{type, data}` format for `logs` and `error`; other agent events are not forwarded.
+It reads `current` even while the service is stopped.
+
+Use `?live=true&tail=5000` for dated live logs. The agent equivalent is
+`GET /services/{name}/logs/stream?live=true`. A fresh connection shows recent logs
+only while the producer or logger is running, capped at 256 KiB. Resume with both
+`log_id` and `cursor=<end_cursor>`; cursors count original bytes, not characters.
+The manager forwards the following agent events without duplicating log text:
+
+| `type` | Fields and behavior |
+|--------|---------------------|
+| `reset` | `log_id`, `cursor`, `reason` (`initial`, `new_log`, `truncated`, `replaced`). Clear the view and adopt this position. |
+| `logs` | `log_id`, `cursor`, `logs`, `start_cursor`, `end_cursor`. Append exactly; chunks may end mid-line. |
+| `state` | `log_id`, `cursor`, `state`: `running`, `stopping`, `stopped`, `waiting`, or `unknown`. |
+| `heartbeat` | `log_id`, `cursor`, `state`; sent after 15 seconds without other events. |
+| `error` | `message`, `source`, `retryable`. Read/status errors also include `log_id`, `cursor`, `state: unknown`; repeated identical errors are suppressed per connection. |
+| `recovered` | `log_id`, `cursor`, `source`. Clear only the error for that operation. |
+
+The manager first sends `capabilities` with `history: true` or `false`. An older
+agent triggers `reset` with `reason: legacy`; dated resume coordinates are discarded
+and the current-file stream is used. A `live=true` client still receives raw events
+(`logs`/`message`, not `data`), but legacy agents cannot supply execution metadata.
+The System log panel uses this extended mode. New agents also read fixed-path
+`current` files from older services, including while stopped, with `log_id: null`.
+These services have no dated history; reconnecting reads a fresh tail instead of
+resuming an unidentified file. Dated logs retain the running-state and resume rules above.
+
+Invalid cursors and other permanent request errors close the WebSocket with code
+1008 after an error event; clients must not automatically reconnect with the same
+request. Temporary HTTP failures (408, 429, 5xx) and transport failures retry after
+one second. Agent error events with `retryable: false` also end the connection.
+Older agents that omit this flag cannot identify terminal in-stream errors.
+
+Reconnections resume the last forwarded reset/log position. If `current` changed
+while disconnected, the old execution's remaining bytes are **not** replayed;
+retrieve them using its `log_id` through the history API. While continuously
+connected, changing the dated `current` link drains the old open file before reset.
+
+File growth is checked every 100 ms and service state every second. Read failures
+retry after one second; status failures do not delay log reads. Closing the viewer
+stops these reads and releases the upstream connection, even while idle. It does
+not stop logging. The manager does not collect or cache logs in the background.
 
 **Jog robot selection:** The existing container router's `GET /{container}/bringup_status` checks only the selected
 container's existing s6 service status and
@@ -236,8 +326,8 @@ background bringup monitor; requests use a lightweight Docker list without image
 inspection. The type selects the AI Worker, OMY or OMX command routes. Record & Play
 uses discovered trajectory topics and ROS feedback without Docker/s6 status checks;
 known topics receive recommendations. No s6-agent update or new agent endpoint is
-required. Joint names, position limits and
-controller membership come from URDF and ROS feedback. Only one running follower
+required. Joint limits come from URDF. Jog resolves controller membership through
+ROS feedback; playback uses recorded topics and joint names. Only one running follower
 is supported on the shared feedback namespace. Jog uses
 `/ws/jog?container={container}`; the selected container determines the profile.
 Each container has its own
@@ -246,7 +336,19 @@ Container selection does not isolate ROS traffic; Jog rejects multiple publisher
 on shared feedback topics and ambiguous controller mappings.
 See [motion profiles](docs/record-play.md#robot-profiles).
 
-**Service logs:** Live logs are streamed over WebSocket (not polled). Opening a new browser session re-tails recent lines from the agent, then follows new output. Download returns the current `/var/log/{service}/current` file with ANSI codes removed.
+**Service logs:** System provides current logs and a right-aligned History dropdown.
+Both views request the most recent 5,000 lines (agent byte caps still apply), with
+an additional 4 Mi character limit in the UI. Scrolling upward only browses loaded
+logs; it does not request older pages. Live output follows the bottom and removes
+the oldest lines as new logs arrive, even while scrolled upward. Reading older
+output does not pause the stream; those lines disappear when they leave the
+retained window. Reconnect is offered when the connection stops.
+History lists dated executions and their sizes. Selecting one closes the live
+connection and fetches a fresh snapshot, including when selecting the same execution
+again; Reload also refreshes it. Only the displayed log is kept in memory.
+Select Current logs to return to live output. Download retrieves the full displayed
+execution (original bytes), or the legacy current log (ANSI stripped). These view
+limits do not modify the stored files. Older agents keep live logs without history.
 
 **ROS 2 WebSocket behavior:** Each connection registers a unique subscription owner after resolving the topic message type (known types, discovery, or existing subscription). Connections share one ROS subscription and cache per topic. The API pushes `{topic, msg_type, data, available}` when data changes (throttled); `metadata_only=true` sends availability without payloads. Disconnecting releases only that connection's ownership. The ROS subscription and cache are removed when the last owner leaves. `GET /ros2/topics/{topic}` only reads the cache; the former REST subscribe/unsubscribe endpoints have been removed.
 

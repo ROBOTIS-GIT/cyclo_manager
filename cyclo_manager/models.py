@@ -319,23 +319,6 @@ class ROS2TopicsListResponse(BaseModel):
     topics: list[ROS2TopicStatus] = Field(..., description='List of topic statuses')
 
 
-class ROS2TwistPublishRequest(BaseModel):
-    """Request body for POST /ros2/cmd_vel."""
-
-    linear_x: float = Field(
-        0.0,
-        description='Forward/backward velocity in m/s',
-        examples=[0.3],
-    )
-    linear_y: float = Field(0.0, description='Lateral velocity in m/s')
-    angular_z: float = Field(
-        0.0,
-        description='Yaw angular velocity in rad/s',
-        examples=[0.6],
-    )
-    topic: str = Field('/cmd_vel', description='Twist topic to publish')
-
-
 class RobotInfoResponse(BaseModel):
     """Response for GET /system/info."""
 

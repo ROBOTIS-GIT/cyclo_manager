@@ -21,6 +21,7 @@
 import logging
 import re
 
+from cyclo_manager.agent.log_history import LOG_ID_PATTERN
 from cyclo_manager.models import (
     ServiceActionRequest,
     ServiceControlResponse,
@@ -28,7 +29,7 @@ from cyclo_manager.models import (
     ServiceStatusResponse,
 )
 from cyclo_manager.state import get_agent_client, get_validated_container
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Path, Query, status
 from fastapi.responses import StreamingResponse
 import httpx
 
@@ -37,9 +38,11 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix='/{container}/services', tags=['services'])
 
 
-def _service_log_download_filename(container: str, service: str) -> str:
+def _service_log_download_filename(
+    container: str, service: str, log_id: str = 'current',
+) -> str:
     """Build a conservative ASCII filename for service log downloads."""
-    return re.sub(r'[^A-Za-z0-9_.-]+', '_', f'{container}_{service}_current.log')
+    return re.sub(r'[^A-Za-z0-9_.-]+', '_', f'{container}_{service}_{log_id}.log')
 
 
 def _get_upstream_error_detail(exc: httpx.HTTPStatusError) -> str:
@@ -104,16 +107,60 @@ async def get_service_status(
     )
 
 
+@router.get('/{service}/logs/history')
+async def get_service_log_history(
+    service: str,
+    container: str = Depends(get_validated_container),
+):
+    """List dated logs; supported=false identifies an older agent."""
+    try:
+        return await get_agent_client(container).get_service_log_history(service)
+    except Exception as exc:
+        _raise_mapped_service_exception(container, exc)
+
+
+@router.get('/{service}/logs/history/{log_id}')
+async def get_service_log_history_page(
+    service: str,
+    log_id: str = Path(pattern=f'^{LOG_ID_PATTERN.pattern}$'),
+    before: int | None = Query(default=None, ge=0),
+    lines: int = Query(default=500, ge=1, le=5000),
+    container: str = Depends(get_validated_container),
+):
+    """Forward a history page and its original byte cursors."""
+    try:
+        return await get_agent_client(container).get_service_log_history_page(
+            service, log_id, before, lines,
+        )
+    except Exception as exc:
+        _raise_mapped_service_exception(container, exc)
+
+
+@router.get('/{service}/logs/history/{log_id}/download')
+async def download_service_log_history(
+    service: str,
+    log_id: str = Path(pattern=f'^{LOG_ID_PATTERN.pattern}$'),
+    container: str = Depends(get_validated_container),
+):
+    """Stream a dated log through the existing download handler."""
+    return await _download_service_log(container, service, log_id)
+
+
 @router.get('/{service}/logs/download')
 async def download_service_log(
     service: str,
     container: str = Depends(get_validated_container),
 ):
     """Download the current log file for a service in a container."""
+    return await _download_service_log(container, service)
+
+
+async def _download_service_log(container: str, service: str, log_id: str | None = None):
+    """Stream agent bytes and close the upstream response on completion/disconnect."""
     agent_response: httpx.Response | None = None
     try:
         client = get_agent_client(container)
-        agent_response = await client.open_service_log_download(service)
+        agent_response = await client.open_service_log_download(service, log_id)
         logger.info(
             f'Starting log download for service {service!r} in container {container!r}'
         )
@@ -131,7 +178,7 @@ async def download_service_log(
         finally:
             await agent_response.aclose()
 
-    filename = _service_log_download_filename(container, service)
+    filename = _service_log_download_filename(container, service, log_id or 'current')
     return StreamingResponse(
         iter_log_bytes(),
         media_type=agent_response.headers.get('content-type', 'text/plain; charset=utf-8'),

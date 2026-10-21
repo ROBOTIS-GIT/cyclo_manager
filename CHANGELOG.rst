@@ -2,6 +2,29 @@
 Changelog for package cyclo_manager
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
+1.2.0 (2026-10-19)
+------------------
+* Raised the minimum supported s6-agent version to 1.2.0. Update in-container agents through Version Management to use log history and the service-control fixes.
+* Added a History selector to System service logs with execution dates, file sizes, snapshot reload, and full-log downloads.
+* Added s6-agent and manager APIs for listing dated executions, reading log pages with byte cursors, and streaming original log files for download. History requires dated log folders; legacy live-log fallback remains available for older agents.
+* Improved live log streaming with execution-aware reconnects, service-state events, file replacement and truncation handling, and error recovery.
+* Changed log views to request the most recent 5,000 lines, subject to the agent's 256 KiB read cap and the UI's 4 Mi character limit. Scrolling does not load older pages; full logs remain available through Download.
+* Changed history viewing to fetch a fresh snapshot on every selection, including reselecting the same execution, with the live connection closed. Live output continues receiving and discarding the oldest lines at the display limit, including while scrolled upward.
+* Removed the log-clearing control from the UI while retaining the existing API.
+* Serialized s6 service-control requests and increased the manager-to-agent control timeout to 30 seconds.
+* Fixed Stop and Restart to stop registered service pipeline bundles, including their loggers.
+* Fixed Start to leave running s6-rc services unchanged and clear stale s6-rc state before starting stopped services.
+* Contributors: Hyungyu Kim
+
+1.1.2 (2026-10-15)
+------------------
+* Added PublisherOwner to create publishers on demand, share them across consumers, and release them when no longer needed.
+* Removed subscriber-matching checks before playback.
+* Improved playback performance by reducing message conversion and serialization overhead.
+* Added playback speed controls from 0.5× to 1.5× in 0.1× increments.
+* Added Robotis Hand description and meshes to the Docker image build process.
+* Contributors: Hyungyu Kim
+
 1.1.1 (2026-10-07)
 ------------------
 * Added selectable lift/linear arrival tolerance for playback: 1 cm (default), 2 cm or 3 cm.

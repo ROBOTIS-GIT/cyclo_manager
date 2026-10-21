@@ -67,7 +67,7 @@ app = FastAPI(
     * Configured container listing and per-container settings (bashrc)
     * s6-overlay service list, status, control, logs, and run scripts
     * Docker container list, status, control, logs, and process management
-    * ROS2 topic discovery, subscription, streaming, and cmd_vel publish
+    * ROS2 topic discovery, subscription, and streaming
     * WebSocket streaming for service logs and ROS2 topic data
     * Interactive terminal sessions inside Docker containers
     * Host system and robot info; cyclo_manager version check
