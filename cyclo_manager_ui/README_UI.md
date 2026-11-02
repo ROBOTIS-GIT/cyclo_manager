@@ -202,7 +202,9 @@ Record & Play uses ROS topics and feedback directly.
 Configuration for default launch args lives in **`config/launchArgs.ts`** (edited in the UI popup, not in this file at runtime).
 
 AI Worker Leader Bringup supports A1, A2, and LG2 through `avatar_bringup`.
-A2 remains the default selection. A1/A2 expose all six arguments from their
+A2 remains the default UI selection, and the UI explicitly sends the selected
+`robot_type`. The agent uses LG2 when older clients omit `robot_type`.
+A1/A2 expose all six arguments from their
 `ffw_bringup/ffw_a{1,2}_leader_ai.launch.py` launch files: `description_file`,
 `leader_input_file`, `use_mock_hardware`, `mock_sensor_commands`,
 `trigger_left_neutral_position`, and `trigger_right_neutral_position` (radians).
