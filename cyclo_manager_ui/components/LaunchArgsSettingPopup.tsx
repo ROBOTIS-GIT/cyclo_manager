@@ -242,6 +242,7 @@ export default function LaunchArgsSettingPopup({
                           type="text"
                           value={val}
                           onChange={(e) => update(def.key, e.target.value)}
+                          placeholder={def.placeholder}
                           style={inputStyle}
                         />
                       </>

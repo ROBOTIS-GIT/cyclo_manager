@@ -21,6 +21,7 @@ import { controlDockerContainer, getDockerContainers, getSerialPorts } from "@/l
 import { usePolling } from "@/hooks/usePolling";
 import { useServiceStatus } from "@/hooks/useServiceStatus";
 import type { SystemProfile } from "@/config/systemProfiles";
+import { getLaunchOverrides } from "@/config/launchArgs";
 import {
   CYCLO_INTELLIGENCE_CONTAINER, CYCLO_INTELLIGENCE_SERVICE,
   SYSTEM_STATUS_POLL_INTERVAL, ZENOH_DAEMON_CONTAINER,
@@ -74,14 +75,14 @@ export function useSystemServices(
   const toggleRobot = async () => {
     const action = robot.status?.is_up ? "down" : "up";
     await robot.handleControl(action,
-      action === "up" ? settings.robot.args : undefined,
+      action === "up" ? getLaunchOverrides(settings.robot.config, settings.robot.args) : undefined,
       action === "up" ? settings.robot.option?.robotType : undefined);
   };
   const toggleLeader = async () => {
     if (!profile.leaderServiceName) return;
     const action = leader.status?.is_up ? "down" : "up";
     await leader.handleControl(action,
-      action === "up" ? settings.leader.args : undefined,
+      action === "up" ? getLaunchOverrides(settings.leader.config, settings.leader.args) : undefined,
       action === "up" ? settings.leader.option?.robotType : undefined);
   };
   const toggleIntelligence = async () => {
