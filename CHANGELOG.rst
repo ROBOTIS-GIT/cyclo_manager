@@ -2,6 +2,10 @@
 Changelog for package cyclo_manager
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
+1.2.1 (2026-11-02)
+------------------
+* Added support for A1 and A2 leader bringup.
+
 1.2.0 (2026-10-19)
 ------------------
 * Raised the minimum supported s6-agent version to 1.2.0. Update in-container agents through Version Management to use log history and the service-control fixes.

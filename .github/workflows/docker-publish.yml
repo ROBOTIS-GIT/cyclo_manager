@@ -1,0 +1,46 @@
+name: Publish Docker images
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Existing published release version (X.Y.Z)
+        required: true
+        type: string
+  workflow_call:
+    inputs:
+      version:
+        description: Existing published release version (X.Y.Z)
+        required: true
+        type: string
+    secrets:
+      DOCKERHUB_USERNAME:
+        required: true
+      DOCKERHUB_TOKEN:
+        required: true
+
+permissions:
+  contents: read
+
+jobs:
+  docker-publish:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - image: robotis/cyclo-manager
+            context: .
+            dockerfile: ./cyclo_manager/Dockerfile
+          - image: robotis/cyclo-manager-ui
+            context: ./cyclo_manager_ui
+            dockerfile: ./cyclo_manager_ui/Dockerfile
+    uses: ROBOTIS-GIT/github_workflows/.github/workflows/docker-publish.yml@main
+    with:
+      image: ${{ matrix.image }}
+      version: ${{ inputs.version }}
+      checkout_ref: refs/tags/${{ inputs.version }}
+      context: ${{ matrix.context }}
+      dockerfile: ${{ matrix.dockerfile }}
+    secrets:
+      DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+      DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
