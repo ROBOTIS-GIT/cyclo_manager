@@ -99,7 +99,7 @@ async def list_agent_statuses(
     statuses: list[S6AgentStatusResponse] = []
     existing_containers = {
         container['name']
-        for container in docker_client.list_containers(all=True)
+        for container in await asyncio.to_thread(docker_client.list_containers, all=True)
     }
 
     for container in config.container_sockets:
@@ -144,11 +144,11 @@ async def list_agent_statuses(
         'and restart it.'
     ),
 )
-async def update_s6_agent(
+def update_s6_agent(
     container: str = Depends(get_validated_container),
     docker_client=Depends(get_docker_client),
 ) -> S6AgentUpdateResponse:
-    """Update the s6 agent checkout to the manager release and restart the container."""
+    """Update and restart through the blocking Docker SDK in FastAPI's thread pool."""
     try:
         target_ref = manager_version
         result = docker_client.update_s6_agent(container, target_ref)
