@@ -19,6 +19,7 @@
 """Container endpoints router."""
 
 import asyncio
+from threading import Lock
 
 from cyclo_manager import __version__ as manager_version
 from cyclo_manager.agent_compat import (
@@ -41,6 +42,10 @@ import docker
 from fastapi import APIRouter, Depends, HTTPException, status
 
 router = APIRouter(prefix='/containers', tags=['containers'])
+
+# The API runs in one process; guard the set shared by its worker threads.
+_agent_updates_lock = Lock()
+_agent_updates_in_progress: set[str] = set()
 
 
 def _build_unreachable_agent_status(
@@ -149,6 +154,13 @@ def update_s6_agent(
     docker_client=Depends(get_docker_client),
 ) -> S6AgentUpdateResponse:
     """Update and restart through the blocking Docker SDK in FastAPI's thread pool."""
+    with _agent_updates_lock:
+        if container in _agent_updates_in_progress:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=f"Agent update already in progress for container '{container}'",
+            )
+        _agent_updates_in_progress.add(container)
     try:
         target_ref = manager_version
         result = docker_client.update_s6_agent(container, target_ref)
@@ -163,6 +175,9 @@ def update_s6_agent(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail=f'Failed to update container agent: {str(e)}',
         )
+    finally:
+        with _agent_updates_lock:
+            _agent_updates_in_progress.remove(container)
 
 
 @router.get(
