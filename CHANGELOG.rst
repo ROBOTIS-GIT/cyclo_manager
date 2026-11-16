@@ -9,6 +9,7 @@ Changelog for package cyclo_manager
 * Changed manager updates to install the package and pull images before stopping containers. Preparation failures leave existing containers running.
 * Added live manager update logs with automatic scrolling and retained received output during reconnection.
 * Prevented concurrent s6-agent updates for the same container, with retries available after completion or failure.
+* Renamed AI Worker F1/F2 profiles to W1/W2 and aligned launch arguments with AI Worker, preserving existing browser settings.
 * Contributors: Hyungyu Kim
 
 1.2.1 (2026-11-02)
