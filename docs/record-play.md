@@ -287,7 +287,7 @@ bringup `generation`; it validates the bag against the URDF and uses joint feedb
 
 ## Robot profiles
 
-- `robot_interface/command_profiles.py` defines routes for AI Worker SG2/BG2/SH5/BH5/F1/F2/mobile,
+- `robot_interface/command_profiles.py` defines routes for AI Worker SG2/BG2/SH5/BH5/W1/W2/mobile,
   OMY and OMX. Profiles contain no joint names, joint counts or limits. Custom Jog
   remaps require updating the profile; recording discovers trajectory topics and
   playback uses recorded topics directly.

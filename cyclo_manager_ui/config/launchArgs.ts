@@ -16,7 +16,7 @@
 
 /**
  * Launch arguments configuration for ROS2 bringup services.
- * ai_worker_bringup dispatches to the launch file (sg2/bg2/sh5/bh5/f1/f2/mobile)
+ * ai_worker_bringup dispatches to the launch file (sg2/bg2/sh5/bh5/w1/w2/mobile)
  * via /run/robot_type
  * and launch args from the UI.
  */
@@ -48,12 +48,30 @@ function initPositionFileArg(defaultFile: string): LaunchArgDef {
     type: "select",
     default: defaultFile,
     selectOptions: [
-      { label: defaultFile, value: defaultFile },
+      { label: defaultFile || "Automatic (robot type)", value: defaultFile },
       { label: "pack_position.yaml", value: "pack_position.yaml" },
       { label: "Custom input", value: INIT_POSITION_FILE_CUSTOM_VALUE },
     ],
   };
 }
+
+function headCameraTypeArg(defaultType: "zed" | "realsense"): LaunchArgDef {
+  return {
+    key: "head_camera_type", label: "Head Camera Type", type: "select", default: defaultType,
+    selectOptions: [
+      { label: "ZED", value: "zed" },
+      { label: "RealSense", value: "realsense" },
+    ],
+  };
+}
+
+const LEADER_STYLE_ARG: LaunchArgDef = {
+  key: "style", label: "Control Style", type: "select", default: "default",
+  selectOptions: [
+    { label: "Default (triggers)", value: "default" },
+    { label: "Advanced (joystick buttons)", value: "advanced" },
+  ],
+};
 
 export interface LaunchArgsConfig {
   serviceId: string;
@@ -112,6 +130,8 @@ export const SG2_CONFIG: LaunchArgsConfig = {
     { key: "mock_sensor_commands", label: "Mock Sensor Commands", type: "bool", default: "false" },
     { key: "port_name", label: "Port Name", type: "string", default: "/dev/follower" },
     { key: "launch_cameras", label: "Launch Cameras", type: "bool", default: "true" },
+    headCameraTypeArg("zed"),
+    { key: "auto_assign_cameras", label: "Auto Assign Cameras", type: "bool", default: "false" },
     { key: "launch_lidar", label: "Launch Lidar", type: "bool", default: "true" },
     { key: "init_position", label: "Init Position", type: "bool", default: "true" },
     { key: "model", label: "Model", type: "string", default: "ffw_sg2_rev1_follower" },
@@ -133,6 +153,8 @@ export const BG2_CONFIG: LaunchArgsConfig = {
     { key: "mock_sensor_commands", label: "Mock Sensor Commands", type: "bool", default: "false" },
     { key: "port_name", label: "Port Name", type: "string", default: "/dev/follower" },
     { key: "launch_cameras", label: "Launch Cameras", type: "bool", default: "true" },
+    headCameraTypeArg("zed"),
+    { key: "auto_assign_cameras", label: "Auto Assign Cameras", type: "bool", default: "false" },
     { key: "init_position", label: "Init Position", type: "bool", default: "true" },
     { key: "model", label: "Model", type: "string", default: "ffw_bg2_rev4_follower" },
     { key: "use_head_eef_tracker", label: "Use Head EEF Tracker", type: "bool", default: "false" },
@@ -141,11 +163,11 @@ export const BG2_CONFIG: LaunchArgsConfig = {
   ],
 };
 
-/** ai_worker_bringup - F1 variant (f1_follower_ai.launch.py) */
-export const F1_CONFIG: LaunchArgsConfig = {
+/** ai_worker_bringup - W1 variant (w1_follower_ai.launch.py) */
+export const W1_CONFIG: LaunchArgsConfig = {
   serviceId: "ai_worker_bringup",
-  storageKey: "ai_worker_bringup_f1",
-  title: "Follower Bringup (F1) Launch Arguments",
+  storageKey: "ai_worker_bringup_w1",
+  title: "Follower Bringup (W1) Launch Arguments",
   args: [
     { key: "start_rviz", label: "Start RViz", type: "bool", default: "false" },
     { key: "use_sim", label: "Use Simulation", type: "bool", default: "false" },
@@ -153,21 +175,21 @@ export const F1_CONFIG: LaunchArgsConfig = {
     { key: "mock_sensor_commands", label: "Mock Sensor Commands", type: "bool", default: "false" },
     { key: "port_name", label: "Port Name", type: "string", default: "/dev/follower" },
     { key: "launch_cameras", label: "Launch Cameras", type: "bool", default: "true" },
-    { key: "head_camera_type", label: "Head Camera Type", type: "string", default: "realsense" },
+    headCameraTypeArg("realsense"),
     { key: "auto_assign_cameras", label: "Auto Assign Cameras", type: "bool", default: "true" },
     { key: "init_position", label: "Init Position", type: "bool", default: "true" },
-    { key: "model", label: "Model", type: "string", default: "ffw_f1_follower" },
+    { key: "model", label: "Model", type: "string", default: "w1_follower" },
     { key: "use_head_eef_tracker", label: "Use Head EEF Tracker", type: "bool", default: "false" },
-    initPositionFileArg("ffw_f1_follower_initial_positions.yaml"),
-    { key: "ros2_control_type", label: "ROS2 Control Type", type: "string", default: "ffw_f1_follower" },
+    initPositionFileArg("w1_follower_initial_positions.yaml"),
+    { key: "ros2_control_type", label: "ROS2 Control Type", type: "string", default: "w1_follower" },
   ],
 };
 
-/** ai_worker_bringup - F2 variant (f2_follower_ai.launch.py) */
-export const F2_CONFIG: LaunchArgsConfig = {
+/** ai_worker_bringup - W2 variant (w2_follower_ai.launch.py) */
+export const W2_CONFIG: LaunchArgsConfig = {
   serviceId: "ai_worker_bringup",
-  storageKey: "ai_worker_bringup_f2",
-  title: "Follower Bringup (F2) Launch Arguments",
+  storageKey: "ai_worker_bringup_w2",
+  title: "Follower Bringup (W2) Launch Arguments",
   args: [
     { key: "start_rviz", label: "Start RViz", type: "bool", default: "false" },
     { key: "use_sim", label: "Use Simulation", type: "bool", default: "false" },
@@ -175,14 +197,14 @@ export const F2_CONFIG: LaunchArgsConfig = {
     { key: "mock_sensor_commands", label: "Mock Sensor Commands", type: "bool", default: "false" },
     { key: "port_name", label: "Port Name", type: "string", default: "/dev/follower" },
     { key: "launch_cameras", label: "Launch Cameras", type: "bool", default: "true" },
-    { key: "head_camera_type", label: "Head Camera Type", type: "string", default: "realsense" },
+    headCameraTypeArg("realsense"),
     { key: "auto_assign_cameras", label: "Auto Assign Cameras", type: "bool", default: "true" },
     { key: "launch_lidar", label: "Launch Lidar", type: "bool", default: "true" },
     { key: "init_position", label: "Init Position", type: "bool", default: "true" },
-    { key: "model", label: "Model", type: "string", default: "ffw_f2_follower" },
+    { key: "model", label: "Model", type: "string", default: "w2_follower" },
     { key: "use_head_eef_tracker", label: "Use Head EEF Tracker", type: "bool", default: "false" },
-    initPositionFileArg("ffw_f2_follower_initial_positions.yaml"),
-    { key: "ros2_control_type", label: "ROS2 Control Type", type: "string", default: "ffw_f2_follower" },
+    initPositionFileArg("w2_follower_initial_positions.yaml"),
+    { key: "ros2_control_type", label: "ROS2 Control Type", type: "string", default: "w2_follower" },
   ],
 };
 
@@ -198,6 +220,8 @@ export const SH5_CONFIG: LaunchArgsConfig = {
     { key: "mock_sensor_commands", label: "Mock Sensor Commands", type: "bool", default: "false" },
     { key: "port_name", label: "Port Name", type: "string", default: "/dev/follower" },
     { key: "launch_cameras", label: "Launch Cameras", type: "bool", default: "true" },
+    headCameraTypeArg("zed"),
+    { key: "auto_assign_cameras", label: "Auto Assign Cameras", type: "bool", default: "false" },
     { key: "launch_lidar", label: "Launch Lidar", type: "bool", default: "true" },
     { key: "init_position", label: "Init Position", type: "bool", default: "true" },
     { key: "model", label: "Model", type: "string", default: "ffw_sh5_rev1_follower" },
@@ -218,6 +242,8 @@ export const BH5_CONFIG: LaunchArgsConfig = {
     { key: "mock_sensor_commands", label: "Mock Sensor Commands", type: "bool", default: "false" },
     { key: "port_name", label: "Port Name", type: "string", default: "/dev/follower" },
     { key: "launch_cameras", label: "Launch Cameras", type: "bool", default: "true" },
+    headCameraTypeArg("zed"),
+    { key: "auto_assign_cameras", label: "Auto Assign Cameras", type: "bool", default: "false" },
     { key: "init_position", label: "Init Position", type: "bool", default: "true" },
     { key: "model", label: "Model", type: "string", default: "ffw_bh5_rev1_follower" },
     { key: "use_head_eef_tracker", label: "Use Head EEF Tracker", type: "bool", default: "false" },
@@ -239,8 +265,12 @@ export const MOBILE_CONFIG: LaunchArgsConfig = {
     { key: "port_name", label: "Port Name", type: "string", default: "/dev/follower" },
     { key: "launch_lidar", label: "Launch Lidar", type: "bool", default: "true" },
     { key: "init_position", label: "Init Position", type: "bool", default: "true" },
+    {
+      key: "robot_type", label: "Mobile Robot Type", type: "select", default: "sg2",
+      selectOptions: [{ label: "SG2", value: "sg2" }, { label: "W2", value: "w2" }],
+    },
     { key: "model", label: "Model", type: "string", default: "ffw_sg2_rev1_follower" },
-    initPositionFileArg("ffw_sg2_follower_initial_positions.yaml"),
+    { ...initPositionFileArg(""), omitIfEmpty: true },
   ],
 };
 
@@ -249,7 +279,15 @@ export const LG2_CONFIG: LaunchArgsConfig = {
   serviceId: "avatar_bringup",
   title: "Leader Bringup (LG2) Launch Arguments",
   args: [
+    LEADER_STYLE_ARG,
     { key: "description_file", label: "Description File (URDF/XACRO)", type: "string", default: "ffw_lg2_leader.urdf.xacro" },
+    {
+      key: "leader_input_file", label: "Leader Input File (blank: package default)",
+      type: "string", default: "", omitIfEmpty: true,
+      placeholder: "ffw_bringup/config/ffw_lg2_leader/ffw_lg2_leader_input.yaml",
+    },
+    { key: "use_mock_hardware", label: "Use Mock Hardware", type: "bool", default: "false" },
+    { key: "mock_sensor_commands", label: "Mock Sensor Commands", type: "bool", default: "false" },
   ],
 };
 
@@ -260,6 +298,7 @@ function avatarLeaderConfig(model: "a1" | "a2"): LaunchArgsConfig {
     storageKey: `avatar_bringup_${model}`,
     title: `Leader Bringup (${model.toUpperCase()}) Launch Arguments`,
     args: [
+      LEADER_STYLE_ARG,
       { key: "description_file", label: "Description File (URDF/XACRO)", type: "string", default: `ffw_${model}_leader.urdf.xacro` },
       {
         key: "leader_input_file", label: "Leader Input File (blank: package default)",
