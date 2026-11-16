@@ -57,9 +57,9 @@ PROFILES = {
     model: RobotProfile(
         model, 'ai_worker_bringup',
         () if model == 'mobile' else tuple(GROUPS)[:6 if model in ('sh5', 'bh5') else 4],
-        '/cmd_vel' if model in ('sg2', 'sh5', 'f2', 'mobile') else None,
+        '/cmd_vel' if model in ('sg2', 'sh5', 'w2', 'mobile') else None,
         hidden_jog_joint_suffixes=('_wheel_steer',))
-    for model in ('sg2', 'bg2', 'sh5', 'bh5', 'f1', 'f2', 'mobile')
+    for model in ('sg2', 'bg2', 'sh5', 'bh5', 'w1', 'w2', 'mobile')
 }
 PROFILES.update({
     model: RobotProfile(model, 'open_manipulator_bringup', ('/leader/joint_trajectory',))

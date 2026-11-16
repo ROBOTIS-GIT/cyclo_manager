@@ -16,7 +16,7 @@
 #
 # Author: Hyungyu Kim
 
-"""Docker endpoints router."""
+"""Docker endpoints; sync handlers keep blocking SDK calls in FastAPI's thread pool."""
 
 import logging
 
@@ -47,7 +47,7 @@ router = APIRouter(prefix='/docker', tags=['docker'])
 
 
 @router.get('/containers', response_model=DockerContainerListResponse)
-async def list_docker_containers(
+def list_docker_containers(
     all: bool = False,  # noqa: A002
     docker_client=Depends(get_docker_client),
 ) -> DockerContainerListResponse:
@@ -66,7 +66,7 @@ async def list_docker_containers(
 
 
 @router.get('/images', response_model=DockerImageListResponse)
-async def list_docker_images(
+def list_docker_images(
     docker_client=Depends(get_docker_client),
 ) -> DockerImageListResponse:
     """Get list of Docker images."""
@@ -82,7 +82,7 @@ async def list_docker_images(
 
 
 @router.post('/images/prune', response_model=DockerImagePruneResponse)
-async def prune_docker_images(
+def prune_docker_images(
     docker_client=Depends(get_docker_client),
 ) -> DockerImagePruneResponse:
     """Prune dangling Docker images."""
@@ -97,7 +97,7 @@ async def prune_docker_images(
 
 
 @router.delete('/images/{image_id}', response_model=DockerImageDeleteResponse)
-async def delete_docker_image(
+def delete_docker_image(
     image_id: str,
     docker_client=Depends(get_docker_client),
 ) -> DockerImageDeleteResponse:
@@ -118,7 +118,7 @@ async def delete_docker_image(
 
 
 @router.post('/{name}', response_model=DockerContainerActionResponse)
-async def control_docker_container(
+def control_docker_container(
     name: str,
     request: DockerContainerActionRequest,
     docker_client=Depends(get_docker_client),
@@ -152,7 +152,7 @@ async def control_docker_container(
 
 
 @router.get('/{name}/logs', response_model=DockerContainerLogsResponse)
-async def get_docker_container_logs(
+def get_docker_container_logs(
     name: str,
     tail: int = 100,
     docker_client=Depends(get_docker_client),
@@ -175,7 +175,7 @@ async def get_docker_container_logs(
 
 
 @router.get('/{name}/top', response_model=DockerTopResponse)
-async def get_container_top(
+def get_container_top(
     name: str,
     docker_client=Depends(get_docker_client),
 ) -> DockerTopResponse:
@@ -198,7 +198,7 @@ async def get_container_top(
 
 
 @router.delete('/{name}/processes/{pid}')
-async def kill_container_process(
+def kill_container_process(
     name: str,
     pid: int,
     signal: str = 'SIGTERM',

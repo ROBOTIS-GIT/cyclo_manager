@@ -166,7 +166,7 @@ Routes are defined in `cyclo_manager/robot_interface/command_profiles.py`:
 Profiles define routes, not joint names or counts. Command-topic remaps require
 updating the profile. Controller feedback validates actual joint membership.
 
-Base movement uses `/cmd_vel` (`geometry_msgs/msg/Twist`) for SG2, SH5, F2 and
+Base movement uses `/cmd_vel` (`geometry_msgs/msg/Twist`) for SG2, SH5, W2 and
 Mobile profiles when an external Twist subscriber is discovered. OMY, OMX and
 stationary AI Worker profiles have no base control. Mobile rejects joint commands
 even if feedback includes upper-body joints. Translation vector magnitude is
