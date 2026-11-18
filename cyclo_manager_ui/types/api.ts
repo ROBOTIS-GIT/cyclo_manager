@@ -51,7 +51,7 @@ export interface ServiceStatusResponse {
   uptime_seconds: number | null;
 }
 
-export type AiWorkerRobotType = "sg2" | "bg2" | "sh5" | "bh5" | "f1" | "f2" | "mobile";
+export type AiWorkerRobotType = "sg2" | "bg2" | "sh5" | "bh5" | "w1" | "w2" | "mobile";
 export type OpenManipulatorRobotType = "omy" | "omx";
 export type AiWorkerLeaderType = "lg2" | "a1" | "a2";
 export type RobotType = AiWorkerRobotType | AiWorkerLeaderType | OpenManipulatorRobotType;

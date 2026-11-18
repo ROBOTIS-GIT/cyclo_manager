@@ -41,7 +41,7 @@ For the full monorepo (API source, UI source, dev compose), see the [repository 
 - **Python 3.10+**
 - **systemd**: required for the managed `cyclo_host_agent.service`
 - **`sudo`** — required on normal-user hosts to install the host agent systemd unit, socket directory permissions, and sudoers rules
-- For **`cyclo_manager update`:** **`pip`** or **`pip3`** on `PATH`
+- For **`cyclo_manager update`:** **`pip`** in the Python environment running the CLI/host agent
 - **Root shell handling** — `cyclo_manager up` rejects direct root execution when a normal login user exists. On root-only devices, the host agent is installed as root.
 - **Agent sockets** on the host under `/var/run/robotis/agent_sockets/` (robot containers and host agent). The bundled Compose file bind-mounts this tree into the API container as `/agents/`.
 
@@ -78,13 +78,22 @@ python3 -m cyclo_manager_cli.cli up
 | `cyclo_manager up` | Install/refresh **cyclo_host_agent** (systemd unit, socket dir, sudoers), then `docker compose up -d` for **API + UI**, then `docker compose create --no-recreate` for **Zenoh** and **noVNC** (created but **not started**). Sets **`CYCLO_MANAGER_CONFIG_FILE`** to the bundled config. |
 | `cyclo_manager up --pull` | `docker compose pull` first, then the same as `up`. |
 | `cyclo_manager down` | **Tear down host agent** (stop/disable service, remove unit, sudoers, socket dir), then `docker compose down` for all services in the bundled compose file. |
-| `cyclo_manager update` | `docker compose down` (containers only — **host agent stays installed**), `pip install -U cyclo-manager`, **`docker compose pull`**, then `docker compose up` + create optional services, then **refresh host agent** (unit, socket, sudoers). |
+| `cyclo_manager update` | Update the package and pull images before restarting the Docker stack and refreshing the host agent. |
 | `cyclo_manager update --no-pull` | Same as `update`, but skip image pull (use locally cached images). |
 | `cyclo_manager --help` | Subcommand overview |
 
 The CLI also has an internal `refresh-host-agent` subcommand. It is used by the sudoers rule and should normally not be invoked by users directly.
 
-**`down` vs `update`:** `down` removes the host agent entirely. `update` only stops Docker containers, upgrades the pip package, restarts the stack, and refreshes the host agent — it does **not** call `cyclo_manager down`.
+**`down` vs `update`:** `down` removes the host agent entirely. `update` prepares the package and images, restarts the Docker stack, and refreshes the host agent — it does **not** call `cyclo_manager down`.
+
+Updates use the running Python's pip and add `--break-system-packages` only when
+required and supported. Package installation or image download failures leave
+existing containers running; package changes are not automatically rolled back.
+The update dialog shows live pip/Docker logs and keeps received output during reconnection.
+
+**Older installations:** once this fix is released, manually upgrade the package
+once using your installation's Python, then run `cyclo_manager up --pull`.
+Add `--break-system-packages` to the pip command only if pip requests it.
 
 ---
 
@@ -139,8 +148,8 @@ Defined in [`cyclo_manager_cli/docker/docker-compose.yml`](cyclo_manager_cli/doc
 
 | Compose service | Container name | `cyclo_manager up` | Image in this checkout |
 |-----------------|----------------|--------------------|-----------------|
-| `cyclo_manager` | `cyclo_manager` | **Started** | `robotis/cyclo-manager:1.2.1` |
-| `ui` | `cyclo_manager_ui` | **Started** | `robotis/cyclo-manager-ui:1.2.1` |
+| `cyclo_manager` | `cyclo_manager` | **Started** | `robotis/cyclo-manager:1.2.2` |
+| `ui` | `cyclo_manager_ui` | **Started** | `robotis/cyclo-manager-ui:1.2.2` |
 | `rmw_zenoh` | `zenoh_daemon` | **Created only** | `robotis/zenoh-daemon:latest` |
 | `novnc-server` | `novnc-server` | **Created only** | `robotis/novnc-server:latest` |
 

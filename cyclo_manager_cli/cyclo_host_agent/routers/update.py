@@ -19,6 +19,9 @@
 """System-level endpoints for the host agent."""
 
 import asyncio
+import codecs
+import os
+import signal
 import sys
 
 from fastapi import APIRouter, HTTPException, status
@@ -26,6 +29,38 @@ from fastapi import APIRouter, HTTPException, status
 router = APIRouter(prefix='/system', tags=['system'])
 
 _update_status: dict = {'phase': 'idle', 'output': '', 'error': ''}
+UPDATE_TIMEOUT_SECONDS = 600
+UPDATE_OUTPUT_LIMIT = 200_000
+
+
+def _append_output(job: dict, text: str) -> None:
+    """Keep a bounded tail of output available while the command is running."""
+    job['output'] = (job['output'] + text.replace('\r', '\n'))[-UPDATE_OUTPUT_LIMIT:]
+
+
+async def _collect_output(proc: asyncio.subprocess.Process, job: dict) -> None:
+    """Read progress in chunks, including partial lines and split UTF-8 characters."""
+    decoder = codecs.getincrementaldecoder('utf-8')(errors='replace')
+    while chunk := await proc.stdout.read(4096):
+        _append_output(job, decoder.decode(chunk))
+    _append_output(job, decoder.decode(b'', final=True))
+    await proc.wait()
+
+
+async def _stop_update_process(proc: asyncio.subprocess.Process | None, job: dict) -> None:
+    """Stop the isolated command group and drain remaining output with a time limit."""
+    if proc is None:
+        return
+    try:
+        os.killpg(proc.pid, signal.SIGKILL)
+    except ProcessLookupError:
+        pass
+    try:
+        stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=5)
+        if stdout:
+            _append_output(job, stdout.decode(errors='replace'))
+    except asyncio.TimeoutError:
+        pass
 
 
 @router.get('/version')
@@ -37,27 +72,42 @@ async def get_host_agent_version() -> dict:
 
 
 async def _run_update() -> None:
-    global _update_status
+    job = _update_status
+    proc = None
     try:
+        env = os.environ.copy()
+        env.update({
+            'PYTHONUNBUFFERED': '1',
+            'PIP_PROGRESS_BAR': 'off',
+            'COMPOSE_PROGRESS': 'plain',
+            'COMPOSE_ANSI': 'never',
+        })
         proc = await asyncio.create_subprocess_exec(
-            sys.executable, '-m', 'cyclo_manager_cli.cli', 'update',
+            sys.executable, '-u', '-m', 'cyclo_manager_cli.cli', 'update',
+            env=env,
+            start_new_session=True,
             stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.STDOUT,
         )
-        stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=600)
-        out = (stdout.decode(errors='replace') + stderr.decode(errors='replace')).strip()
-        _update_status['output'] = out
+        await asyncio.wait_for(_collect_output(proc, job), timeout=UPDATE_TIMEOUT_SECONDS)
         if proc.returncode != 0:
-            _update_status['phase'] = 'error'
-            _update_status['error'] = f'cyclo_manager update failed (exit {proc.returncode})'
+            job['phase'] = 'error'
+            job['error'] = f'cyclo_manager update failed (exit {proc.returncode})'
         else:
-            _update_status['phase'] = 'done'
+            job['phase'] = 'done'
     except asyncio.TimeoutError:
-        _update_status['phase'] = 'error'
-        _update_status['error'] = 'cyclo_manager update timed out'
+        await _stop_update_process(proc, job)
+        job['phase'] = 'error'
+        job['error'] = 'cyclo_manager update timed out'
+    except asyncio.CancelledError:
+        await _stop_update_process(proc, job)
+        job['phase'] = 'error'
+        job['error'] = 'cyclo_manager update was cancelled'
+        raise
     except Exception as e:
-        _update_status['phase'] = 'error'
-        _update_status['error'] = f'Failed to start cyclo_manager update: {e}'
+        await _stop_update_process(proc, job)
+        job['phase'] = 'error'
+        job['error'] = f'Failed to run cyclo_manager update: {e}'
 
 
 @router.post('/update')

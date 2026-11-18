@@ -19,8 +19,8 @@ import {
   A2_CONFIG,
   BG2_CONFIG,
   BH5_CONFIG,
-  F1_CONFIG,
-  F2_CONFIG,
+  W1_CONFIG,
+  W2_CONFIG,
   LG2_CONFIG,
   MOBILE_CONFIG,
   OMY_CONFIG,
@@ -66,7 +66,7 @@ const AI_WORKER_CAMERA_TOPICS = [
   { label: "Camera (Wrist R)", topic: "/camera_right/camera_right/color/image_rect_raw/compressed" },
 ] as const;
 
-const AI_WORKER_F1_F2_CAMERA_TOPICS = [
+const AI_WORKER_W1_W2_CAMERA_TOPICS = [
   { label: "Camera (Head)", topic: "/camera_head/camera_head/color/image_raw/compressed" },
   { label: "Camera (Wrist L)", topic: "/camera_left/camera_left/color/image_rect_raw/compressed" },
   { label: "Camera (Wrist R)", topic: "/camera_right/camera_right/color/image_rect_raw/compressed" },
@@ -77,8 +77,8 @@ const AI_WORKER_ROBOT_TYPE_OPTIONS = [
   { value: "bg2", label: "BG2", config: BG2_CONFIG, robotType: "bg2" },
   { value: "sh5", label: "SH5", config: SH5_CONFIG, robotType: "sh5" },
   { value: "bh5", label: "BH5", config: BH5_CONFIG, robotType: "bh5" },
-  { value: "f1", label: "F1", config: F1_CONFIG, robotType: "f1" },
-  { value: "f2", label: "F2", config: F2_CONFIG, robotType: "f2" },
+  { value: "w1", label: "W1", config: W1_CONFIG, robotType: "w1" },
+  { value: "w2", label: "W2", config: W2_CONFIG, robotType: "w2" },
   { value: "mobile", label: "Mobile", config: MOBILE_CONFIG, robotType: "mobile" },
 ] as const;
 
@@ -108,8 +108,8 @@ export const SYSTEM_PROFILES: Record<string, SystemProfile> = {
     batteryTopics: AI_WORKER_BATTERY_TOPICS,
     cameraTopics: AI_WORKER_CAMERA_TOPICS,
     cameraTopicsByRobotType: {
-      f1: AI_WORKER_F1_F2_CAMERA_TOPICS,
-      f2: AI_WORKER_F1_F2_CAMERA_TOPICS,
+      w1: AI_WORKER_W1_W2_CAMERA_TOPICS,
+      w2: AI_WORKER_W1_W2_CAMERA_TOPICS,
     },
   },
   open_manipulator: {

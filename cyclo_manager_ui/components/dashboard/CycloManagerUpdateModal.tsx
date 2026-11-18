@@ -18,6 +18,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { btnStyle } from "@/components/dashboard/DashboardComponents";
+import { OutputBox } from "@/components/update/UpdateWizardParts";
 import { getCycloManagerVersion, getHostAgentVersion, getUpdateStatus, updateCycloManager } from "@/lib/api";
 import type { CycloManagerVersionResponse } from "@/types/api";
 
@@ -74,34 +75,6 @@ function isHostAgentUpdated(hostAgentVersion: string, managerCurrent: string): b
   return isKnownVersion(managerCurrent) && hostAgentVersion === managerCurrent;
 }
 
-function OutputBox({
-  output,
-  error,
-}: {
-  output: string;
-  error?: boolean;
-}) {
-  if (!output) return null;
-  let textColor = "var(--vscode-foreground)";
-  if (error) {
-    textColor = "var(--vscode-errorForeground)";
-  }
-  return (
-    <pre
-      className="text-xs p-3 rounded font-mono whitespace-pre-wrap break-words overflow-auto"
-      style={{
-        minHeight: 160,
-        maxHeight: 220,
-        backgroundColor: "var(--vscode-textCodeBlock-background)",
-        color: textColor,
-        border: "1px solid var(--vscode-panel-border)",
-      }}
-    >
-      {output}
-    </pre>
-  );
-}
-
 export default function CycloManagerUpdateModal({
   version,
   onClose,
@@ -143,6 +116,17 @@ export default function CycloManagerUpdateModal({
       if (Date.now() - startedAt > UPDATE_TIMEOUT_MS) {
         failUpdate("Update timed out. Check the server and retry.");
         return;
+      }
+      try {
+        const status = await getUpdateStatus();
+        if (status.output) setOutput(status.output);
+        if (status.phase === "error") {
+          failUpdate(status.error || "Update failed.");
+          return;
+        }
+        if (status.phase === "updating") return;
+      } catch {
+        // Keep the last output while the API or host agent is restarting.
       }
       try {
         const latestVersion = await getCycloManagerVersion();
@@ -188,11 +172,11 @@ export default function CycloManagerUpdateModal({
         return;
       }
       try {
-        consecutiveFailures = 0;
         const status = await getUpdateStatus();
+        consecutiveFailures = 0;
+        if (status.output) setOutput(status.output);
         if (status.phase === "updating") sawUpdating = true;
         if (status.phase === "error") {
-          if (status.output) setOutput(status.output);
           failUpdate(status.error || "Update failed.");
         } else if (
           status.phase === "done" ||

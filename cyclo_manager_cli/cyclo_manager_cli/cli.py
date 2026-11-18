@@ -31,6 +31,7 @@ import shutil
 import socket
 import subprocess
 import sys
+import sysconfig
 
 PYPI_PACKAGE = 'cyclo-manager'
 HOST_AGENT_SERVICE = 'cyclo_host_agent'
@@ -443,54 +444,105 @@ def cmd_down(args: argparse.Namespace) -> int:
     return 0
 
 
+def _package_update_command() -> list[str]:
+    """Use this interpreter's pip, overriding PEP 668 only when required and supported."""
+    if not sys.executable:
+        raise RuntimeError('Python executable is unknown; cannot update package.')
+
+    pip_command = [sys.executable, '-m', 'pip']
+    # Also checks that pip exists in this Python, without installing anything.
+    help_result = subprocess.run(
+        [*pip_command, 'install', '--help'],
+        check=True, capture_output=True, text=True, timeout=10,
+    )
+    command = [*pip_command, 'install', '-U', PYPI_PACKAGE]
+    in_venv = sys.prefix != sys.base_prefix or hasattr(sys, 'real_prefix')
+    marker = Path(sysconfig.get_path('stdlib')) / 'EXTERNALLY-MANAGED'
+    if not in_venv and marker.is_file():
+        if '--break-system-packages' not in help_result.stdout:
+            raise RuntimeError(
+                f'{sys.executable} is externally managed, but its pip does not support '
+                '--break-system-packages. Use a virtual environment or install a '
+                'compatible pip through the OS package manager.'
+            )
+        command.append('--break-system-packages')
+        print('System Python is externally managed; using --break-system-packages.', flush=True)
+    else:
+        print('Using pip without --break-system-packages.', flush=True)
+    return command
+
+
+def _updated_package_dir() -> Path:
+    """Resolve the installed package in a fresh Python after pip may have moved it."""
+    result = subprocess.run(
+        [sys.executable, '-c',
+         'from pathlib import Path; import cyclo_manager_cli; '
+         'print(Path(cyclo_manager_cli.__file__).resolve().parent)'],
+        check=True, capture_output=True, text=True, timeout=10,
+    )
+    package_dir = Path(result.stdout.strip())
+    if not package_dir.is_absolute():
+        raise RuntimeError('Cannot determine the updated package directory.')
+    return package_dir
+
+
 def cmd_update(args: argparse.Namespace) -> int:
-    """Bring containers down, pip install -U, bring containers back up, restart host agent."""
-    pip_exe = shutil.which('pip3') or shutil.which('pip')
-    if not pip_exe:
-        print('pip not found; cannot update package.', file=sys.stderr)
-        return 1
-
-    compose_path = _docker_dir() / 'docker-compose.yml'
-    if not compose_path.is_file():
-        print(f'Compose file not found: {compose_path}', file=sys.stderr)
-        return 1
-    env = os.environ.copy()
-    env['CYCLO_MANAGER_CONFIG_FILE'] = str(_packaged_config_path())
-    env.setdefault('HOSTNAME', socket.gethostname())
-    base = ['docker', 'compose', '-f', str(compose_path)]
-
-    print('Stopping containers...')
-    try:
-        subprocess.run([*base, 'down'], env=env, check=True)
-    except subprocess.CalledProcessError as e:
-        return e.returncode
-    except FileNotFoundError:
+    """Prepare the package and images before stopping containers and refreshing the agent."""
+    if not shutil.which('docker'):
         print('Docker not found.', file=sys.stderr)
         return 1
 
-    print(f'Updating {PYPI_PACKAGE} (pip install -U)...')
+    print(f'Checking pip for Python: {sys.executable}', flush=True)
     try:
-        subprocess.run([pip_exe, 'install', '-U', PYPI_PACKAGE], check=True, timeout=120)
+        update_command = _package_update_command()
+    except subprocess.CalledProcessError as e:
+        print(f'Cannot use pip in {sys.executable}: {e.stderr or e}', file=sys.stderr)
+        return e.returncode
+    except (OSError, RuntimeError, subprocess.TimeoutExpired) as e:
+        print(f'Cannot prepare package update: {e}', file=sys.stderr)
+        return 1
+
+    print(f'Updating {PYPI_PACKAGE} with {sys.executable} -m pip...', flush=True)
+    try:
+        subprocess.run(update_command, check=True, timeout=120)
     except subprocess.CalledProcessError as e:
         print(f'pip install -U {PYPI_PACKAGE} failed.', file=sys.stderr)
         return e.returncode
     except subprocess.TimeoutExpired:
         print('pip install timed out.', file=sys.stderr)
         return 1
+    except OSError as e:
+        print(f'Failed to start pip: {e}', file=sys.stderr)
+        return 1
 
-    if not getattr(args, 'no_pull', False):
-        print('Pulling latest images...')
-        try:
-            subprocess.run([*base, 'pull'], env=env, check=True)
-        except subprocess.CalledProcessError as e:
-            print(
-                f'Warning: docker compose pull failed (exit {e.returncode}); '
-                'continuing with cached images.',
-                file=sys.stderr,
-            )
-
-    print('Starting containers...')
     try:
+        package_dir = _updated_package_dir()
+    except subprocess.CalledProcessError as e:
+        print(f'Cannot locate updated package: {e.stderr or e}', file=sys.stderr)
+        return e.returncode
+    except (OSError, RuntimeError, subprocess.TimeoutExpired) as e:
+        print(f'Cannot locate updated package: {e}', file=sys.stderr)
+        return 1
+
+    compose_path = package_dir / 'docker/docker-compose.yml'
+    config_path = package_dir / 'config/config.yml'
+    for path in (compose_path, config_path):
+        if not path.is_file():
+            print(f'Updated package file not found: {path}', file=sys.stderr)
+            return 1
+    env = os.environ.copy()
+    env['CYCLO_MANAGER_CONFIG_FILE'] = str(config_path)
+    env.setdefault('HOSTNAME', socket.gethostname())
+    base = ['docker', 'compose', '-f', str(compose_path)]
+
+    try:
+        if not getattr(args, 'no_pull', False):
+            print('Pulling images before stopping containers...', flush=True)
+            subprocess.run([*base, 'pull'], env=env, check=True)
+
+        print('Stopping containers...', flush=True)
+        subprocess.run([*base, 'down'], env=env, check=True)
+        print('Starting containers...', flush=True)
         subprocess.run([*base, 'up', '-d', *COMPOSE_SERVICES_UP], env=env, check=True)
         subprocess.run(
             [*base, 'create', '--no-recreate', *COMPOSE_SERVICES_CREATE_ONLY],
@@ -498,7 +550,11 @@ def cmd_update(args: argparse.Namespace) -> int:
             check=True,
         )
     except subprocess.CalledProcessError as e:
+        print(f'Docker update command failed: {e}', file=sys.stderr)
         return e.returncode
+    except OSError as e:
+        print(f'Failed to run Docker: {e}', file=sys.stderr)
+        return 1
 
     print('Refreshing host agent (unit, socket, sudoers)...')
     if _refresh_host_agent_after_update() != 0:
@@ -533,7 +589,7 @@ def main() -> int:
 
     update_parser = sub.add_parser(
         'update',
-        help='Down containers, pip install -U cyclo-manager, pull images, then up again',
+        help='Update the package and pull images before restarting containers and the host agent',
     )
     update_parser.add_argument(
         '--no-pull',

@@ -41,8 +41,20 @@ function argsStorageKey(config: LaunchArgsConfig, container: string): string {
 
 function readArgs(config: LaunchArgsConfig, container: string): LaunchArgs {
   try {
-    const stored = readStoredValue(argsStorageKey(config, container));
-    return stored ? mergeWithDefaults(config, JSON.parse(stored)) : getDefaultArgs(config);
+    const oldModel = config.storageKey === "ai_worker_bringup_w1" ? "f1"
+      : config.storageKey === "ai_worker_bringup_w2" ? "f2" : null;
+    const stored = readStoredValue(argsStorageKey(config, container))
+      ?? (oldModel ? readStoredValue(`bringup_args_ai_worker_bringup_${oldModel}_${container}`) : null);
+    if (!stored) return getDefaultArgs(config);
+    const args: LaunchArgs = JSON.parse(stored);
+    if (oldModel) {
+      const defaults = getDefaultArgs(config);
+      for (const key of ["model", "ros2_control_type", "init_position_file"]) {
+        const oldValue = `ffw_${oldModel}_follower${key === "init_position_file" ? "_initial_positions.yaml" : ""}`;
+        if (args[key] === oldValue) args[key] = defaults[key];
+      }
+    }
+    return mergeWithDefaults(config, args);
   } catch {
     return getDefaultArgs(config);
   }
@@ -53,8 +65,10 @@ function useLaunchSelection(
   storageKey: string,
   options: readonly SystemRobotOption[],
 ) {
-  const findOption = (value: string | null) =>
-    options.find(option => option.value === value) ?? options[0] ?? null;
+  const findOption = (value: string | null) => {
+    const renamed = value === "f1" ? "w1" : value === "f2" ? "w2" : value;
+    return options.find(option => option.value === renamed) ?? options[0] ?? null;
+  };
   const [selection, setSelection] = useState(() => {
     const option = findOption(readStoredValue(storageKey));
     return { option, args: option ? readArgs(option.config, container) : {} };
