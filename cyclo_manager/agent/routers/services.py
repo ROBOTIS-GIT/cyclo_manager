@@ -28,6 +28,7 @@ from cyclo_manager.agent.models import (
     ServiceStatusListResponse,
 )
 from cyclo_manager.agent.s6_client import (
+    ServiceControlBusy,
     control_service,
     get_all_services_status,
     get_service_status,
@@ -134,6 +135,11 @@ def control_service_endpoint(
     try:
         control_service(name, request.action, request.launch_args, request.robot_type)
         return ServiceControlResponse(name=name, action=request.action, result='ok')
+    except ServiceControlBusy:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail='Another service change is in progress. Try again when it finishes.',
+        )
     except FileNotFoundError:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,

@@ -37,11 +37,18 @@ S6_SERVICE_DIR = Path('/run/service')
 CONTROL_LOCK = Path('/run/cyclo-service-control.lock')
 
 
+class ServiceControlBusy(Exception):
+    """Another request holds the container's service control lock."""
+
+
 @contextmanager
 def service_control_lock():
     """Serialize configuration updates and s6 service commands."""
     with CONTROL_LOCK.open('a') as stream:
-        fcntl.flock(stream, fcntl.LOCK_EX)
+        try:
+            fcntl.flock(stream, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError as exc:
+            raise ServiceControlBusy from exc
         yield
 
 
