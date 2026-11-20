@@ -21,7 +21,6 @@
 import logging
 import os
 from pathlib import Path
-import subprocess
 from typing import Optional
 
 from cyclo_manager.agent.log_history import (
@@ -61,6 +60,40 @@ def _iter_stripped_log_file(log_path: Path):
             yield strip_ansi_codes(line).encode('utf-8')
 
 
+def _read_log_tail(log_path: Path, lines: int) -> tuple[str, int]:
+    """Read the last lines and cursor from the same open file and fixed byte range."""
+    # GNU tail treats negative counts as their absolute value.
+    lines = abs(lines)
+    with log_path.open('rb') as stream:
+        end = os.fstat(stream.fileno()).st_size
+        if lines == 0:
+            return '', end
+        start = end
+        chunks = []
+        newlines = 0
+        while start > 0 and newlines <= lines:
+            size = min(start, 64 * 1024)
+            start -= size
+            stream.seek(start)
+            chunk = stream.read(size)
+            if len(chunk) != size:
+                raise HTTPException(409, 'Log file changed while reading; retry without cursor.')
+            chunks.append(chunk)
+            newlines += chunk.count(b'\n')
+
+    data = b''.join(reversed(chunks))
+    position = len(data) - 1 if data.endswith(b'\n') else len(data)
+    for _ in range(lines):
+        position = data.rfind(b'\n', 0, position)
+        if position < 0:
+            break
+    if position >= 0:
+        data = data[position + 1:]
+    # Preserve the universal newline handling of the original text-mode tail call.
+    text = data.decode('utf-8', errors='replace').replace('\r\n', '\n').replace('\r', '\n')
+    return text, end
+
+
 @router.get(
     '/{name}/logs',
     summary='Get service logs',
@@ -90,7 +123,8 @@ def get_service_logs(
 
     Raises
     ------
-    HTTPException: 400 for invalid service names, 500 on read errors.
+    HTTPException: 400 for invalid service names, 409 if the initial read is
+        truncated concurrently, 500 on read errors.
 
     """
     log_path = _get_service_log_path(name)
@@ -139,39 +173,17 @@ def get_service_logs(
                 'log_path': str(log_path),
             }
         else:
-            # Fallback to tail command for backward compatibility
-            result = subprocess.run(
-                ['tail', '-n', str(tail), str(log_path)],
-                capture_output=True,
-                text=True,
-                timeout=5,
-            )
-
-            if result.returncode != 0:
-                logger.error(f"Failed to read logs for service '{name}': {result.stderr}")
-                raise HTTPException(
-                    status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                    detail=f'Failed to read log file: {result.stderr}',
-                )
-
-            # Get cursor AFTER tail command finishes to be as accurate as possible
-            current_size = log_path.stat().st_size
-            logs = strip_ansi_codes(result.stdout) if strip_ansi else result.stdout
+            logs, new_cursor = _read_log_tail(log_path, tail)
+            logs = strip_ansi_codes(logs) if strip_ansi else logs
 
             return {
                 'service': name,
                 'logs': logs,
                 'tail': tail,
-                'cursor': current_size,
+                'cursor': new_cursor,
                 'log_path': str(log_path),
             }
 
-    except subprocess.TimeoutExpired:
-        logger.error(f"Timeout reading logs for service '{name}'")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail='Timeout reading log file',
-        )
     except HTTPException:
         raise
     except Exception as e:
