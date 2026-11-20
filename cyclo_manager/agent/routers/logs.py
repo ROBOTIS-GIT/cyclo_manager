@@ -21,6 +21,7 @@
 import logging
 import os
 from pathlib import Path
+import subprocess
 from typing import Optional
 
 from cyclo_manager.agent.log_history import (
@@ -58,6 +59,127 @@ def _iter_stripped_log_file(log_path: Path):
     with log_path.open('r', encoding='utf-8', errors='replace') as f:
         for line in f:
             yield strip_ansi_codes(line).encode('utf-8')
+
+
+@router.get(
+    '/{name}/logs',
+    summary='Get service logs',
+    description='Retrieve logs for a service from s6-overlay log directory',
+)
+def get_service_logs(
+    name: str, tail: int = 100, strip_ansi: bool = False, cursor: Optional[int] = None
+):
+    """
+    Get logs for a service.
+
+    Reads logs from /var/log/{service_name}/current (s6-overlay log directory).
+    Missing log files return empty logs and cursor 0 for compatibility with 0.3.0.
+
+    Args
+    ----
+    name: Service name.
+    tail: Number of log lines to return from the end. Defaults to 100.
+        Ignored if cursor is provided.
+    strip_ansi: If True, remove ANSI escape codes (color/formatting) from the output.
+    cursor: Byte offset in the log file. If provided, returns logs from this offset
+        to the end of the file. This is more efficient for streaming logs.
+
+    Returns
+    -------
+    Dictionary with service name, logs content, tail count (or cursor), and new cursor.
+
+    Raises
+    ------
+    HTTPException: 400 for invalid service names, 500 on read errors.
+
+    """
+    log_path = _get_service_log_path(name)
+
+    if not log_path.exists():
+        # Return empty logs instead of 404 when log file doesn't exist
+        logger.debug(f"Log file not found for service '{name}', returning empty logs")
+        return {
+            'service': name,
+            'logs': '',
+            'tail': tail if cursor is None else None,
+            'cursor': 0,
+            'log_path': str(log_path),
+        }
+
+    try:
+        # If cursor is provided, read from that offset (more efficient for streaming)
+        if cursor is not None:
+            # Get current file size for validation
+            current_size = log_path.stat().st_size
+
+            if cursor < 0:
+                cursor = 0
+            if cursor > current_size:
+                # Cursor is beyond file size (file was truncated or rotated)
+                logger.warning(
+                    f'Cursor {cursor} is beyond file size {current_size} '
+                    f'for service {name!r}, resetting to current size'
+                )
+                cursor = current_size
+
+            # Read from cursor to end of file
+            with log_path.open('rb') as f:
+                f.seek(cursor)
+                logs_bytes = f.read()
+                # IMPORTANT: Get the actual position after reading to prevent duplication
+                new_cursor = f.tell()
+                logs = logs_bytes.decode('utf-8', errors='replace')
+
+            logs = strip_ansi_codes(logs) if strip_ansi else logs
+
+            return {
+                'service': name,
+                'logs': logs,
+                'cursor': new_cursor,
+                'log_path': str(log_path),
+            }
+        else:
+            # Fallback to tail command for backward compatibility
+            result = subprocess.run(
+                ['tail', '-n', str(tail), str(log_path)],
+                capture_output=True,
+                text=True,
+                timeout=5,
+            )
+
+            if result.returncode != 0:
+                logger.error(f"Failed to read logs for service '{name}': {result.stderr}")
+                raise HTTPException(
+                    status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                    detail=f'Failed to read log file: {result.stderr}',
+                )
+
+            # Get cursor AFTER tail command finishes to be as accurate as possible
+            current_size = log_path.stat().st_size
+            logs = strip_ansi_codes(result.stdout) if strip_ansi else result.stdout
+
+            return {
+                'service': name,
+                'logs': logs,
+                'tail': tail,
+                'cursor': current_size,
+                'log_path': str(log_path),
+            }
+
+    except subprocess.TimeoutExpired:
+        logger.error(f"Timeout reading logs for service '{name}'")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail='Timeout reading log file',
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error reading logs for service '{name}': {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f'Failed to read logs: {str(e)}',
+        )
 
 
 @router.get('/{name}/logs/history', summary='List service log history')
