@@ -208,40 +208,23 @@ def _write_launch_args(name: str, launch_args: dict[str, str]) -> None:
     logger.info(f"Wrote launch args for service '{name}' to {args_file}")
 
 
-def _s6rc_active_services() -> list[str]:
-    return subprocess.check_output(
-        ['s6-rc', '-b', '-a', 'list'], stderr=subprocess.STDOUT,
-        text=True, timeout=10,
-    ).splitlines()
-
-
-def _s6rc_start(name: str) -> None:
-    subprocess.check_output(
-        ['s6-rc', '-b', '-u', 'change', name], stderr=subprocess.STDOUT, timeout=10,
-    )
-
-
-def _s6rc_stop(name: str) -> None:
-    """Stop the whole pipeline if the service belongs to one."""
+def _s6rc_stop_target(name: str) -> str:
+    """Select a registered service pipeline when it contains the requested service."""
     pipeline = f'{name}-pipeline'
-    target = name
     try:
         members = subprocess.check_output(
-            ['s6-rc-db', '-b', 'contents', pipeline],
+            ['s6-rc-db', 'contents', pipeline],
             stderr=subprocess.STDOUT,
             text=True,
             timeout=5,
         ).splitlines()
-        if name in members:
-            target = pipeline
     except subprocess.CalledProcessError as exc:
         # Missing identifiers and non-bundles have no pipeline to stop.
         # Other failures must surface rather than silently leaving a logger up.
-        if exc.returncode not in (3, 5):
-            raise
-    subprocess.check_output(
-        ['s6-rc', '-b', '-d', 'change', target], stderr=subprocess.STDOUT, timeout=20,
-    )
+        if exc.returncode in (3, 5):
+            return name
+        raise
+    return pipeline if name in members else name
 
 
 def control_service(
@@ -321,20 +304,25 @@ def _control_service(name, action, launch_args, robot_type):
 
     try:
         if is_s6rc_service:
+            # For s6-rc services, use s6-rc commands
+            # For pipelines, starting the producer service will start the entire pipeline
+            if action == 'up' and get_service_status(name).is_up:
+                logger.info("Service '%s' is already running; skipping Start", name)
+                return
+            stop_target = _s6rc_stop_target(name)
             if action == 'down':
-                _s6rc_stop(name)
-            elif action == 'restart':
-                _s6rc_stop(name)
-                time.sleep(1)
-                _s6rc_start(name)
-            else:  # up
-                if get_service_status(name).is_up:
-                    logger.info("Service '%s' is already running; skipping Start", name)
-                    return
-                # s6-rc still marks this stopped service as up. Clear that state first.
-                if name in _s6rc_active_services() and not get_service_status(name).is_up:
-                    _s6rc_stop(name)
-                _s6rc_start(name)
+                cmd = ['s6-rc', '-d', 'change', stop_target]
+            else:  # start or restart
+                # A process can exit while s6-rc still considers its pipeline up.
+                cmd = ['s6-rc', '-d', 'change', stop_target]
+                subprocess.check_output(cmd, stderr=subprocess.STDOUT, timeout=20)
+                if action == 'restart':
+                    time.sleep(1)
+                cmd = ['s6-rc', '-u', 'change', name]
+
+            subprocess.check_output(
+                cmd, stderr=subprocess.STDOUT, timeout=20 if action == 'down' else 10,
+            )
             logger.info(f"Successfully executed action '{action}' on s6-rc service '{name}'")
         else:
             # For legacy services, use s6-svc
