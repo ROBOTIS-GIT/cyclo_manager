@@ -28,6 +28,7 @@ import {
 } from "@/config/systemServices";
 import type { SerialPortInfo } from "@/types/api";
 import type { SystemLaunchSettings } from "./useSystemLaunchSettings";
+import { diagnosticActive, getDiagnosticSession } from "@/lib/diagnostics";
 
 export function useSystemServices(
   container: string, profile: SystemProfile, settings: SystemLaunchSettings,
@@ -39,6 +40,39 @@ export function useSystemServices(
   const [intelligenceContainerStatus, setIntelligenceContainerStatus] = useState<string | null>(null);
   const [zenohStatus, setZenohStatus] = useState("");
   const [zenohAction, setZenohAction] = useState<"start" | "stop" | null>(null);
+  const [diagnosticsBlocked, setDiagnosticsBlocked] = useState(container === "ai_worker");
+  const [diagnosticsMessage, setDiagnosticsMessage] = useState("");
+
+  usePolling(async (isActive, signal) => {
+    try {
+      const result = await getDiagnosticSession(container, signal);
+      if (!isActive()) return;
+      const active = diagnosticActive(result.session);
+      setDiagnosticsBlocked(active);
+      setDiagnosticsMessage(active ? "Stop the active diagnostics session before starting bringup." : "");
+    } catch (error) {
+      if (!isActive()) return;
+      const unsupported = error instanceof Error && error.message.includes("does not support diagnostics");
+      setDiagnosticsBlocked(!unsupported);
+      setDiagnosticsMessage(unsupported ? "" : "Cannot verify diagnostics status; check the agent connection.");
+    }
+  }, SYSTEM_STATUS_POLL_INTERVAL, { enabled: container === "ai_worker", resetKey: container, skipIfRunning: true });
+
+  async function canStartBringup() {
+    if (container !== "ai_worker") return true;
+    try {
+      const result = await getDiagnosticSession(container);
+      const active = diagnosticActive(result.session);
+      setDiagnosticsBlocked(active);
+      setDiagnosticsMessage(active ? "Stop the active diagnostics session before starting bringup." : "");
+      return !active;
+    } catch (error) {
+      const unsupported = error instanceof Error && error.message.includes("does not support diagnostics");
+      setDiagnosticsBlocked(!unsupported);
+      setDiagnosticsMessage(unsupported ? "" : "Cannot verify diagnostics status; check the agent connection.");
+      return unsupported;
+    }
+  }
 
   usePolling(() => {
     void robot.loadStatus();
@@ -74,6 +108,7 @@ export function useSystemServices(
 
   const toggleRobot = async () => {
     const action = robot.status?.is_up ? "down" : "up";
+    if (action === "up" && !(await canStartBringup())) return;
     await robot.handleControl(action,
       action === "up" ? getLaunchOverrides(settings.robot.config, settings.robot.args) : undefined,
       action === "up" ? settings.robot.option?.robotType : undefined);
@@ -81,6 +116,7 @@ export function useSystemServices(
   const toggleLeader = async () => {
     if (!profile.leaderServiceName) return;
     const action = leader.status?.is_up ? "down" : "up";
+    if (action === "up" && !(await canStartBringup())) return;
     await leader.handleControl(action,
       action === "up" ? getLaunchOverrides(settings.leader.config, settings.leader.args) : undefined,
       action === "up" ? settings.leader.option?.robotType : undefined);
@@ -101,6 +137,7 @@ export function useSystemServices(
 
   return {
     robot, leader, intelligence, serialPorts,
+    diagnosticsBlocked, diagnosticsMessage,
     intelligenceContainerRunning: intelligenceContainerStatus?.toLowerCase() === "running",
     zenohStatus, zenohLoading: zenohAction !== null,
     toggleRobot, toggleLeader, toggleIntelligence, toggleZenoh,

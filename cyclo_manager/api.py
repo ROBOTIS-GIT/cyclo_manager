@@ -27,6 +27,7 @@ from cyclo_manager.routers import (
     container,
     containers,
     docker,
+    diagnostics,
     host,
     record_play,
     root,
@@ -112,6 +113,7 @@ app.include_router(websocket_logs.router)
 app.include_router(websocket_ros2.router)
 app.include_router(websocket_jog.router)
 app.include_router(host.router)
+app.include_router(diagnostics.router)
 
 
 @app.exception_handler(HTTPException)

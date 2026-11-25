@@ -75,5 +75,6 @@ export function useNavigation(closeMenu: () => void, pathname: string) {
   return {
     navError, setNavError, selection, cancelSelection, openRobotPage, handleNavigate,
     handleSystemClick: () => openRobot("system"), handleJogClick: () => openRobot("jog"),
+    handleDiagnosticsClick: () => openRobot("diagnostics"),
   };
 }

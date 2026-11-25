@@ -1,0 +1,88 @@
+"""Diagnostic execution API. Bringup gating belongs to the Manager UI."""
+
+from fastapi import APIRouter, HTTPException
+from fastapi.responses import StreamingResponse
+from pydantic import BaseModel, Field, StrictInt, field_validator
+
+from cyclo_manager.agent.diagnostics_process import configuration, sessions
+from cyclo_manager.diagnostics.profiles import PROFILES
+
+router = APIRouter(prefix='/diagnostics', tags=['diagnostics'])
+
+
+class StartDiagnostic(BaseModel):
+    profile: str
+    ports: dict[str, str] = Field(default_factory=dict)
+    baud_rates: dict[str, StrictInt] = Field(default_factory=dict)
+
+    @field_validator('profile')
+    @classmethod
+    def valid_profile(cls, value):
+        if value not in PROFILES:
+            raise ValueError('Unknown diagnostic profile')
+        return value
+
+    @field_validator('baud_rates')
+    @classmethod
+    def valid_baud_rates(cls, value):
+        if len(value) > 16 or any(not k or '=' in k or '\x00' in k or len(k) > 128
+                                 or rate <= 0 for k, rate in value.items()):
+            raise ValueError('Invalid system/baud rate override')
+        return value
+
+    @field_validator('ports')
+    @classmethod
+    def valid_ports(cls, value):
+        if len(value) > 16 or any(not k or '=' in k or len(k) > 128
+                                 or not p.startswith('/dev/') or len(p) > 512
+                                 or '\x00' in p for k, p in value.items()):
+            raise ValueError('Invalid system/port override')
+        return value
+
+
+@router.get('/profiles')
+async def profiles():
+    try:
+        return await configuration('--list-profiles')
+    except Exception as exc:
+        raise HTTPException(503, str(exc)) from exc
+
+
+@router.get('/profiles/{profile}')
+async def inspect_profile(profile: str):
+    if profile not in PROFILES:
+        raise HTTPException(404, 'Unknown profile')
+    try:
+        return await configuration('--profile', profile, '--inspect')
+    except Exception as exc:
+        raise HTTPException(422, str(exc)) from exc
+
+
+@router.post('/sessions')
+async def start(request: StartDiagnostic):
+    try:
+        return await sessions.start(request.profile, request.ports, request.baud_rates)
+    except ValueError as exc:
+        raise HTTPException(409, str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(503, str(exc)) from exc
+
+
+@router.get('/sessions/current')
+async def current():
+    return dict(session=sessions.current)
+
+
+@router.post('/sessions/{session_id}/stop')
+async def stop(session_id: str):
+    try:
+        return await sessions.stop(session_id)
+    except LookupError as exc:
+        raise HTTPException(404, str(exc)) from exc
+
+
+@router.get('/sessions/{session_id}/stream')
+async def stream(session_id: str):
+    if not sessions.current or sessions.current['id'] != session_id:
+        raise HTTPException(404, 'Diagnostic session not found')
+    return StreamingResponse(sessions.stream(session_id), media_type='application/x-ndjson')

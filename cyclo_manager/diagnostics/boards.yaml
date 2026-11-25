@@ -1,0 +1,66 @@
+# Names of registers approved for board diagnostics. Addresses and sizes come
+# from the installed dynamixel_hardware_interface model tables.
+common_fields:
+  - Firmware_Version_Major
+  - Firmware_Version_Minor
+  - Error_Code
+  - Millis
+
+models:
+  hx5_d20_rr:
+    model_numbers: [260]
+    use_common_fields: false
+    fields: [Firmware Version, Hardware Error Status, Status, Present Input Voltage, Min Voltage Limit, Max Voltage Limit, Realtime Tick]
+  hx5_d20_rl:
+    model_numbers: [261]
+    use_common_fields: false
+    fields: [Firmware Version, Hardware Error Status, Status, Present Input Voltage, Min Voltage Limit, Max Voltage Limit, Realtime Tick]
+  sensorxel_joy:
+    model_numbers: [536, 600]
+    fields:
+      - JOYSTICK TACT SWITCH
+      - JOYSTICK X VALUE
+      - JOYSTICK Y VALUE
+      - IMU ACC X
+      - IMU ACC Y
+      - IMU ACC Z
+      - IMU ACC SUM
+  ffw_g40_imu:
+    model_numbers: [537]
+    fields:
+      - IMU ACC SCALE
+      - IMU GYRO SCALE
+      - IMU TIMESTAMP
+      - IMU ACC X
+      - IMU ACC Y
+      - IMU ACC Z
+      - IMU GYRO X
+      - IMU GYRO Y
+      - IMU GYRO Z
+  ffw_g10_led:
+    model_numbers: [601]
+    fields:
+      - Neopixel_Head_Left_Red
+      - Neopixel_Head_Left_Green
+      - Neopixel_Head_Left_Blue
+      - Neopixel_Head_Left_Brightness
+      - Neopixel_Head_Left_Mode
+      - Neopixel_Head_Right_Red
+      - Neopixel_Head_Right_Green
+      - Neopixel_Head_Right_Blue
+      - Neopixel_Head_Right_Brightness
+      - Neopixel_Head_Right_Mode
+  ffw_g10_rcu:
+    model_numbers: [602]
+    fields:
+      - Sec_Since_Power_On
+      - Sec_Since_Reset
+      - Estop_Input
+      - Remote_Connected
+      - System_State
+      - Board_Temperature
+      - Host_Connection
+      - Motor1_Connection_Status
+      - Swerve_DXL1_Connection_Status
+      - Swerve_DXL2_Connection_Status
+      - Swerve_DXL3_Connection_Status

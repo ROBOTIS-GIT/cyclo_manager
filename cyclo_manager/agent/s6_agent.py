@@ -19,10 +19,12 @@
 """FastAPI application for s6-overlay agent service management API."""
 
 import logging
+from contextlib import asynccontextmanager
 
 from cyclo_manager.agent import __version__
 from cyclo_manager.agent.models import ErrorResponse
-from cyclo_manager.agent.routers import logs, services
+from cyclo_manager.agent.routers import diagnostics, logs, services
+from cyclo_manager.agent.diagnostics_process import sessions
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import JSONResponse
 
@@ -33,6 +35,14 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+@asynccontextmanager
+async def lifespan(app):
+    try:
+        yield
+    finally:
+        await sessions.close()
+
+
 app = FastAPI(
     title='s6 Agent API',
     description="""
@@ -42,6 +52,7 @@ app = FastAPI(
     s6-overlay services running in the container.
     """,
     version=__version__,
+    lifespan=lifespan,
     docs_url=None,
     redoc_url=None,
     openapi_url=None,
@@ -65,3 +76,4 @@ async def root():
 # Include routers
 app.include_router(services.router)
 app.include_router(logs.router)
+app.include_router(diagnostics.router)

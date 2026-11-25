@@ -1,0 +1,20 @@
+[unit info]
+Present Input Voltage	0.1	V	unsigned	0.0
+
+[control table]
+6 1 Firmware Version
+31 1 Temperature Limit
+32 2 Max Voltage Limit
+34 2 Min Voltage Limit
+70 1 Hardware Error Status
+72 1 Present Pressure 1
+73 1 Present Pressure 2
+74 1 Present Pressure 3
+75 1 Present Pressure 4
+76 1 Present Pressure 5
+77 1 Present Pressure 6
+78 1 Present Pressure 7
+79 1 Present Pressure 8
+80 1 Present Pressure 9
+144 2 Present Input Voltage
+146 1 Present Temperature

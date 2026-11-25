@@ -76,6 +76,7 @@ export default function SystemServiceToolbar({ profile, settings, services, log,
           title={title}
           status={service.status}
           loading={service.loading}
+          disabled={services.diagnosticsBlocked && !service.status?.is_up}
           onToggle={onToggle}
           showLogs={log === key}
           onToggleLogs={() => onToggleLog(key)}
@@ -105,6 +106,7 @@ export default function SystemServiceToolbar({ profile, settings, services, log,
         help={{ text: TOOLBAR_HELP_TEXT.zenoh, ariaLabel: TOOLBAR_HELP_ARIA.zenoh }}
       />
       <div className="hidden xl:block flex-1 min-w-[8px]" style={{ flexBasis: 0 }} aria-hidden />
+      {services.diagnosticsMessage && <p className="w-full text-sm px-3 mt-2" role="status">{services.diagnosticsMessage}</p>}
       {(services.robot.error || services.leader.error) && (
         <div className="flex gap-3 w-full mt-2">
           {launchControls.map(({ key, title }) => services[key].error && (

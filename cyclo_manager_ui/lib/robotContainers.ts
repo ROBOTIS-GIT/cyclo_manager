@@ -4,7 +4,7 @@
 
 import { getSupportedRobotContainers } from "@/lib/api";
 
-export type RobotPage = "system" | "jog";
+export type RobotPage = "system" | "jog" | "diagnostics";
 export const robotPageUrl = (container: string, page: RobotPage) =>
   `/${encodeURIComponent(container)}/${page}`;
 

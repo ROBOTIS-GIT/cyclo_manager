@@ -20,8 +20,8 @@ import Link from "next/link";
 import type { CSSProperties, MouseEvent } from "react";
 import { navigationItems } from "@/config/navigation";
 
-export default function SidebarNavigation({ pathname, onNavigate, onSystem, onJog }: {
-  pathname: string; onNavigate: () => void; onSystem: () => void; onJog: () => void;
+export default function SidebarNavigation({ pathname, onNavigate, onSystem, onJog, onDiagnostics }: {
+  pathname: string; onNavigate: () => void; onSystem: () => void; onJog: () => void; onDiagnostics: () => void;
 }) {
   return <nav
     className="flex-1 min-h-0 w-full flex flex-col items-center gap-1.5 py-2 px-1 overflow-y-auto"
@@ -47,7 +47,7 @@ export default function SidebarNavigation({ pathname, onNavigate, onSystem, onJo
         <span className="text-[10px] font-semibold leading-tight">{item.label}</span>
       </>;
       return item.action ? (
-        <button key={item.action} {...props} onClick={item.action === "system" ? onSystem : onJog}
+        <button key={item.action} {...props} onClick={{ system: onSystem, jog: onJog, diagnostics: onDiagnostics }[item.action]}
           style={{ ...style, border: "none", cursor: "pointer" }}>{content}</button>
       ) : (
         <Link key={item.href} {...props} href={item.href} onClick={onNavigate}

@@ -54,10 +54,10 @@ export default function VSCodeLayout({
     };
   }, []);
   const pathname = usePathname();
-  const { navError, setNavError, selection, cancelSelection, handleSystemClick, handleJogClick, openRobotPage, handleNavigate } = useNavigation(closeMenu, pathname ?? "");
+  const { navError, setNavError, selection, cancelSelection, handleSystemClick, handleJogClick, handleDiagnosticsClick, openRobotPage, handleNavigate } = useNavigation(closeMenu, pathname ?? "");
   const title = navigationItems.find(item => item.matches(pathname ?? ""))?.label ?? "Cyclo Manager";
   const navigation = <SidebarNavigation pathname={pathname ?? ""} onNavigate={handleNavigate}
-    onSystem={handleSystemClick} onJog={handleJogClick} />;
+    onSystem={handleSystemClick} onJog={handleJogClick} onDiagnostics={handleDiagnosticsClick} />;
 
   return (
     <div className="app-shell flex flex-col overflow-hidden">
