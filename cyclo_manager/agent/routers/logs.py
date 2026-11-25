@@ -60,6 +60,140 @@ def _iter_stripped_log_file(log_path: Path):
             yield strip_ansi_codes(line).encode('utf-8')
 
 
+def _read_log_tail(log_path: Path, lines: int) -> tuple[str, int]:
+    """Read the last lines and cursor from the same open file and fixed byte range."""
+    # GNU tail treats negative counts as their absolute value.
+    lines = abs(lines)
+    with log_path.open('rb') as stream:
+        end = os.fstat(stream.fileno()).st_size
+        if lines == 0:
+            return '', end
+        start = end
+        chunks = []
+        newlines = 0
+        while start > 0 and newlines <= lines:
+            size = min(start, 64 * 1024)
+            start -= size
+            stream.seek(start)
+            chunk = stream.read(size)
+            if len(chunk) != size:
+                raise HTTPException(409, 'Log file changed while reading; retry without cursor.')
+            chunks.append(chunk)
+            newlines += chunk.count(b'\n')
+
+    data = b''.join(reversed(chunks))
+    position = len(data) - 1 if data.endswith(b'\n') else len(data)
+    for _ in range(lines):
+        position = data.rfind(b'\n', 0, position)
+        if position < 0:
+            break
+    if position >= 0:
+        data = data[position + 1:]
+    # Preserve the universal newline handling of the original text-mode tail call.
+    text = data.decode('utf-8', errors='replace').replace('\r\n', '\n').replace('\r', '\n')
+    return text, end
+
+
+@router.get(
+    '/{name}/logs',
+    summary='Get service logs',
+    description='Retrieve logs for a service from s6-overlay log directory',
+)
+def get_service_logs(
+    name: str, tail: int = 100, strip_ansi: bool = False, cursor: Optional[int] = None
+):
+    """
+    Get logs for a service.
+
+    Reads logs from /var/log/{service_name}/current (s6-overlay log directory).
+    Missing log files return empty logs and cursor 0 for compatibility with 0.3.0.
+
+    Args
+    ----
+    name: Service name.
+    tail: Number of log lines to return from the end. Defaults to 100.
+        Ignored if cursor is provided.
+    strip_ansi: If True, remove ANSI escape codes (color/formatting) from the output.
+    cursor: Byte offset in the log file. If provided, returns logs from this offset
+        to the end of the file. This is more efficient for streaming logs.
+
+    Returns
+    -------
+    Dictionary with service name, logs content, tail count (or cursor), and new cursor.
+
+    Raises
+    ------
+    HTTPException: 400 for invalid service names, 409 if the initial read is
+        truncated concurrently, 500 on read errors.
+
+    """
+    log_path = _get_service_log_path(name)
+
+    if not log_path.exists():
+        # Return empty logs instead of 404 when log file doesn't exist
+        logger.debug(f"Log file not found for service '{name}', returning empty logs")
+        return {
+            'service': name,
+            'logs': '',
+            'tail': tail if cursor is None else None,
+            'cursor': 0,
+            'log_path': str(log_path),
+        }
+
+    try:
+        # If cursor is provided, read from that offset (more efficient for streaming)
+        if cursor is not None:
+            # Get current file size for validation
+            current_size = log_path.stat().st_size
+
+            if cursor < 0:
+                cursor = 0
+            if cursor > current_size:
+                # Cursor is beyond file size (file was truncated or rotated)
+                logger.warning(
+                    f'Cursor {cursor} is beyond file size {current_size} '
+                    f'for service {name!r}, resetting to current size'
+                )
+                cursor = current_size
+
+            # Read from cursor to end of file
+            with log_path.open('rb') as f:
+                f.seek(cursor)
+                logs_bytes = f.read()
+                # IMPORTANT: Get the actual position after reading to prevent duplication
+                new_cursor = f.tell()
+                logs = logs_bytes.decode('utf-8', errors='replace')
+
+            logs = strip_ansi_codes(logs) if strip_ansi else logs
+
+            return {
+                'service': name,
+                'logs': logs,
+                'cursor': new_cursor,
+                'log_path': str(log_path),
+            }
+        else:
+            logs, new_cursor = _read_log_tail(log_path, tail)
+            logs = strip_ansi_codes(logs) if strip_ansi else logs
+
+            return {
+                'service': name,
+                'logs': logs,
+                'tail': tail,
+                'cursor': new_cursor,
+                'log_path': str(log_path),
+            }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error reading logs for service '{name}': {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f'Failed to read logs: {str(e)}',
+        )
+
+
 @router.get('/{name}/logs/history', summary='List service log history')
 def get_service_log_history(name: str):
     """List dated log folders; current_log_id identifies a link, not service status."""

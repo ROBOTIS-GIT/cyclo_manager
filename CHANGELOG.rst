@@ -2,6 +2,12 @@
 Changelog for package cyclo_manager
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
+1.2.3 (2026-11-25)
+------------------
+* Increased the service stop timeout from 10 to 20 seconds, including the stop step before starting or restarting a service.
+* Added the service log polling API.
+* Contributors: Hyungyu Kim
+
 1.2.2 (2026-11-13)
 ------------------
 * Moved blocking Docker operations to worker threads to keep the API responsive.

@@ -256,6 +256,7 @@ Check this flag before offering history reads/downloads on older agents.
 
 | Method & path | Behavior |
 |---------------|----------|
+| `GET /services/{name}/logs` | Legacy 0.3.0 polling API: `tail=100`, `strip_ansi=false`, optional byte `cursor`. Returns `service`, `logs`, `cursor`, `log_path`, plus `tail` on the initial request. Missing files return empty logs, cursor 0, and `tail` (null when a cursor was supplied). |
 | `GET /services/{name}/logs/history` | Return `history` newest first (`log_id`, `size_bytes`) and `current_log_id` from the `current` symlink. This is not a running-state indicator. Missing or legacy-only log directories return an empty list. |
 | `GET /services/{name}/logs/history/{log_id}` | Read the last `lines` (default 500, maximum 5000), capped at 256 KiB of source bytes. Pass `before=<start_cursor>` to read the preceding page. |
 | `GET /services/{name}/logs/history/{log_id}/download` | Download original bytes, including ANSI sequences, up to the size captured when the file is opened. Later appends are not included. |
