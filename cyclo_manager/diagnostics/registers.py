@@ -169,3 +169,12 @@ def classify_fields(fields, table, temperature_margin=5.0):
 
 def worst_status(statuses):
     return next((s for s in ('error', 'unknown', 'warning') if s in statuses), 'ok')
+
+
+def report_packet_alert(device):
+    """Keep a decoded board error when a response also carries an alert."""
+    if device.get('state') != 'online' or not device.get('packet_error', 0) & 0x80:
+        return
+    if device.get('health') != 'error' or not device.get('message'):
+        device['message'] = 'Hardware alert reported'
+    device['health'] = 'error'

@@ -6,7 +6,7 @@ from queue import Empty, Full, Queue
 import threading
 import time
 
-from cyclo_manager.diagnostics.registers import TEMPERATURES, classify_fields, worst_status
+from cyclo_manager.diagnostics.registers import TEMPERATURES, classify_fields, report_packet_alert, worst_status
 from cyclo_manager.diagnostics.dynamixel_bus import DynamixelBus
 from cyclo_manager.diagnostics.boards import board_registers
 from cyclo_manager.diagnostics.hands import invalidate_hand, is_hand_controller, read_hand
@@ -157,7 +157,7 @@ class Runner:
                 field['status'] = 'error' if raw else 'ok'
                 field['message'] = ', '.join(parts) if parts else 'No reported error'
                 if raw:
-                    messages.append(f"{name}: {field['message']}")
+                    messages.append(f"{field['message']} · 0x{raw:02X}")
             voltage = [fields.get(name) for name in ('Present Input Voltage', 'Min Voltage Limit', 'Max Voltage Limit')]
             voltage_available = all(field and field['value'] is not None and field['unit'] == 'V' for field in voltage)
             if voltage_available and not voltage[1]['value'] <= voltage[0]['value'] <= voltage[2]['value']:
@@ -178,8 +178,7 @@ class Runner:
             device['message'] = None if device['health'] == 'ok' else error_field['message']
         else:
             device.update(health='unknown', message='Board error code unavailable')
-        if device['packet_error'] & 0x80:
-            device.update(health='error', message='Device reported hardware alert')
+        report_packet_alert(device)
 
     def read_device(self, index, device):
         if device['kind'] == 'dxl':

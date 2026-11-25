@@ -15,5 +15,6 @@ export default function HandDetails({ device, now, freshness }: { device: Diagno
       <div><dt>Hand access</dt><dd>{modes[hand.mode]}</dd></div>
       <div><dt>Table Sync Enable</dt><dd>{measurementText(device.fields["Table Sync Enable"], now, freshness)}</dd></div>
     </dl>
+    {hand.mode === "unknown" && hand.message && <p className={styles.boardNote}>{hand.message}</p>}
   </div>;
 }

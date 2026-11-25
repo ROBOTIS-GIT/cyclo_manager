@@ -1,6 +1,7 @@
 """HX5 preflight switches to bypass before directly reading internal motors."""
 
 import time
+from cyclo_manager.diagnostics.registers import report_packet_alert
 
 HAND_MODELS = {'hx5_d20_rl', 'hx5_d20_rr'}
 HAND_CONTROLLERS = {'hand_l_controller', 'hand_r_controller'}
@@ -76,6 +77,7 @@ def read_hand(runner, index, device):
         raw, error = runner.handles[index].read(device['id'], register)
         device['packet_error'] |= error
         device['last_seen'] = time.time()
+        report_packet_alert(device)
         return raw
 
     try:
@@ -126,8 +128,7 @@ def read_hand(runner, index, device):
         for field in device['fields'].values():
             field.update(status='read_error', message=str(exc))
         runner.retry_at[(index, device['id'])] = time.monotonic() + 5
-    if device['packet_error'] & 0x80:
-        device.update(health='error', message='Hand controller reported hardware alert')
+    report_packet_alert(device)
     return True
 
 

@@ -22,6 +22,14 @@ test('port failures take precedence over stale readings and clear after recovery
   assert.equal(deviceStatus({ ...device, last_seen: 130 }, 130, live, { state: 'open', error: null }), 'ok');
 });
 
+test('missing serial dependency is distinguished from a port-open failure', () => {
+  const bus = { port: '/dev/follower', state: 'error', error: "No module named 'serial'" };
+  const issue = communicationIssue({ device, bus });
+  assert.equal(issue.title, 'Diagnostic dependency missing');
+  assert.match(issue.message, /Python serial package/);
+  assert.equal(deviceStatus(device, 101, live, bus), 'communication');
+});
+
 test('pending devices stay uninspected while the first response is immediately usable', () => {
   assert.equal(deviceStatus({ state: 'pending', health: 'unknown', last_seen: null }, 101, live), 'pending');
   assert.equal(deviceStatus(device, 101, live), 'ok');

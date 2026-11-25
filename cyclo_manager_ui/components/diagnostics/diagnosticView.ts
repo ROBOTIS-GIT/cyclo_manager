@@ -71,6 +71,11 @@ export function deviceStatus(device: DiagnosticDevice, now: number, freshness: F
   return "ok";
 }
 export function communicationIssue({ device, bus }: DeviceEntry) {
+  if ((bus.error || bus.state === "error") && /No module named ['\"]serial['\"]/i.test(bus.error ?? "")) return {
+    title: "Diagnostic dependency missing",
+    message: "The Python serial package is missing from the diagnostic environment. Device health could not be checked.",
+    raw: bus.error,
+  };
   if (bus.error || bus.state === "error") return {
     title: "Port connection failed",
     message: `Port unavailable · ${bus.port}. ${portFailureText(bus.error)} Device health could not be checked.`,
@@ -217,7 +222,7 @@ export function issueText(entry: DeviceEntry, now: number, freshness: Freshness)
   if (status === "stale") return "No recent data received. Check the connection.";
   if (entry.device.hand) return entry.device.message || "Hand health could not be fully verified.";
   if (entry.device.kind !== "dxl" && entry.device.state === "online") {
-    if (entry.device.packet_error & 0x80) return "The device reported a hardware alert.";
+    if (entry.device.packet_error & 0x80) return entry.device.message || "Hardware alert reported";
     const code = entry.device.fields?.Error_Code;
     if (code && validMeasurement(code, now, freshness) && code.raw !== null && code.raw !== 0)
       return `Board error code · 0x${code.raw.toString(16).toUpperCase()}. Detailed code meaning is unavailable.`;

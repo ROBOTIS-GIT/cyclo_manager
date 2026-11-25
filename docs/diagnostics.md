@@ -43,8 +43,6 @@ has no such guard. Do not run the check concurrently with another bus owner.
 
 The CLI does **not** check or stop bringup. Stop existing users of the bus before
 running it. Port-open success is not evidence that another program is absent.
-The cooperative per-device lock only coordinates this diagnostic program and the
-updated robot-port-mapper; it cannot exclude an arbitrary external SDK program.
 
 The worker uses PING and READ and one restricted write: setting the known HX5
 Table Sync Enable register to 0. It does not write torque, indirect addresses,
@@ -222,10 +220,8 @@ managed in its terminal; it is not adopted by the UI.
 Update the Manager backend, UI **and the copy of `cyclo_manager` in the AI Worker
 image**. Updating only the Manager container does not update `/opt/cyclo_manager`
 inside the robot container. The AI Worker image already clones the Manager repo;
-build it with `--build-arg CYCLO_MANAGER_REF=<published-commit-containing-diagnostics>`
-and use the corresponding updated `robot_port_mapper.py`. Both AI Worker Dockerfiles check that the port mapper can import its diagnostic lock
-at build time. Unpublished local
-changes must first be made available to that checkout before building a release.
+build it with `--build-arg CYCLO_MANAGER_REF=<published-commit-containing-diagnostics>`.
+Unpublished local changes must first be made available to that checkout before building a release.
 Older agents produce an update-required message. Existing
 robot description and SDK installations are reused; only their environment must
 be loaded for the child. No hardware-interface code changes are required.

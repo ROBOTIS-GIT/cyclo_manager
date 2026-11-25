@@ -13,7 +13,7 @@ from unittest.mock import patch
 from cyclo_manager.diagnostics.profiles import parse_description
 from cyclo_manager.diagnostics.registers import Catalog
 from cyclo_manager.diagnostics.runner import Runner
-from cyclo_manager.diagnostics.dynamixel_bus import DeviceLock, DynamixelBus
+from cyclo_manager.diagnostics.dynamixel_bus import DynamixelBus
 
 
 TABLE = '''[unit info]
@@ -278,15 +278,6 @@ class DiagnosticTests(unittest.TestCase):
             with patch('sys.argv', argv), patch('cyclo_manager.diagnostics.__main__.resolve_profile') as resolve, redirect_stderr(StringIO()), self.assertRaises(SystemExit):
                 main()
             resolve.assert_not_called()
-
-    def test_cooperative_lock_rejects_duplicate_and_releases(self):
-        first = DeviceLock('/dev/null')
-        try:
-            with self.assertRaises(RuntimeError):
-                DeviceLock('/dev/null')
-        finally:
-            first.close()
-        DeviceLock('/dev/null').close()
 
     def test_packet_alert_does_not_hide_telemetry_but_instruction_errors_fail(self):
         transport = DynamixelBus.__new__(DynamixelBus)

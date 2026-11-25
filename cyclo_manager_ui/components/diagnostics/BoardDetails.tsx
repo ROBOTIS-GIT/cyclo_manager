@@ -34,7 +34,6 @@ export default function BoardDetails({ device, now, freshness }: { device: Diagn
   const activityFresh = available("IMU TIMESTAMP") && activity && !sampleIsStale(activity.observed_at, now, freshness);
   const common = new Set(["Error_Code", "Firmware_Version_Major", "Firmware_Version_Minor", "Table Sync Enable"]);
   return <div className={styles.boardDetails}>
-    {!!(device.packet_error & 0x80) && <p className={styles.alert}>The device reported a hardware alert in its response.</p>}
     <dl className={styles.boardReadings}>
       {!device.hand && <div><dt>Board error code</dt><dd className={styles.boardErrorValue} data-status={available("Error_Code") && error.raw !== 0 ? "error" : undefined}>
         <span>{available("Error_Code") ? `0x${error.raw!.toString(16).toUpperCase().padStart(8, "0")}` : value("Error_Code")}</span>

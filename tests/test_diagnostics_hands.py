@@ -381,6 +381,38 @@ class HandTests(unittest.TestCase):
                 self.assertEqual(self.device['health'], 'error')
                 self.assertIn(label, self.device['fields'][register]['message'])
 
+    def test_hand_board_error_and_packet_alert_keep_one_message_during_updates(self):
+        self.bus.values['Hardware Error Status'] = 64
+        original_read = self.bus.read
+        def alert_read(device_id, register):
+            value, _ = original_read(device_id, register)
+            return value, 0x80 if device_id == 140 else 0
+        self.bus.read = alert_read
+        snapshots = []
+        self.runner.emit = lambda snapshot: snapshots.append(copy.deepcopy(snapshot))
+        self.read()
+        self.assertEqual(self.device['message'], 'Bus watchdog error · 0x40')
+        self.assertEqual(self.device['health'], 'error')
+        self.assertTrue(snapshots)
+        for snapshot in snapshots:
+            parent = snapshot['buses'][0]['devices'][0]
+            self.assertEqual(parent['message'], 'Bus watchdog error · 0x40')
+            self.assertEqual(parent['health'], 'error')
+
+    def test_new_alert_during_hand_access_is_reported_before_next_board_read(self):
+        original_read = self.bus.read
+        def alert_read(device_id, register):
+            value, _ = original_read(device_id, register)
+            return value, 0x80 if device_id == 140 and register.name == 'Table Sync Enable' else 0
+        self.bus.read = alert_read
+        snapshots = []
+        self.runner.emit = lambda snapshot: snapshots.append(copy.deepcopy(snapshot))
+        self.read()
+        self.assertEqual(self.device['health'], 'error')
+        self.assertEqual(self.device['message'], 'Hardware alert reported')
+        self.assertTrue(snapshots)
+        self.assertTrue(all(s['buses'][0]['devices'][0]['health'] == 'error' for s in snapshots))
+
     def test_original_hand_model_uses_supplemental_fields_and_units(self):
         original = CONTROLLER.replace('[unit info]\nPresent Input Voltage\t0.01\tV\tunsigned\t0.0\n', '')
         for line in ('60 2 Max Voltage Limit\n', '62 2 Min Voltage Limit\n', '71 1 Hardware Error Status\n'):
