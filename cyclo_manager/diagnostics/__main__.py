@@ -2,7 +2,6 @@
 
 import argparse
 import json
-import os
 import signal
 import sys
 import threading
@@ -27,14 +26,6 @@ def main():
     stop = threading.Event()
     for sig in (signal.SIGINT, signal.SIGTERM):
         signal.signal(sig, lambda *_: stop.set())
-    if args.managed:
-        def parent_pipe():
-            try:
-                while os.read(0, 1):
-                    pass
-            finally:
-                stop.set()
-        threading.Thread(target=parent_pipe, daemon=True).start()
     try:
         if args.list_profiles:
             print(json.dumps(dict(profiles=list_profiles())), flush=True)
@@ -72,7 +63,19 @@ def main():
                 summary = snapshot['summary']
                 print(f"{snapshot['state']}: {summary['responding']}/{summary['expected']} expected, "
                       f"{summary['additional']} additional, {summary['errors']} errors", flush=True)
-        return Runner(config, catalog, stop, emit, temperature_margin=args.temperature_margin).run(args.watch)
+        runner = Runner(config, catalog, stop, emit, temperature_margin=args.temperature_margin)
+        if args.managed:
+            def parent_pipe():
+                try:
+                    while line := sys.stdin.buffer.readline(4096):
+                        try:
+                            runner.submit_calibration(json.loads(line))
+                        except (ValueError, TypeError) as exc:
+                            print(f'Calibration request rejected: {exc}', file=sys.stderr, flush=True)
+                finally:
+                    stop.set()
+            threading.Thread(target=parent_pipe, daemon=True).start()
+        return runner.run(args.watch)
     except BrokenPipeError:
         return 130
     except Exception as exc:

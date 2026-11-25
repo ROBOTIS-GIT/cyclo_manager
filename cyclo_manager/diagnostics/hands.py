@@ -160,3 +160,4 @@ def read_direct(runner, index, bus, hand, verify_mode):
         # exposing each result; a later failure invalidates earlier results.
         verify_mode()
         runner.publish()
+        runner.process_calibrations(index)

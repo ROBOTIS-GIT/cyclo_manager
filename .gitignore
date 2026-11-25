@@ -51,8 +51,6 @@
 *.pdb
 
 ## Kernel Module Compile Results
-*.mod*
-!cyclo_manager/diagnostics/hx_sensor_tip.model
 *.cmd
 .tmp_versions/
 modules.order

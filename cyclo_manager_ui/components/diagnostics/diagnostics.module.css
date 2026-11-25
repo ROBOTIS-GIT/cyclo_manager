@@ -1,0 +1,402 @@
+.page {
+  --accent: #63d9bc;
+  --accent-ink: #102b25;
+  --accent-hover: #89e6ce;
+  --border: var(--vscode-panel-border);
+  --muted: var(--vscode-descriptionForeground);
+  --card: var(--vscode-sidebar-background);
+  --inset: var(--vscode-editor-background);
+  --ok: var(--vscode-successForeground);
+  --pending: var(--muted);
+  --warn: var(--vscode-warningForeground);
+  --bad: var(--vscode-errorForeground);
+  --info: var(--vscode-infoForeground);
+  --communication: #f0a663;
+  --marker-base: #172222;
+  --marker-ink: #10201c;
+  --marker-badge-background: var(--inset);
+  --marker-ring: var(--inset);
+  --marker-tint: 100%;
+  --marker-hover-tint: 90%;
+  --marker-selected-tint: 90%;
+  --marker-shadow: 0 2px 7px #0006;
+  --marker-selected-shadow: 0 4px 12px #0006;
+  --map-wash: #63d9bc05;
+  --map-halo: #6ddbc4;
+  --map-halo-opacity: .13;
+  --switch-selected: var(--vscode-button-secondaryBackground);
+  --popover-shadow: 0 6px 24px #0005;
+  color: var(--vscode-foreground);
+  width: 100%; max-width: 1500px; margin: 0 auto; padding: 0 0 32px;
+  container-type: inline-size;
+}
+:global([data-theme="light"]) .page {
+  --accent: #16765e;
+  --accent-ink: #fff;
+  --accent-hover: var(--vscode-button-hoverBackground);
+  --border: #cbd5df;
+  --muted: #475569;
+  --card: #fff;
+  --inset: #f0f4f8;
+  --ok: #16834b;
+  --pending: #8a98a9;
+  --warn: #895600;
+  --bad: #b42318;
+  --info: #2463a6;
+  --communication: #a34b10;
+  --marker-base: #0f172a;
+  --marker-ink: #fff;
+  --marker-badge-background: #fff;
+  --marker-ring: #fff;
+  --marker-tint: 100%;
+  --marker-hover-tint: 85%;
+  --marker-selected-tint: 80%;
+  --marker-shadow: 0 2px 5px #0f172a26;
+  --marker-selected-shadow: 0 4px 12px #0f172a26;
+  --map-wash: #63d9bc18;
+  --map-halo: #35b99b;
+  --map-halo-opacity: .2;
+  --switch-selected: #e2f1eb;
+  --popover-shadow: 0 8px 24px #0f172a1f;
+}
+/* Bright surfaces keep their own palette; icon geometry is shared below. */
+:global([data-theme="light"]) .visualPanel,
+:global([data-theme="light"]) .detailPanel { box-shadow: 0 1px 3px #0f172a0d; }
+:global([data-theme="light"]) .legend > span { color: #334155; }
+:global([data-theme="light"]) .viewSwitch button[aria-pressed="true"] { color: var(--accent); font-weight: 600; }
+:global([data-theme="light"]) .boardButton[data-selected="true"],
+:global([data-theme="light"]) .deviceListItem[data-selected="true"] { box-shadow: inset 3px 0 0 var(--accent); }
+:global([data-theme="light"]) .inspectionStatus .runState,
+:global([data-theme="light"]) .inspectionStatus button { font-weight: 600; }
+.page * { box-sizing: border-box; }
+.page button, .page select, .page input, .page summary { font: inherit; }
+.page button { cursor: pointer; transition: background .15s, border-color .15s, box-shadow .15s; }
+.page button:disabled { opacity: .4; cursor: not-allowed; }
+.page :is(button, input, select, summary, a):focus-visible { outline: 2px solid var(--accent); outline-offset: 4px; }
+.page [data-status="ok"] { --status: var(--ok); }
+.page [data-status="warning"] { --status: var(--warn); }
+.page [data-status="error"] { --status: var(--bad); }
+.page [data-status="communication"] { --status: var(--communication); }
+.page [data-status="unknown"], .page [data-status="stale"] { --status: var(--info); }
+.page [data-status="pending"] { --status: var(--pending); }
+.pageHeader { display: flex; align-items: center; gap: 12px; padding: 12px 0; margin-bottom: 12px; border-bottom: 1px solid var(--border); }
+.eyebrow { font-size: 10px; font-weight: 700; letter-spacing: 1.7px; color: var(--muted); }
+.pageHeader h1 { font-size: 18px; line-height: 28px; font-weight: 600; letter-spacing: normal; margin: 0; }
+.pageHeader p { font-size: 13px; color: var(--muted); }
+.textLink { color: var(--muted); text-decoration: none; font-size: 12px; white-space: nowrap; }
+.textLink:hover { color: var(--accent); }
+.toolbar { margin-bottom: 16px; }
+.modelSelect { display: flex; align-items: center; color: var(--muted); font-size: 11px; }
+.modelSelect select { min-width: 140px; height: 32px; font-size: 13px; font-weight: 400; color: var(--vscode-input-foreground); background: var(--vscode-input-background); border: 1px solid var(--border); border-radius: 4px; padding: 4px 26px 4px 8px; }
+.runInfo { display: flex; gap: 9px; align-items: center; font-size: 12px; flex: 1; }
+.runInfo small { display: block; color: var(--muted); font-size: 10px; margin-top: 5px; }
+.smallIndicator { width: 7px; height: 7px; border-radius: 50%; background: var(--muted); }
+.smallIndicator[data-live="true"] { background: var(--accent); box-shadow: 0 0 0 4px color-mix(in srgb, var(--accent) 8%, transparent); }
+.toolbarActions { display: flex; gap: 8px; }
+.primaryButton, .stopButton, .secondaryButton { padding: 10px 15px; border-radius: 7px; border: 1px solid var(--border); font-size: 12px !important; font-weight: 600 !important; white-space: nowrap; }
+.primaryButton { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
+.primaryButton:hover:not(:disabled) { background: var(--accent-hover); }
+.stopButton { background: color-mix(in srgb, var(--bad) 10%, var(--card)); color: var(--bad); border-color: color-mix(in srgb, var(--bad) 35%, var(--border)); }
+.secondaryButton { background: transparent; }
+.secondaryButton:hover:not(:disabled) { background: var(--vscode-list-hoverBackground); }
+.workspace { display: grid; grid-template-columns: minmax(0, 1fr) 320px; gap: 18px; align-items: start; }
+.visualPanel, .detailPanel { background: var(--card); border: 1px solid var(--border); border-radius: 12px; overflow: hidden; min-width: 0; }
+.panelHeader { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; padding: 20px 22px 15px; gap: 14px; }
+.inspectionStatus { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 0; color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; }
+.inspectionStatus > * { white-space: nowrap; }
+.inspectionStatus > * + *::before { content: "·"; display: inline-block; margin: 0 8px; color: var(--muted); font-weight: 400; }
+.inspectionStatus .runState { color: var(--status); font-weight: 500; }
+.inspectionStatus .runState[data-live="true"] { color: var(--accent); }
+.inspectionStatus button { border: 0; padding: 0; background: transparent; color: var(--status); font-size: 12px; }
+.inspectionStatus button:hover:not(:disabled) { text-decoration: underline; text-underline-offset: 3px; }
+.inspectionStatus button:disabled { opacity: 1; }
+.viewSwitch { display: flex; margin-left: auto; flex-shrink: 0; padding: 3px; border: 1px solid var(--border); background: var(--inset); border-radius: 7px; }
+.viewSwitch button { border: 0; background: transparent; padding: 6px 11px; font-size: 11px; color: var(--muted); border-radius: 4px; }
+.viewSwitch button[aria-pressed="true"] { background: var(--switch-selected); color: var(--vscode-foreground); box-shadow: 0 1px 3px #0002; }
+.legend { display: flex; gap: 14px; flex-wrap: wrap; padding: 0 22px 15px; border-bottom: 1px solid var(--border); }
+.legend > span { display: flex; align-items: center; gap: 5px; font-size: 10px; font-weight: 500; color: var(--muted); }
+.legend i { display: inline-grid; place-items: center; width: 16px; height: 16px; font-style: normal; font-size: 10px; font-weight: 700; border-radius: 50%; background: var(--status); color: var(--marker-ink); }
+.mapContent { background: radial-gradient(ellipse at 50% 40%, var(--map-wash), transparent 75%), var(--inset); }
+.robotCanvas { position: relative; max-width: 570px; width: 100%; aspect-ratio: 600 / 650; margin: 0 auto; }
+.robotCanvas[data-photo="true"] .marker { width: 28px; height: 28px; font-size: 11px !important; }
+.robotCanvas[data-photo="true"] .marker[data-board="true"] { width: 7.5%; min-width: 28px; max-width: 42px; border-radius: 7px; font-size: 10px !important; }
+.robotArtwork { display: block; width: 100%; height: 100%; }
+.markerConnection { pointer-events: none; }
+.markerConnector { stroke: var(--status); stroke-width: 2; vector-effect: non-scaling-stroke; }
+.markerConnection[data-selected="true"] .markerConnector { stroke-width: 3; }
+.markerAnchor { fill: var(--status); stroke: var(--marker-badge-background); stroke-width: 1.5; vector-effect: non-scaling-stroke; }
+.marker { position: absolute; transform: translate(-50%, -50%); width: 34px; height: 34px; padding: 0; border-radius: 50%; border: 2px solid var(--status); background: color-mix(in srgb, var(--status) var(--marker-tint), var(--marker-base)); color: var(--marker-ink); display: grid; place-items: center; font-size: 12px !important; font-weight: 700 !important; z-index: 1; box-shadow: var(--marker-shadow); }
+.marker { --marker-base: var(--inset); --marker-tint: 12%; --marker-hover-tint: 20%; --marker-selected-tint: 22%; color: var(--status); }
+.marker small { position: absolute; right: -6px; top: -5px; border-radius: 50%; width: 14px; height: 14px; display: grid; place-items: center; background: var(--marker-badge-background); color: var(--status); font-size: 9px; font-weight: 800; border: 1px solid var(--status); box-shadow: 0 0 0 1px var(--marker-badge-background); }
+.marker:hover { background: color-mix(in srgb, var(--status) var(--marker-hover-tint), var(--marker-base)); }
+.marker[data-selected="true"] { background: color-mix(in srgb, var(--status) var(--marker-selected-tint), var(--marker-base)); box-shadow: 0 0 0 3px var(--marker-ring), 0 0 0 6px var(--status), var(--marker-selected-shadow); z-index: 2; }
+.boardTray { padding: 18px; border-top: 1px solid var(--border); }
+.boardGrid { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 8px; margin-top: 12px; }
+.boardButton { display: flex; align-items: center; gap: 10px; padding: 10px; background: var(--card); border: 1px solid var(--border); border-radius: 7px; text-align: left; }
+.boardButton strong { font-size: 12px; font-weight: 500; }
+.boardButton small { display: block; font-size: 9px; color: var(--muted); margin-top: 4px; }
+.boardButton[data-selected="true"], .deviceListItem[data-selected="true"] { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 7%, var(--card)); }
+.statusDot { width: 25px; height: 25px; border-radius: 8px; display: grid; place-items: center; color: var(--status); background: color-mix(in srgb, var(--status) 9%, transparent); flex-shrink: 0; font-size: 13px; }
+.detailPanel { position: sticky; top: 12px; scroll-margin-top: 16px; }
+.detailHeader { padding: 22px; border-bottom: 1px solid var(--border); }
+.detailTitle { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-top: 13px; }
+.detailTitle h3 { font-size: 18px; letter-spacing: -.6px; font-weight: 600; }
+.idBadge { font-size: 10px; font-weight: 600; padding: 4px 7px; background: var(--inset); border: 1px solid var(--border); border-radius: 4px; white-space: nowrap; }
+.detailHeader p { font-size: 11px; color: var(--muted); margin-top: 6px; overflow-wrap: anywhere; }
+.statusBadge { display: inline-flex; color: var(--status); background: color-mix(in srgb, var(--status) 10%, transparent); border: 1px solid color-mix(in srgb, var(--status) 35%, var(--card)); border-radius: 5px; font-size: 10px; font-weight: 600; padding: 4px 7px; margin-top: 13px; }
+.detailBody { padding: 18px 22px; }
+.deviceMessage { font-size: 11px; line-height: 1.7; color: var(--muted); overflow-wrap: anywhere; margin: 0 0 20px; }
+.deviceMessage[data-status="error"], .deviceMessage[data-status="warning"] { color: var(--status); }
+.measurements { display: grid; }
+.measurement { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: baseline; gap: 4px 12px; border-bottom: 1px solid var(--border); padding: 12px 0; min-width: 0; }
+.measurement > span { display: block; color: var(--muted); font-size: 10px; }
+.measurement strong { font-size: 14px; font-weight: 600; font-variant-numeric: tabular-nums; text-align: right; }
+.measurement small { grid-column: 1 / -1; font-size: 10px; color: var(--muted); line-height: 1.5; text-align: right; }
+.measurement[data-status="error"] strong, .measurement[data-status="warning"] strong { color: var(--status); }
+.errorReadout { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); align-items: baseline; gap: 12px; padding: 12px 0; font-size: 12px; }
+.errorReadout > span { color: var(--muted); white-space: nowrap; }
+.errorReadout strong { display: block; text-align: right; font-size: 14px; font-weight: 600; overflow-wrap: anywhere; }
+.errorReadout strong[data-status="error"], .errorReadout strong[data-status="warning"] { color: var(--status); }
+.errorReadout small { display: block; color: var(--muted); text-align: right; font-size: 10px; margin-top: 4px; }
+.pressureReadout { display: grid; gap: 8px; padding: 12px 0; border-top: 1px solid var(--border); font-size: 12px; }
+.pressureReadout > span, .pressureReadout > small { color: var(--muted); }
+.pressureReadout > div { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; }
+.pressureReadout > div > div { display: flex; justify-content: space-between; gap: 8px; padding: 6px 8px; border: 1px solid var(--border); border-radius: 5px; }
+.pressureReadout > div small { color: var(--muted); }
+.pressureReadout > header { display: flex; justify-content: space-between; align-items: center; gap: 12px; color: var(--muted); }
+.calibrationModal { width: min(400px, calc(100vw - 32px)); padding: 24px; border: 1px solid var(--border); border-radius: 8px; background: var(--vscode-editor-background); color: var(--vscode-foreground); box-shadow: 0 16px 48px rgba(0, 0, 0, .3); }
+.calibrationModal::backdrop { background: rgba(0, 0, 0, .55); }
+.calibrationModal h2 { margin: 0 0 12px; font-size: 16px; font-weight: 600; }
+.calibrationModal p { margin: 8px 0; font-size: 13px; line-height: 1.5; overflow-wrap: anywhere; }
+.calibrationModal .calibrationDevice { color: var(--muted); }
+.calibrationModal button { display: block; margin: 20px 0 0 auto; padding: 6px 16px; border: 1px solid var(--border); border-radius: 5px; background: var(--vscode-button-background); color: var(--vscode-button-foreground); cursor: pointer; }
+.errorValues { display: grid; gap: 10px; min-width: 0; }
+.errorValues p { margin: 4px 0 0; font-size: 11px; line-height: 1.5; overflow-wrap: anywhere; }
+.deviceMeta { margin: 16px 0 0; }
+.deviceMeta > div { display: flex; justify-content: space-between; gap: 8px; margin: 9px 0; font-size: 10px; }
+.deviceMeta dt { color: var(--muted); white-space: nowrap; }
+.deviceMeta dd { margin: 0; min-width: 0; text-align: right; overflow-wrap: anywhere; }
+.rawDetails { padding-top: 10px; border-top: 1px solid var(--border); font-size: 10px; color: var(--muted); }
+.rawDetails summary { cursor: pointer; padding: 4px 0; }
+.rawDetails p { margin: 8px 0; overflow-wrap: anywhere; }
+.rawDetails > div { padding: 9px 0; border-bottom: 1px solid var(--border); }
+.rawDetails strong { display: block; color: var(--vscode-foreground); margin: 4px 0; }
+.rawDetails small { display: block; }
+.emptyDetail { padding: 70px 20px; text-align: center; }
+.emptyDetail > span { font-size: 40px; color: var(--muted); opacity: .5; }
+.emptyDetail h3 { font-size: 15px; margin: 15px 0 8px; }
+.emptyDetail p { font-size: 12px; line-height: 1.7; color: var(--muted); }
+.listView { padding: 16px; }
+.listTools { display: flex; gap: 8px; margin-bottom: 12px; }
+.listTools input, .listTools select, .portCard input { min-width: 0; padding: 9px 10px; color: var(--vscode-foreground); background: var(--inset); border: 1px solid var(--border); border-radius: 6px; font-size: 11px; }
+.listTools input { flex: 1; width: 0; }
+.deviceList { display: grid; gap: 22px; padding: 4px 2px; }
+.deviceGroup { min-width: 0; }
+.deviceGroup h3 { display: flex; align-items: center; gap: 8px; margin: 0 0 10px; font-size: 12px; font-weight: 600; }
+.deviceGroup h3 > span { color: var(--muted); font-size: 11px; font-weight: 400; }
+.deviceCardGrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 190px), 1fr)); gap: 8px; }
+.deviceListItem { display: flex; flex-direction: column; gap: 10px; min-width: 0; text-align: left; border: 1px solid var(--border); background: var(--card); border-radius: 7px; padding: 11px 12px; color: var(--vscode-foreground); }
+.deviceListItem:hover { border-color: var(--accent); }
+.deviceListItem[data-selected="true"] { box-shadow: inset 3px 0 0 var(--accent); }
+.deviceCardTop { display: flex; align-items: baseline; justify-content: space-between; flex-wrap: wrap; gap: 5px 8px; width: 100%; }
+.deviceCardId { color: var(--muted); font-size: 11px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.deviceCardStatus { display: inline-flex; align-items: center; gap: 4px; color: var(--status); font-size: 10px; }
+.deviceCardStatus i { display: inline-grid; place-items: center; width: 14px; height: 14px; border-radius: 50%; background: color-mix(in srgb, var(--status) 12%, var(--card)); font-style: normal; font-weight: 700; flex-shrink: 0; }
+.deviceCardName { font-size: 13px; font-weight: 500; line-height: 1.4; overflow-wrap: anywhere; }
+.emptyList { padding: 50px 12px; text-align: center; color: var(--muted); font-size: 12px; }
+.alert { margin: 12px 0; padding: 13px 16px; border: 1px solid color-mix(in srgb, var(--bad) 40%, var(--border)); border-radius: 8px; background: color-mix(in srgb, var(--bad) 5%, var(--inset)); color: var(--bad); font-size: 12px; overflow-wrap: anywhere; }
+.alert button { background: transparent; border: 0; text-decoration: underline; margin-left: 14px; }
+.infoNote { font-size: 11px; color: var(--muted); line-height: 1.7; margin: 10px 0; }
+.settings { margin-top: 18px; background: var(--card); border: 1px solid var(--border); border-radius: 10px; font-size: 12px; }
+.settings > summary { padding: 16px 18px; cursor: pointer; }
+.settings > summary small { color: var(--muted); font-size: 10px; margin-left: 14px; }
+.settingsContent { border-top: 1px solid var(--border); padding: 18px; display: grid; gap: 12px; }
+.settingsContent > p { font-size: 11px; color: var(--muted); line-height: 1.7; }
+.settingsContent details { font-size: 11px; color: var(--muted); }
+.settingsContent details p { margin-top: 7px; }
+.portCard { border: 1px solid var(--border); border-radius: 8px; padding: 14px; }
+.portCard > div { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 8px; }
+.portCard strong { font-size: 11px; }
+.portCard small { font-size: 10px; color: var(--muted); }
+.portCard label { display: flex; flex-direction: column; gap: 6px; font-size: 10px; color: var(--muted); margin-top: 12px; }
+.portCard p { font-size: 11px; color: var(--warn); margin-top: 10px; }
+.settings pre { padding: 18px; max-height: 250px; overflow: auto; white-space: pre-wrap; }
+@container (max-width: 930px) {
+  .workspace { grid-template-columns: minmax(0, 1fr); }
+  .detailPanel { position: static; }
+  .detailHeader { padding: 18px 22px; }
+  .detailHeader .statusBadge { margin-top: 7px; }
+  .deviceMessage { margin-bottom: 10px; }
+  .rawDetails { grid-column: 1 / -1; margin-top: 18px; }
+  .runInfo { display: none; }
+  .toolbarActions { margin-left: auto; }
+}
+@container (max-width: 500px) {
+  .pageHeader h1 { font-size: 18px; }
+  .pageHeader p { font-size: 11px; }
+  .pageHeader { gap: 8px; }
+  .textLink { font-size: 10px; }
+  .modelSelect { width: 100%; }
+  .toolbarActions { margin-left: 0; width: 100%; }
+  .toolbarActions button { flex: 1; }
+  .panelHeader { padding: 16px; }
+  .legend { padding-left: 16px; gap: 10px; }
+  .marker { width: 28px !important; height: 28px !important; min-width: 28px !important; min-height: 28px !important; font-size: 10px !important; }
+  .marker small { width: 11px; height: 11px; font-size: 8px; right: -5px; top: -4px; }
+  .detailBody { display: block; }
+  .errorReadout { padding: 16px 0; margin-top: 8px; }
+  .settings > summary small { display: block; margin: 6px 0 0 16px; }
+  .listTools { flex-wrap: wrap; }
+  .listTools input { flex-basis: 100%; }
+}
+@media (prefers-reduced-motion: reduce) { .page button { transition: none; } }
+/* Keep operating information readable without opening the technical details. */
+.infoNote, .deviceMessage { font-size: 12px; }
+.legend > span { font-size: 11px; }
+.detailHeader p, .measurement > span, .deviceMeta > div, .errorReadout { font-size: 12px; }
+.measurement small, .errorReadout small, .statusBadge, .idBadge { font-size: 11px; }
+.rawDetails { font-size: 11px; }
+.backToMap { display: none; }
+@container (max-width: 930px) {
+  .backToMap { display: block; width: 100%; text-align: left; padding: 12px 22px; border: 0; border-bottom: 1px solid var(--border); color: var(--muted); background: var(--inset); font-size: 12px !important; }
+}
+.portFailure { margin: 0 22px 15px; padding: 12px; border-radius: 6px; background: color-mix(in srgb, var(--bad) 7%, var(--inset)); border-left: 3px solid var(--bad); }
+.portFailureHeading { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; }
+.portFailureHeading > strong { color: var(--bad); font-size: 13px; }
+.portFailureHeading button { padding: 7px 10px; }
+.failedPort { margin-top: 10px; overflow-wrap: anywhere; }
+.failedPort code { font-size: 13px; font-weight: 600; color: var(--bad); }
+.failedPort p { font-size: 12px; margin: 6px 0 0; line-height: 1.6; }
+.failedPort details { font-size: 11px; color: var(--muted); margin-top: 6px; }
+.failedPort summary { cursor: pointer; }
+.portFailureImpact { font-size: 11px; line-height: 1.6; color: var(--muted); margin: 10px 0 0; }
+@container (max-width: 500px) { .portFailure { margin: 0 14px 16px; padding: 12px; } }
+.topPortSettings { flex: 1; min-width: 180px; scroll-margin-top: 18px; }
+.topPortGrid { display: grid; grid-template-columns: max-content 150px 110px max-content; column-gap: 12px; width: max-content; }
+.portInput { display: grid; grid-template-columns: subgrid; grid-column: 1 / -1; row-gap: 4px; font-size: 11px; color: var(--muted); min-width: 0; }
+.portInput input { width: 100%; min-width: 0; padding: 8px 10px; font-size: 14px; color: var(--vscode-foreground); background: var(--inset); border: 1px solid var(--border); border-radius: 6px; }
+.topPortSettings:focus-visible { outline: 2px solid var(--accent); outline-offset: 5px; border-radius: 5px; }
+@container (max-width: 500px) { .topPortSettings { flex-basis: 100%; } }
+.scopeSummary { flex: 0 0 100%; min-width: 0; }
+.scopeDisclosure { margin-top: 14px; }
+.settingsToggle { display: inline-flex; align-items: center; gap: 5px; min-height: 32px; border: 0; border-radius: 4px; padding: 5px 8px; background: transparent; color: var(--muted); font-size: 12px !important; }
+.settingsToggle:hover { background: var(--vscode-list-hoverBackground); color: var(--vscode-foreground); }
+.portErrorTitle { margin: 0 0 8px; font-size: 14px; font-weight: 600; }
+.scopeHeader { display: flex; align-items: center; justify-content: flex-start; gap: 10px; flex-wrap: wrap; }
+.scopeHeader h2 { font-size: 14px; font-weight: 600; margin: 0; }
+.scopeHeader > span { font-size: 11px; color: var(--muted); }
+.scopeRows { margin: 0; display: grid; gap: 11px; }
+.scopeRows > div { display: grid; grid-template-columns: 76px minmax(0, 1fr); gap: 12px; align-items: center; }
+.scopeRows dt { font-size: 11px; color: var(--muted); }
+.scopeRows dd { margin: 0; font-size: 12px; line-height: 1.65; overflow-wrap: anywhere; }
+.scopeCounts { display: flex; gap: 8px 20px; flex-wrap: wrap; }
+.scopeCounts b { font-size: 19px; font-weight: 600; margin-left: 4px; font-variant-numeric: tabular-nums; }
+.scopePorts { display: flex; flex-wrap: wrap; gap: 6px 20px; }
+.scopePorts > span { display: inline-flex; flex-wrap: wrap; gap: 8px; align-items: baseline; }
+.scopePorts code { font-size: 12px; }
+.scopePorts small { color: var(--muted); font-size: 11px; }
+.scopePorts em { color: var(--warn); font-size: 10px; font-style: normal; }
+.scopeChecks > span { display: block; }
+.scopeChecks b { font-weight: 500; color: var(--muted); margin-right: 8px; }
+.scopeDeviceList { margin-top: 14px; border-top: 1px solid var(--border); padding-top: 12px; font-size: 12px; }
+.scopeDeviceList > summary { cursor: pointer; color: var(--muted); }
+.scopeDeviceList > summary span { margin-left: 6px; }
+.scopeNote { color: var(--muted); font-size: 11px; line-height: 1.7; margin: 12px 0; overflow-wrap: anywhere; }
+.scopeBus { margin-top: 16px; }
+.scopeBus h3 { font-size: 12px; font-weight: 500; margin: 0 0 6px; }
+.scopeTableScroll { overflow: auto; max-height: 300px; }
+.scopeTableScroll table { border-collapse: collapse; width: 100%; font-size: 12px; text-align: left; }
+.scopeTableScroll th, .scopeTableScroll td { padding: 8px 10px; border-bottom: 1px solid var(--border); white-space: nowrap; }
+.scopeTableScroll th { font-weight: 500; color: var(--muted); background: var(--inset); }
+.scopeCaption { text-align: left; font-size: 11px; padding-bottom: 8px; color: var(--muted); }
+.scopeSource { display: grid; grid-template-columns: 76px minmax(0, 1fr); gap: 12px; margin: 0 0 10px; color: var(--muted); font-size: 10px; line-height: 1.6; }
+.scopeSource code { overflow-wrap: anywhere; }
+@container (max-width: 500px) { .scopeRows > div { grid-template-columns: 62px minmax(0, 1fr); gap: 8px; } }
+.boardDetails { grid-column: 1 / -1; min-width: 0; }
+.boardNote { font-size: 11px; color: var(--muted); line-height: 1.7; margin: 0 0 14px; }
+.boardReadings { margin: 0 0 16px; }
+.boardReadings > div { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: baseline; gap: 6px 12px; border-bottom: 1px solid var(--border); padding: 9px 0; font-size: 12px; }
+.boardReadings dt { color: var(--muted); }
+.boardReadings dd { margin: 0; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.boardReadings small { color: var(--muted); font-size: 9px; margin-left: 6px; }
+.boardErrorValue { text-align: right; }
+.boardErrorValue[data-status="error"] > span { color: var(--status); }
+.boardErrorValue > small { display: block; margin: 4px 0 0; }
+.portControl { display: grid; grid-template-columns: subgrid; grid-column: 1 / -1; align-items: center; padding: 4px 0; }
+.portControl input { width: 100%; min-width: 0; padding: 4px 6px; border-radius: 4px; font-size: 12px; height: 28px; }
+.portDisplay { display: flex; align-items: baseline; gap: 8px; flex: 0 1 auto; min-width: 0; }
+.portDisplay > span { color: var(--vscode-foreground); font-size: 12px; font-weight: 400; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.portDisplay small { font-size: 11px; color: var(--muted); }
+.portEditButton { background: transparent; border: 1px solid var(--border); border-radius: 5px; padding: 4px 8px; color: var(--vscode-foreground); font-size: 11px !important; white-space: nowrap; }
+.portEditButton:hover:not(:disabled) { background: var(--vscode-list-hoverBackground); }
+.portOverrideNote { color: var(--warn); font-size: 10px; line-height: 1.5; }
+
+.scopeCommunication { display: flex; flex-direction: column; align-items: stretch; gap: 10px; width: fit-content; max-width: 100%; }
+.scopeCommunication .topPortSettings { flex: none; min-width: 0; width: 100%; overflow-x: auto; }
+.scopeCommunication .toolbarActions { align-self: flex-end; margin-left: 0; width: auto; }
+
+.portBaud { color: var(--vscode-foreground); font-size: 12px; white-space: nowrap; font-variant-numeric: tabular-nums; }
+@container (max-width: 500px) {
+  .topPortGrid { column-gap: 8px; }
+}
+
+.communicationField { display: flex; flex: 0 1 140px; min-width: 0; }
+.baudField { display: flex; align-items: center; gap: 4px; flex: 0 1 105px; min-width: 65px; }
+.baudField span { flex-shrink: 0; white-space: nowrap; font-size: 11px; color: var(--muted); }
+.communicationField input { flex: none; width: 100%; }
+.baudField input[aria-invalid="true"] { border-color: var(--bad); }
+@container (max-width: 500px) { .scopeSource { grid-template-columns: 62px minmax(0, 1fr); gap: 8px; } }
+
+.communicationActions { display: flex; flex-shrink: 0; gap: 6px; }
+.communicationActions > button:first-child { min-width: 58px; }
+
+.portInput > .portOverrideNote { grid-column: 1 / -1; margin: 0 0 6px; }
+.scopeRows > .communicationRow { align-items: start; }
+.communicationRow > dt { padding-top: 9px; }
+.scopeInternalName { font-size: 10px; color: var(--muted); margin-bottom: 8px; overflow-wrap: anywhere; }
+.failedPortGroup { display: inline-block; font-size: 11px; margin-left: 8px; color: var(--muted); }
+.boardTrayTitle { display: flex; gap: 8px; align-items: center; font-size: 12px; font-weight: 600; margin: 0; }
+.boardTrayTitle span { color: var(--muted); font-size: 11px; font-weight: 400; }
+@container (max-width: 600px) {
+  .topPortGrid { column-gap: 8px; }
+}
+
+.inspectionCounts { flex-shrink: 0; white-space: nowrap; color: var(--vscode-foreground); font-size: 12px; font-weight: 400; }
+
+.scopeHeader .modelSelect { width: auto; }
+.scopeHeader .toolbarActions { margin: 0; width: auto; }
+.scopeHeader .primaryButton, .scopeHeader .stopButton, .scopeHeader .secondaryButton { height: 32px; padding: 5px 12px; border-radius: 4px; font-weight: 500 !important; }
+.scopeHeader .primaryButton { background: var(--vscode-button-background); color: var(--vscode-button-foreground); border-color: transparent; }
+.scopeHeader .primaryButton:hover:not(:disabled) { background: var(--vscode-button-hoverBackground); }
+@container (max-width: 500px) {
+  .scopeHeader { gap: 8px; }
+  .scopeHeader .modelSelect select { min-width: 110px; max-width: 140px; }
+}
+
+.connectionDevices { margin: 4px 0 10px; padding: 10px; border: 1px solid var(--border); border-radius: 4px; background: var(--inset); min-width: 0; }
+.connectionDevices .scopeInternalName { margin: 8px 0 0; }
+.communicationActions button[aria-expanded="true"] { background: var(--vscode-list-hoverBackground); }
+
+.connectionPopover { position: fixed; inset: auto; margin: 0; padding: 0; overflow: auto; overscroll-behavior: contain; border: 1px solid var(--border); border-radius: 5px; background: var(--inset); color: var(--vscode-foreground); box-shadow: var(--popover-shadow); }
+.connectionPopover table { border-collapse: separate; border-spacing: 0; width: 100%; font-size: 12px; text-align: left; }
+.connectionPopover th, .connectionPopover td { padding: 9px 12px; border-bottom: 1px solid var(--border); }
+.connectionPopover th { position: sticky; top: 0; font-weight: 500; color: var(--muted); background: var(--card); }
+.connectionPopover td { overflow-wrap: anywhere; }
+.connectionPopover tr:last-child td { border-bottom: 0; }
+
+@container (max-width: 600px) {
+  .robotCanvas[data-photo="true"] .marker[data-board="false"] { width: 22px !important; height: 22px !important; min-width: 22px !important; min-height: 22px !important; font-size: 9px !important; }
+  .robotCanvas[data-photo="true"] .marker[data-board="false"] small { width: 9px; height: 9px; font-size: 7px; right: -4px; top: -3px; }
+}
+
+.mapTabs { display: inline-flex; gap: 4px; margin: 16px 18px 6px; padding: 4px; max-width: calc(100% - 36px); border: 1px solid var(--border); border-radius: 10px; background: var(--card); box-shadow: 0 1px 3px #0001; }
+.mapTabs button { display: inline-flex; justify-content: center; align-items: center; gap: 7px; min-width: 84px; padding: 10px 15px; border: 1px solid transparent; border-radius: 6px; background: transparent; color: var(--muted); font-size: 12px; font-weight: 500; }
+.mapTabs button:hover { background: var(--inset); color: var(--vscode-foreground); }
+.mapTabs button[aria-pressed="true"] { border-color: var(--accent); background: var(--accent); color: var(--accent-ink); font-weight: 700; box-shadow: 0 1px 3px #0002; }
+.mapTabIssue { display: inline-grid; place-items: center; flex-shrink: 0; width: 18px; height: 18px; border-radius: 50%; border: 1px solid var(--status); color: var(--status); background: var(--card); font-size: 11px; font-style: normal; font-weight: 800; }
+@media (max-width: 420px) { .mapTabs button { min-width: 0; padding: 9px 10px; font-size: 11px; } }
+.handCanvas { position: relative; width: 100%; max-width: 680px; aspect-ratio: 800 / 720; margin: 0 auto; }
+.handCanvas .marker { width: 30px; height: 30px; font-size: 10px !important; }
+.handCanvas .marker[data-board="true"] { width: 110px !important; min-width: 110px !important; padding: 0 8px; border-radius: 7px; white-space: nowrap; }
+.robotCanvas .handOverview { border-radius: 7px; }
+@media (max-width: 420px) { .handCanvas .marker { width: 25px !important; min-width: 25px !important; height: 25px !important; min-height: 25px !important; font-size: 9px !important; } }

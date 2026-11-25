@@ -5,7 +5,7 @@ import json
 from fastapi import APIRouter, Depends, HTTPException, WebSocket
 import httpx
 
-from cyclo_manager.agent.routers.diagnostics import StartDiagnostic
+from cyclo_manager.agent.routers.diagnostics import CalibrateTactile, StartDiagnostic
 from cyclo_manager.routers.services import _raise_mapped_service_exception
 from cyclo_manager.routers.websocket_utils import run_until_disconnect, close_observer_error
 from cyclo_manager.state import get_agent_client, get_validated_container
@@ -49,6 +49,11 @@ async def current(container: str = Depends(get_validated_container)):
 @router.post('/{container}/diagnostics/sessions/{session_id}/stop')
 async def stop(session_id: str, container: str = Depends(get_validated_container)):
     return await request_agent(container, 'POST', f'/sessions/{session_id}/stop')
+
+
+@router.post('/{container}/diagnostics/sessions/{session_id}/calibrate-tactile')
+async def calibrate_tactile(session_id: str, request: CalibrateTactile, container: str = Depends(get_validated_container)):
+    return await request_agent(container, 'POST', f'/sessions/{session_id}/calibrate-tactile', json=request.model_dump())
 
 
 @router.websocket('/ws/{container}/diagnostics/{session_id}')

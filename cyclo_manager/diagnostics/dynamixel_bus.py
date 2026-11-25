@@ -1,4 +1,4 @@
-"""Serial transport with PING, READ and one restricted HX5 mode write."""
+"""Serial transport with reads and restricted hand diagnostic commands."""
 
 import time
 
@@ -63,5 +63,15 @@ class DynamixelBus:
         if (register.name, register.address, register.size) != ('Table Sync Enable', 70, 1):
             raise ValueError('Unsupported hand mode register layout')
         result, error = self.packet.write1ByteTxRx(self.port, device_id, 70, 0)
+        self._check(result, error)
+        return error
+
+    def calibrate_tactile(self, device_id, model_number):
+        """Request calibration of an identified HX tactile sensor."""
+        if type(device_id) is not int or not 0 <= device_id <= 252:
+            raise ValueError('Invalid tactile sensor ID')
+        if model_number not in {250, 253}:
+            raise ValueError('Unsupported tactile sensor model')
+        result, error = self.packet.write1ByteTxRx(self.port, device_id, 71, 1)
         self._check(result, error)
         return error

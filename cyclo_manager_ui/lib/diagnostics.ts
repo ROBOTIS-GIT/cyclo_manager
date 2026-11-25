@@ -42,6 +42,9 @@ export type DiagnosticSession = {
   started_at: number; finished_at?: number; revision: number;
   snapshot: DiagnosticSnapshot | null; error: string | null; stderr: string[];
 };
+export type TactileCalibration = {
+  state: "sent" | "failed" | "unconfirmed"; message: string;
+};
 export type DiagnosticProfile = { id: string; label: string; available: boolean; reason: string | null };
 export const diagnosticActive = (session: DiagnosticSession | null) =>
   !!session && ["starting", "running", "stopping"].includes(session.state);
@@ -66,4 +69,8 @@ export const startDiagnostic = (container: string, profile: string, ports: Recor
 });
 export const stopDiagnostic = (container: string, id: string) => request<DiagnosticSession>({
   method: "POST", url: `${base(container)}/sessions/${encodeURIComponent(id)}/stop`, timeout: 10000,
+});
+export const calibrateTactile = (container: string, id: string, system: string, controller_id: number, device_id: number) => request<TactileCalibration>({
+  method: "POST", url: `${base(container)}/sessions/${encodeURIComponent(id)}/calibrate-tactile`,
+  data: { system, controller_id, device_id }, timeout: 45000,
 });

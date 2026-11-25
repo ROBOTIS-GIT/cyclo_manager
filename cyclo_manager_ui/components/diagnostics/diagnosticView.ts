@@ -110,6 +110,13 @@ export function measurementText(field: Measurement | undefined, now: number, fre
 export function validMeasurement(field: Measurement, now: number, freshness: Freshness) {
   return field.value !== null && field.status !== "read_error" && !sampleIsStale(field.last_success, now, freshness);
 }
+export function canCalibrateTactile(entry: DeviceEntry | undefined, now: number, freshness: Freshness) {
+  if (!entry || !freshness.live) return false;
+  const { device, bus } = entry;
+  return device.expected && device.kind === "tactile" && device.comm_id !== undefined
+    && device.state === "online" && device.access === "direct" && [250, 253].includes(device.model_number ?? -1)
+    && !["communication", "stale", "pending"].includes(deviceStatus(device, now, freshness, bus));
+}
 export function modelAssessment(device: DiagnosticDevice, now: number, freshness: Freshness, bus?: DiagnosticBus) {
   const status = deviceStatus(device, now, freshness, bus);
   if (device.state !== "online" || device.model_number === undefined || status === "stale" || status === "communication") {

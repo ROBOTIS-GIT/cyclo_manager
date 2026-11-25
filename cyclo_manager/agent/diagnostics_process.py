@@ -9,6 +9,8 @@ import signal
 import time
 import uuid
 
+from cyclo_manager.diagnostics.calibration import tactile_target
+
 
 
 ACTIVE_STATES = {'starting', 'running', 'stopping'}
@@ -64,6 +66,7 @@ class DiagnosticSessions:
         self.task = None
         self.lock = asyncio.Lock()
         self.changed = asyncio.Event()
+        self.pending_calibrations = {}
 
     def notify(self):
         self.current['revision'] = self.current.get('revision', 0) + 1
@@ -107,6 +110,12 @@ class DiagnosticSessions:
                     break
                 snapshot = json.loads(line)
                 if 'buses' in snapshot:
+                    for bus in snapshot['buses']:
+                        result = bus.pop('calibration_result', None)
+                        if result:
+                            pending = self.pending_calibrations.get(result['request_id'])
+                            if pending and not pending[1].done():
+                                pending[1].set_result({'state': result['state'], 'message': result['message']})
                     session['snapshot'] = snapshot
                 if session['state'] != 'stopping' and snapshot['state'] in ACTIVE_STATES:
                     session['state'] = snapshot['state']
@@ -133,7 +142,49 @@ class DiagnosticSessions:
                 await terminate(process)
             await stderr_task
             session.update(stderr=list(messages), finished_at=time.time())
+            for _, future in list(self.pending_calibrations.values()):
+                if not future.done():
+                    future.set_result({'state': 'unconfirmed', 'message': 'Check ended before calibration was acknowledged'})
             self.notify()
+
+    async def calibrate_tactile(self, session_id, system, controller_id, device_id):
+        async with self.lock:
+            session = self.current
+            if not session or session['id'] != session_id:
+                raise LookupError('Diagnostic session not found')
+            if (session['state'] != 'running' or not self.process
+                    or self.process.returncode is not None or not self.process.stdin):
+                raise ValueError('Start a check before calibrating a tactile sensor')
+            snapshot = session.get('snapshot') or {}
+            buses = [bus for bus in snapshot.get('buses', []) if system in bus['systems']]
+            if len(buses) != 1:
+                raise ValueError('Calibration system not found')
+            tactile_target(buses[0], system, controller_id, device_id)
+            target = (system, controller_id, device_id)
+            if any(pending_target == target for pending_target, _ in self.pending_calibrations.values()):
+                raise ValueError('Calibration is already pending for this sensor')
+            request_id = str(uuid.uuid4())
+            command = dict(action='calibrate_tactile', request_id=request_id, system=system,
+                           controller_id=controller_id, device_id=device_id, expires_at=time.time() + 30)
+            loop = asyncio.get_running_loop()
+            future = loop.create_future()
+            self.pending_calibrations[request_id] = (target, future)
+            def expire():
+                if not future.done():
+                    future.set_result({'state': 'unconfirmed', 'message': 'Worker did not acknowledge calibration'})
+            timer = loop.call_later(35, expire)
+            def clear(_):
+                timer.cancel()
+                self.pending_calibrations.pop(request_id, None)
+            future.add_done_callback(clear)
+            try:
+                self.process.stdin.write((json.dumps(command, allow_nan=False) + '\n').encode())
+                await asyncio.wait_for(self.process.stdin.drain(), 1)
+            except (OSError, RuntimeError, asyncio.TimeoutError):
+                # The worker may still receive bytes already passed to write().
+                # Keep the request pending until its result or the deadline.
+                pass
+        return await asyncio.shield(future)
 
     async def stop(self, session_id=None):
         async with self.lock:

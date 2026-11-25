@@ -44,13 +44,38 @@ has no such guard. Do not run the check concurrently with another bus owner.
 The CLI does **not** check or stop bringup. Stop existing users of the bus before
 running it. Port-open success is not evidence that another program is absent.
 
-The worker uses PING and READ and one restricted write: setting the known HX5
-Table Sync Enable register to 0. It does not write torque, indirect addresses,
-limits, or other device settings.
+The worker uses PING and READ, sets the known HX5 Table Sync Enable register to 0
+for hand checks, and supports an explicit tactile calibration command described
+below. It does not write torque, indirect addresses or limits.
 Broadcast ping runs once per bus at startup; expected IDs are also pinged
 individually. Additional devices are identified, not automatically read as motors.
 Discovery is not proof that every physical device was found, nor a duplicate-ID
 detector. Virtual IDs remain configuration-only entries linked to their controller.
+
+## Tactile calibration
+
+During an active check, select a responding tactile sensor and press **Calibrate**
+in its pressure readings. Models 250 and 253 support this command. Calibration is
+never run automatically. The UI sends a request through Manager and the agent to
+the running diagnostic worker; the existing bus owner processes it between reads,
+without opening another serial connection. Live readings remain shared with all
+browsers. The command result is returned only to the requesting browser
+and is not retained in the diagnostic session.
+
+The worker verifies bypass mode and the sensor's current model, then sends a
+single Protocol 2 write: **address 71, length 1 byte, data 1**. It discards the old
+measurements and refreshes the pressure and health readings afterward. An
+acknowledgment confirms command receipt, not completion or calibration quality;
+no completion register is defined. A timeout is reported as unconfirmed and is
+never retried automatically. Queued requests expire after 30 seconds.
+
+The agent endpoint is `POST /diagnostics/sessions/{id}/calibrate-tactile`, with
+`system`, `controller_id`, and `device_id` in the JSON body. Manager proxies it
+under `/{container}/diagnostics/sessions/{id}/calibrate-tactile`. Register addresses,
+sizes and write values cannot be supplied by a request. The managed worker accepts
+this command on its stdin pipe; ordinary standalone checks remain read-only apart
+from the hand bypass switch. Update Manager and the worker together and restart
+any existing check before using calibration.
 
 ## Interpretation
 

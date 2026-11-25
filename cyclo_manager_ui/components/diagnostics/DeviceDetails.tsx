@@ -2,7 +2,10 @@ import { communicationIssue, deviceLocation, deviceStatus, issueText, measuremen
 import styles from "./diagnostics.module.css";
 import BoardDetails from "./BoardDetails";
 
-export default function DeviceDetails({ entry, now, freshness }: { entry?: DeviceEntry; now: number; freshness: Freshness }) {
+export default function DeviceDetails({ entry, now, freshness, onCalibrate, calibrationEnabled = false, calibrationBusy = false }: {
+  entry?: DeviceEntry; now: number; freshness: Freshness; onCalibrate?: () => void;
+  calibrationEnabled?: boolean; calibrationBusy?: boolean;
+}) {
   if (!entry) return <div className={styles.emptyDetail}><span>◎</span><h3>Select a device</h3><p>Select a marker or a device in the list<br/>to view its status.</p></div>;
   const { device, bus } = entry;
   const location = deviceLocation(device);
@@ -59,7 +62,13 @@ export default function DeviceDetails({ entry, now, freshness }: { entry?: Devic
         }) : <strong>Not measured</strong>}</div>
       </div>}
       {device.kind === "tactile" && <div className={styles.pressureReadout}>
-        <span>Pressure readings · raw</span>
+        <header><span>Pressure readings · raw</span>
+          <button type="button" className={styles.portEditButton} onClick={onCalibrate}
+            disabled={!calibrationEnabled || calibrationBusy}
+            aria-label={`Calibrate ${location.label}, ID ${device.id}`}>
+            {calibrationBusy ? "Calibrating…" : "Calibrate"}
+          </button>
+        </header>
         <div>{Array.from({ length: 9 }, (_, i) => <div key={i}><small>{i + 1}</small><strong>{measurementText(fields[`Present Pressure ${i + 1}`], now, freshness)}</strong></div>)}</div>
       </div>}
       <details className={styles.rawDetails}><summary>Technical details · raw registers</summary>

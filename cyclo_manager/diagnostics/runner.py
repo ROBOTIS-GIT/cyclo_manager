@@ -2,6 +2,7 @@
 
 from collections import deque
 import copy
+import math
 from queue import Empty, Full, Queue
 import threading
 import time
@@ -10,6 +11,7 @@ from cyclo_manager.diagnostics.registers import TEMPERATURES, classify_fields, r
 from cyclo_manager.diagnostics.dynamixel_bus import DynamixelBus
 from cyclo_manager.diagnostics.boards import board_registers
 from cyclo_manager.diagnostics.hands import invalidate_hand, is_hand_controller, read_hand
+from cyclo_manager.diagnostics.calibration import CalibrationPortError, calibrate
 
 
 def field_names(table):
@@ -19,7 +21,7 @@ def field_names(table):
 
 
 class Runner:
-    def __init__(self, config, catalog, stop, emit, bus_factory=DynamixelBus, temperature_margin=5.0):
+    def __init__(self, config, catalog, stop, emit, bus_factory=DynamixelBus, temperature_margin=5.0, command_queues=None):
         self.catalog, self.stop, self.emit = catalog, stop, emit
         self.bus_factory, self.temperature_margin = bus_factory, temperature_margin
         self.config = copy.deepcopy(config)
@@ -27,13 +29,52 @@ class Runner:
         self.tables = {}
         self.retry_at = {}
         self.sequence = 0
-        self.snapshot = dict(state='starting',
-                             health='unknown', started_at=time.time(), **copy.deepcopy(config))
+        self.command_queues = command_queues if command_queues is not None else [Queue(maxsize=16) for _ in config['buses']]
+        self.snapshot = dict(state='starting', health='unknown', started_at=time.time(), **copy.deepcopy(config))
         for bus in self.snapshot['buses']:
             bus.update(state='pending', error=None, discovery_error=None)
             for device in bus['devices']:
                 device.update(state='pending', health='unknown', fields={},
                               last_seen=None, failures=0, message=None, packet_error=0)
+
+    def submit_calibration(self, command):
+        if not isinstance(command, dict) or set(command) != {'action', 'request_id', 'system', 'controller_id', 'device_id', 'expires_at'}:
+            raise ValueError('Invalid calibration command')
+        if (command['action'] != 'calibrate_tactile'
+                or not isinstance(command['request_id'], str) or not 1 <= len(command['request_id']) <= 64
+                or not isinstance(command['system'], str)
+                or any(type(command[key]) is not int or not 0 <= command[key] <= 252 for key in ('controller_id', 'device_id'))
+                or type(command['expires_at']) not in (int, float)
+                or not math.isfinite(command['expires_at'])):
+            raise ValueError('Invalid calibration target')
+        indices = [index for index, bus in enumerate(self.config['buses']) if command['system'] in bus['systems']]
+        if len(indices) != 1:
+            raise ValueError('Calibration system not found')
+        try:
+            self.command_queues[indices[0]].put_nowait(dict(command))
+        except Full as exc:
+            raise ValueError('Calibration queue is full') from exc
+
+    def process_calibrations(self, index):
+        bus = self.snapshot['buses'][index]
+        while not self.stop.is_set():
+            try:
+                command = self.command_queues[index].get_nowait()
+            except Empty:
+                return
+            port_error = None
+            try:
+                bus['calibration_result'] = calibrate(self, index, command)
+            except CalibrationPortError as exc:
+                port_error = exc
+                self.fail_bus(index, bus, exc)
+                bus['calibration_result'] = exc.result
+            try:
+                self.publish()
+            finally:
+                del bus['calibration_result']
+            if port_error:
+                raise port_error
 
     def publish(self):
         self.sequence += 1
@@ -260,6 +301,7 @@ class Runner:
         next_read = {}
         reads_since_probe = 0
         while not self.stop.is_set():
+            self.process_calibrations(index)
             now = time.monotonic()
             due = [d for d in bus['devices'] if d['state'] == 'online'
                    and next_read.get(d['id'], 0) <= now]
@@ -337,7 +379,8 @@ class Runner:
                     else:
                         worker.open_bus(0, bus)
             except Exception as exc:
-                worker.fail_bus(0, bus, exc)
+                if bus['state'] != 'error':
+                    worker.fail_bus(0, bus, exc)
                 worker.publish()
             finally:
                 handle = worker.handles.pop(0, None)
@@ -355,7 +398,7 @@ class Runner:
                 config = {**self.config, 'buses': [bus], 'excluded': []}
                 worker = Runner(config, self.catalog, self.stop,
                     lambda snapshot, i=index: enqueue(i, snapshot),
-                    self.bus_factory, self.temperature_margin)
+                    self.bus_factory, self.temperature_margin, [self.command_queues[index]])
                 workers.append(worker)
                 thread = threading.Thread(target=operate, args=(worker,), name=f'diagnostics-bus-{index}')
                 thread.start()
@@ -365,6 +408,7 @@ class Runner:
                     index, bus = updates.get(timeout=0.1)
                     self.snapshot['buses'][index] = bus
                     self.publish()
+                    bus.pop('calibration_result', None)
                 except Empty:
                     if not any(thread.is_alive() for thread in threads):
                         if not watch or self.stop.is_set():

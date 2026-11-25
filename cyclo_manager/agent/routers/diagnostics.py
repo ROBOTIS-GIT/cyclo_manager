@@ -29,7 +29,6 @@ class StartDiagnostic(BaseModel):
                                  or rate <= 0 for k, rate in value.items()):
             raise ValueError('Invalid system/baud rate override')
         return value
-
     @field_validator('ports')
     @classmethod
     def valid_ports(cls, value):
@@ -38,6 +37,13 @@ class StartDiagnostic(BaseModel):
                                  or '\x00' in p for k, p in value.items()):
             raise ValueError('Invalid system/port override')
         return value
+
+
+class CalibrateTactile(BaseModel):
+    model_config = {'extra': 'forbid'}
+    system: str = Field(min_length=1, max_length=128)
+    controller_id: StrictInt = Field(ge=0, le=252)
+    device_id: StrictInt = Field(ge=0, le=252)
 
 
 @router.get('/profiles')
@@ -79,6 +85,16 @@ async def stop(session_id: str):
         return await sessions.stop(session_id)
     except LookupError as exc:
         raise HTTPException(404, str(exc)) from exc
+
+
+@router.post('/sessions/{session_id}/calibrate-tactile')
+async def calibrate_tactile(session_id: str, request: CalibrateTactile):
+    try:
+        return await sessions.calibrate_tactile(session_id, request.system, request.controller_id, request.device_id)
+    except LookupError as exc:
+        raise HTTPException(404, str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(409, str(exc)) from exc
 
 
 @router.get('/sessions/{session_id}/stream')

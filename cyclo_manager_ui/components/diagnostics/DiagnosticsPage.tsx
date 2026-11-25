@@ -4,9 +4,9 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import {
   acceptSession, diagnosticActive, getDiagnosticProfiles,
-  getDiagnosticSession, inspectDiagnosticProfile, startDiagnostic, stopDiagnostic,
+  calibrateTactile, getDiagnosticSession, inspectDiagnosticProfile, startDiagnostic, stopDiagnostic,
   type DiagnosticConfiguration, type DiagnosticProfile,
-  type DiagnosticSession,
+  type DiagnosticSession, type TactileCalibration,
 } from "@/lib/diagnostics";
 import { getServiceStatus } from "@/lib/api/services";
 import { getSystemProfile } from "@/config/systemProfiles";
@@ -17,10 +17,24 @@ import HandMap from "./HandMap";
 import DeviceDetails from "./DeviceDetails";
 import InspectionScope from "./InspectionScope";
 import ConnectionDevices from "./ConnectionDevices";
-import { handGroupsFor, handStatus, type HandSide, communicationOrder, inspectionCounts, deviceLocation, deviceStatus, entriesFor, handEntriesFor, FRESHNESS_SECONDS, groupLabel, statusLabel, statusSymbol, type Freshness } from "./diagnosticView";
+import { canCalibrateTactile, handGroupsFor, handStatus, type HandSide, communicationOrder, inspectionCounts, deviceLocation, deviceStatus, entriesFor, handEntriesFor, FRESHNESS_SECONDS, groupLabel, statusLabel, statusSymbol, type Freshness } from "./diagnosticView";
 import styles from "./diagnostics.module.css";
 
 const errorText = (error: unknown) => error instanceof Error ? error.message : String(error);
+
+function CalibrationModal({ result, label, onClose }: { result: TactileCalibration; label: string; onClose: () => void }) {
+  const dialog = useRef<HTMLDialogElement>(null);
+  useEffect(() => { dialog.current?.showModal(); }, []);
+  const title = result.state === "sent" ? "Calibration command sent"
+    : result.state === "failed" ? "Calibration failed" : "Calibration result unconfirmed";
+  return <dialog ref={dialog} className={styles.calibrationModal} aria-labelledby="calibration-title" onClose={onClose}>
+    <h2 id="calibration-title">{title}</h2>
+    <p className={styles.calibrationDevice}>{label}</p>
+    <p>{result.message}</p>
+    <button type="button" autoFocus onClick={() => dialog.current?.close()}>Close</button>
+  </dialog>;
+}
+
 export default function DiagnosticsPage({ container }: { container: string }) {
   const [profiles, setProfiles] = useState<DiagnosticProfile[]>([]);
   const [connectionAttempt, setConnectionAttempt] = useState(0);
@@ -35,6 +49,8 @@ export default function DiagnosticsPage({ container }: { container: string }) {
   const [previewError, setPreviewError] = useState<string | null>(null);
   const [bringupBlocked, setBringupBlocked] = useState("Checking bringup status…");
   const [busy, setBusy] = useState(false);
+  const [calibrationBusy, setCalibrationBusy] = useState(false);
+  const [calibrationResult, setCalibrationResult] = useState<{ label: string; result: TactileCalibration } | null>(null);
   const [now, setNow] = useState(() => Date.now() / 1000);
   const [selection, setSelection] = useState("");
   const [view, setView] = useState<"map" | "list">("map");
@@ -178,6 +194,21 @@ export default function DiagnosticsPage({ container }: { container: string }) {
     : physicalEntries.filter(entry => !hands.some(hand => hand.controller.key === entry.key));
   const selectionEntries = view === "map" ? mapEntries : entries;
   const selectedEntry = selectionEntries.find(e => e.key === selection) ?? selectionEntries[0];
+  const calibrationEnabled = canCalibrateTactile(selectedEntry, now, freshness);
+  async function calibrateSelected() {
+    if (!id || !selectedEntry || !calibrationEnabled || calibrationBusy) return;
+    const device = selectedEntry.device;
+    if (device.comm_id === undefined) return;
+    const label = `${deviceLocation(device).label} · ID ${device.id}`;
+    setCalibrationBusy(true); setCalibrationResult(null); setError(null);
+    try {
+      const result = await calibrateTactile(container, id, device.system, device.comm_id, device.id);
+      setCalibrationResult({ label, result });
+    } catch (e) {
+      setCalibrationResult({ label, result: { state: "unconfirmed", message: errorText(e) } });
+    }
+    finally { setCalibrationBusy(false); }
+  }
   const expected = entries.filter(e => e.device.expected);
   const attention = entries.filter(e => !["ok", "pending"].includes(deviceStatus(e.device, now, freshness, e.bus)));
   const busErrors = configuration?.buses.filter(b => b.error || b.state === "error") ?? [];
@@ -331,10 +362,12 @@ export default function DiagnosticsPage({ container }: { container: string }) {
       </section>
       <aside ref={detailRef} className={styles.detailPanel} aria-label="Selected device details" tabIndex={-1}>
         <button className={styles.backToMap} onClick={() => visualRef.current?.scrollIntoView({ block: "start" })}>← Back to {view === "map" ? "robot map" : "device list"}</button>
-        <DeviceDetails entry={selectedEntry} now={now} freshness={freshness}/>
+        <DeviceDetails entry={selectedEntry} now={now} freshness={freshness} onCalibrate={calibrateSelected}
+          calibrationEnabled={calibrationEnabled} calibrationBusy={calibrationBusy}/>
       </aside>
     </div>
 
     {active && !!session?.stderr?.length && <details className={styles.settings}><summary>Worker logs</summary><pre>{session.stderr.join("")}</pre></details>}
+    {calibrationResult && <CalibrationModal {...calibrationResult} onClose={() => setCalibrationResult(null)}/>}
   </div>;
 }
