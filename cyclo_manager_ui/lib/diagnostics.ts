@@ -74,3 +74,7 @@ export const calibrateTactile = (container: string, id: string, system: string, 
   method: "POST", url: `${base(container)}/sessions/${encodeURIComponent(id)}/calibrate-tactile`,
   data: { system, controller_id, device_id }, timeout: 45000,
 });
+export const clearMultiTurn = (container: string, id: string, system: string, device_id: number) => request<TactileCalibration>({
+  method: "POST", url: `${base(container)}/sessions/${encodeURIComponent(id)}/clear-multi-turn`,
+  data: { system, device_id }, timeout: 45000,
+});

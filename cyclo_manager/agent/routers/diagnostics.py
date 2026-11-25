@@ -46,6 +46,12 @@ class CalibrateTactile(BaseModel):
     device_id: StrictInt = Field(ge=0, le=252)
 
 
+class ClearMultiTurn(BaseModel):
+    model_config = {'extra': 'forbid'}
+    system: str = Field(min_length=1, max_length=128)
+    device_id: StrictInt = Field(ge=0, le=252)
+
+
 @router.get('/profiles')
 async def profiles():
     try:
@@ -91,6 +97,16 @@ async def stop(session_id: str):
 async def calibrate_tactile(session_id: str, request: CalibrateTactile):
     try:
         return await sessions.calibrate_tactile(session_id, request.system, request.controller_id, request.device_id)
+    except LookupError as exc:
+        raise HTTPException(404, str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(409, str(exc)) from exc
+
+
+@router.post('/sessions/{session_id}/clear-multi-turn')
+async def clear_multi_turn(session_id: str, request: ClearMultiTurn):
+    try:
+        return await sessions.clear_multi_turn(session_id, request.system, request.device_id)
     except LookupError as exc:
         raise HTTPException(404, str(exc)) from exc
     except ValueError as exc:

@@ -2,9 +2,10 @@ import { communicationIssue, deviceLocation, deviceStatus, issueText, measuremen
 import styles from "./diagnostics.module.css";
 import BoardDetails from "./BoardDetails";
 
-export default function DeviceDetails({ entry, now, freshness, onCalibrate, calibrationEnabled = false, calibrationBusy = false }: {
+export default function DeviceDetails({ entry, now, freshness, onCalibrate, calibrationEnabled = false, calibrationBusy = false, onClearMultiTurn, clearEnabled = false, clearBusy = false }: {
   entry?: DeviceEntry; now: number; freshness: Freshness; onCalibrate?: () => void;
   calibrationEnabled?: boolean; calibrationBusy?: boolean;
+  onClearMultiTurn?: () => void; clearEnabled?: boolean; clearBusy?: boolean;
 }) {
   if (!entry) return <div className={styles.emptyDetail}><span>◎</span><h3>Select a device</h3><p>Select a marker or a device in the list<br/>to view its status.</p></div>;
   const { device, bus } = entry;
@@ -19,6 +20,12 @@ export default function DeviceDetails({ entry, now, freshness, onCalibrate, cali
   const issue = state === "ok" ? null : issueText(entry, now, freshness);
   const redundantModelIssue = (mismatch && issue === "Model number differs from configuration") ||
     (missingDefinition && issue === "Unknown model: register reads skipped");
+  const errorValues = <div className={styles.errorValues}>{errors.length ? errors.map(([name, field]) => {
+    const current = validMeasurement(field, now, freshness) && field.raw !== null;
+    const result = current ? (field.raw === 0 ? "None" : field.message || "Reported error") : measurementText(field, now, freshness);
+    const code = current ? `0x${field.raw!.toString(16).toUpperCase().padStart(2, "0")}` : null;
+    return <div key={name}><strong data-status={field.status}>{result}{code && ` · ${code}`}</strong></div>;
+  }) : <strong>Not measured</strong>}</div>;
   return <>
     <div className={styles.detailHeader}>
       <div className={styles.detailTitle}><h3>{location.label}</h3><span className={styles.idBadge}>ID {device.id}</span></div>
@@ -53,14 +60,13 @@ export default function DeviceDetails({ entry, now, freshness, onCalibrate, cali
           <small>Configured limit {measurementText(fields[name.replace("Present ", "") + " Limit"], now, freshness)}</small>
         </div>) : <div className={styles.measurement}><span>Temperature</span><strong>Not measured</strong><small>Available after the device responds</small></div>}
       </div> : <BoardDetails device={device} now={now} freshness={freshness}/>}
-      {(device.kind === "dxl" || device.kind === "tactile") && <div className={styles.errorReadout}><span>Hardware errors</span>
-        <div className={styles.errorValues}>{errors.length ? errors.map(([name, field]) => {
-          const current = validMeasurement(field, now, freshness) && field.raw !== null;
-          const result = current ? (field.raw === 0 ? "None" : field.message || "Reported error") : measurementText(field, now, freshness);
-          const code = current ? `0x${field.raw!.toString(16).toUpperCase().padStart(2, "0")}` : null;
-          return <div key={name}><strong data-status={field.status}>{result}{code && ` · ${code}`}</strong></div>;
-        }) : <strong>Not measured</strong>}</div>
-      </div>}
+      {(device.kind === "dxl" || device.kind === "tactile") && (device.kind === "dxl" && device.model_name?.toLowerCase().startsWith("ym")
+        ? <details className={styles.clearOptions}>
+          <summary className={styles.errorReadout}><span>Hardware errors ▾</span>{errorValues}</summary>
+          <button type="button" className={styles.portEditButton} disabled={!clearEnabled || clearBusy} onClick={onClearMultiTurn}>
+            {clearBusy ? "Clearing…" : "Clear multi-turn"}
+          </button>
+        </details> : <div className={styles.errorReadout}><span>Hardware errors</span>{errorValues}</div>)}
       {device.kind === "tactile" && <div className={styles.pressureReadout}>
         <header><span>Pressure readings · raw</span>
           <button type="button" className={styles.portEditButton} onClick={onCalibrate}

@@ -4,7 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import {
   acceptSession, diagnosticActive, getDiagnosticProfiles,
-  calibrateTactile, getDiagnosticSession, inspectDiagnosticProfile, startDiagnostic, stopDiagnostic,
+  calibrateTactile, clearMultiTurn, getDiagnosticSession, inspectDiagnosticProfile, startDiagnostic, stopDiagnostic,
   type DiagnosticConfiguration, type DiagnosticProfile,
   type DiagnosticSession, type TactileCalibration,
 } from "@/lib/diagnostics";
@@ -22,10 +22,10 @@ import styles from "./diagnostics.module.css";
 
 const errorText = (error: unknown) => error instanceof Error ? error.message : String(error);
 
-function CalibrationModal({ result, label, onClose }: { result: TactileCalibration; label: string; onClose: () => void }) {
+function CalibrationModal({ result, label, action, onClose }: { result: TactileCalibration; label: string; action: string; onClose: () => void }) {
   const dialog = useRef<HTMLDialogElement>(null);
   useEffect(() => { dialog.current?.showModal(); }, []);
-  const title = result.state === "failed" ? "Calibration failed" : "Calibration result unconfirmed";
+  const title = result.state === "failed" ? `${action} failed` : `${action} result unconfirmed`;
   return <dialog ref={dialog} className={styles.calibrationModal} aria-labelledby="calibration-title" onClose={onClose}>
     <h2 id="calibration-title">{title}</h2>
     <p className={styles.calibrationDevice}>{label}</p>
@@ -49,7 +49,8 @@ export default function DiagnosticsPage({ container }: { container: string }) {
   const [bringupBlocked, setBringupBlocked] = useState("Checking bringup status…");
   const [busy, setBusy] = useState(false);
   const [calibrationBusy, setCalibrationBusy] = useState(false);
-  const [calibrationResult, setCalibrationResult] = useState<{ label: string; result: TactileCalibration } | null>(null);
+  const [clearBusy, setClearBusy] = useState(false);
+  const [calibrationResult, setCalibrationResult] = useState<{ label: string; action: string; result: TactileCalibration } | null>(null);
   const [now, setNow] = useState(() => Date.now() / 1000);
   const [selection, setSelection] = useState("");
   const [view, setView] = useState<"map" | "list">("map");
@@ -202,11 +203,27 @@ export default function DiagnosticsPage({ container }: { container: string }) {
     setCalibrationBusy(true); setCalibrationResult(null); setError(null);
     try {
       const result = await calibrateTactile(container, id, device.system, device.comm_id, device.id);
-      if (result.state !== "sent") setCalibrationResult({ label, result });
+      if (result.state !== "sent") setCalibrationResult({ label, action: "Calibration", result });
     } catch (e) {
-      setCalibrationResult({ label, result: { state: "unconfirmed", message: errorText(e) } });
+      setCalibrationResult({ label, action: "Calibration", result: { state: "unconfirmed", message: errorText(e) } });
     }
     finally { setCalibrationBusy(false); }
+  }
+  const clearEnabled = !!selectedEntry && active && selectedEntry.bus.state === "open"
+    && selectedEntry.device.expected && selectedEntry.device.kind === "dxl"
+    && selectedEntry.device.state === "online" && !!selectedEntry.device.model_name?.toLowerCase().startsWith("ym")
+    && !["stale", "communication", "pending"].includes(deviceStatus(selectedEntry.device, now, freshness, selectedEntry.bus));
+  async function clearSelected() {
+    if (!id || !selectedEntry || !clearEnabled || clearBusy) return;
+    const device = selectedEntry.device;
+    const label = `${deviceLocation(device).label} · ID ${device.id}`;
+    setClearBusy(true); setCalibrationResult(null);
+    try {
+      const result = await clearMultiTurn(container, id, device.system, device.id);
+      if (result.state !== "sent") setCalibrationResult({ label, action: "Multi-turn clear", result });
+    } catch (e) {
+      setCalibrationResult({ label, action: "Multi-turn clear", result: { state: "unconfirmed", message: errorText(e) } });
+    } finally { setClearBusy(false); }
   }
   const expected = entries.filter(e => e.device.expected);
   const attention = entries.filter(e => !["ok", "pending"].includes(deviceStatus(e.device, now, freshness, e.bus)));
@@ -362,7 +379,8 @@ export default function DiagnosticsPage({ container }: { container: string }) {
       <aside ref={detailRef} className={styles.detailPanel} aria-label="Selected device details" tabIndex={-1}>
         <button className={styles.backToMap} onClick={() => visualRef.current?.scrollIntoView({ block: "start" })}>← Back to {view === "map" ? "robot map" : "device list"}</button>
         <DeviceDetails entry={selectedEntry} now={now} freshness={freshness} onCalibrate={calibrateSelected}
-          calibrationEnabled={calibrationEnabled} calibrationBusy={calibrationBusy}/>
+          calibrationEnabled={calibrationEnabled} calibrationBusy={calibrationBusy} onClearMultiTurn={clearSelected}
+          clearEnabled={clearEnabled} clearBusy={clearBusy}/>
       </aside>
     </div>
 

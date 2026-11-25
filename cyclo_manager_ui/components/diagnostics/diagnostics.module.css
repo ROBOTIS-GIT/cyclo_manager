@@ -158,6 +158,10 @@
 .errorReadout strong { display: block; text-align: right; font-size: 14px; font-weight: 600; overflow-wrap: anywhere; }
 .errorReadout strong[data-status="error"], .errorReadout strong[data-status="warning"] { color: var(--status); }
 .errorReadout small { display: block; color: var(--muted); text-align: right; font-size: 10px; margin-top: 4px; }
+.clearOptions { text-align: right; font-size: 11px; color: var(--muted); }
+.clearOptions summary { cursor: pointer; list-style: none; text-align: left; }
+.clearOptions summary::-webkit-details-marker { display: none; }
+.clearOptions button { margin-bottom: 8px; }
 .pressureReadout { display: grid; gap: 8px; padding: 12px 0; border-top: 1px solid var(--border); font-size: 12px; }
 .pressureReadout > span, .pressureReadout > small { color: var(--muted); }
 .pressureReadout > div { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; }

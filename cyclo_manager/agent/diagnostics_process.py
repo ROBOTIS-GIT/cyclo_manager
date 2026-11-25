@@ -10,6 +10,7 @@ import time
 import uuid
 
 from cyclo_manager.diagnostics.calibration import tactile_target
+from cyclo_manager.diagnostics.multi_turn import y_motor_target
 
 
 
@@ -148,6 +149,12 @@ class DiagnosticSessions:
             self.notify()
 
     async def calibrate_tactile(self, session_id, system, controller_id, device_id):
+        return await self._device_command(session_id, system, controller_id, device_id, 'calibrate_tactile')
+
+    async def clear_multi_turn(self, session_id, system, device_id):
+        return await self._device_command(session_id, system, device_id, device_id, 'clear_multi_turn')
+
+    async def _device_command(self, session_id, system, controller_id, device_id, action):
         async with self.lock:
             session = self.current
             if not session or session['id'] != session_id:
@@ -159,12 +166,15 @@ class DiagnosticSessions:
             buses = [bus for bus in snapshot.get('buses', []) if system in bus['systems']]
             if len(buses) != 1:
                 raise ValueError('Calibration system not found')
-            tactile_target(buses[0], system, controller_id, device_id)
+            if action == 'calibrate_tactile':
+                tactile_target(buses[0], system, controller_id, device_id)
+            else:
+                y_motor_target(buses[0], system, device_id)
             target = (system, controller_id, device_id)
             if any(pending_target == target for pending_target, _ in self.pending_calibrations.values()):
                 raise ValueError('Calibration is already pending for this sensor')
             request_id = str(uuid.uuid4())
-            command = dict(action='calibrate_tactile', request_id=request_id, system=system,
+            command = dict(action=action, request_id=request_id, system=system,
                            controller_id=controller_id, device_id=device_id, expires_at=time.time() + 30)
             loop = asyncio.get_running_loop()
             future = loop.create_future()

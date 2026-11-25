@@ -5,7 +5,7 @@ import json
 from fastapi import APIRouter, Depends, HTTPException, WebSocket
 import httpx
 
-from cyclo_manager.agent.routers.diagnostics import CalibrateTactile, StartDiagnostic
+from cyclo_manager.agent.routers.diagnostics import CalibrateTactile, ClearMultiTurn, StartDiagnostic
 from cyclo_manager.routers.services import _raise_mapped_service_exception
 from cyclo_manager.routers.websocket_utils import run_until_disconnect, close_observer_error
 from cyclo_manager.state import get_agent_client, get_validated_container
@@ -21,13 +21,13 @@ async def request_agent(container, method, path, **kwargs):
     except httpx.HTTPStatusError as exc:
         if exc.response.status_code in {404, 405, 501} and path in {'/profiles', '/sessions/current'}:
             raise HTTPException(501, 'Update the AI Worker image: this agent does not support diagnostics') from exc
-        if exc.response.status_code == 404 and path.endswith('/calibrate-tactile'):
+        if exc.response.status_code == 404 and path.endswith(('/calibrate-tactile', '/clear-multi-turn')):
             try:
                 detail = exc.response.json().get('detail')
             except (ValueError, AttributeError):
                 detail = None
             if detail == 'Not Found':
-                return {'state': 'failed', 'message': 'The AI Worker agent does not support tactile calibration. Update and restart the agent.'}
+                return {'state': 'failed', 'message': 'The AI Worker agent does not support this command. Update and restart the agent.'}
         _raise_mapped_service_exception(container, exc)
     except Exception as exc:
         _raise_mapped_service_exception(container, exc)
@@ -61,6 +61,11 @@ async def stop(session_id: str, container: str = Depends(get_validated_container
 @router.post('/{container}/diagnostics/sessions/{session_id}/calibrate-tactile')
 async def calibrate_tactile(session_id: str, request: CalibrateTactile, container: str = Depends(get_validated_container)):
     return await request_agent(container, 'POST', f'/sessions/{session_id}/calibrate-tactile', json=request.model_dump())
+
+
+@router.post('/{container}/diagnostics/sessions/{session_id}/clear-multi-turn')
+async def clear_multi_turn(session_id: str, request: ClearMultiTurn, container: str = Depends(get_validated_container)):
+    return await request_agent(container, 'POST', f'/sessions/{session_id}/clear-multi-turn', json=request.model_dump())
 
 
 @router.websocket('/ws/{container}/diagnostics/{session_id}')

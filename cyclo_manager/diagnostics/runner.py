@@ -12,6 +12,7 @@ from cyclo_manager.diagnostics.dynamixel_bus import DynamixelBus
 from cyclo_manager.diagnostics.boards import board_registers
 from cyclo_manager.diagnostics.hands import invalidate_hand, is_hand_controller, read_hand
 from cyclo_manager.diagnostics.calibration import CalibrationPortError, calibrate
+from cyclo_manager.diagnostics.multi_turn import clear_multi_turn
 
 
 def field_names(table):
@@ -40,7 +41,7 @@ class Runner:
     def submit_calibration(self, command):
         if not isinstance(command, dict) or set(command) != {'action', 'request_id', 'system', 'controller_id', 'device_id', 'expires_at'}:
             raise ValueError('Invalid calibration command')
-        if (command['action'] != 'calibrate_tactile'
+        if (command['action'] not in {'calibrate_tactile', 'clear_multi_turn'}
                 or not isinstance(command['request_id'], str) or not 1 <= len(command['request_id']) <= 64
                 or not isinstance(command['system'], str)
                 or any(type(command[key]) is not int or not 0 <= command[key] <= 252 for key in ('controller_id', 'device_id'))
@@ -64,7 +65,8 @@ class Runner:
                 return
             port_error = None
             try:
-                bus['calibration_result'] = calibrate(self, index, command)
+                bus['calibration_result'] = (calibrate if command['action'] == 'calibrate_tactile'
+                                             else clear_multi_turn)(self, index, command)
             except CalibrationPortError as exc:
                 port_error = exc
                 self.fail_bus(index, bus, exc)
