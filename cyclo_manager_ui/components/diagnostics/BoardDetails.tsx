@@ -37,7 +37,6 @@ export default function BoardDetails({ device, now, freshness }: { device: Diagn
     <dl className={styles.boardReadings}>
       {!device.hand && <div><dt>Board error code</dt><dd className={styles.boardErrorValue} data-status={available("Error_Code") && error.raw !== 0 ? "error" : undefined}>
         <span>{available("Error_Code") ? `0x${error.raw!.toString(16).toUpperCase().padStart(8, "0")}` : value("Error_Code")}</span>
-        <small>{available("Error_Code") ? error.raw === 0 ? "No errors reported" : `Raw value ${error.raw} · Detailed code meaning unavailable` : "Reading unavailable"}</small>
       </dd></div>}
       {!device.hand && <div><dt>Firmware version</dt><dd>{available("Firmware_Version_Major") && available("Firmware_Version_Minor") ? `${fields.Firmware_Version_Major.raw}.${fields.Firmware_Version_Minor.raw}` : "Unavailable"}</dd></div>}
       {fields["IMU TIMESTAMP"] && <div><dt>IMU updates</dt><dd>{!activityFresh ? "Unavailable" : activity.state === "changed" ? "Timestamp changing" : activity.state === "unchanged" ? "Unchanged for at least 5 seconds" : "Observing changes"}</dd></div>}
