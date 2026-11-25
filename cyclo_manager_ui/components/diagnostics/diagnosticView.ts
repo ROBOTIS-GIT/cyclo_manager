@@ -24,7 +24,7 @@ export function handStatus(hand: HandGroup, now: number, freshness: Freshness): 
 
 export function handJointLabel(id: number, controllerId: number) {
   const offset = id - controllerId - 1;
-  if (offset < 0 || offset >= 25) return `Hand motor · ID ${id}`;
+  if (offset < 0 || offset >= 25) return `Hand DXL · ID ${id}`;
   const finger = ["Thumb", "Index", "Middle", "Ring", "Pinky"][Math.floor(offset / 5)];
   const joint = (offset < 5 ? ["CMC", "MCP yaw", "MCP pitch", "IP", "Tip"] : ["MCP roll", "MCP pitch", "PIP", "DIP", "Tip"])[offset % 5];
   return `${finger} · ${joint}`;
@@ -154,22 +154,24 @@ export function deviceLocation(device: DiagnosticDevice): { group: string; label
   return { group: device.kind === "dxl" ? "other" : "sensor", label: device.name };
 }
 export function inspectionDevices(bus: DiagnosticBus, system: string) {
-  return bus.devices.filter(device => device.expected && (device.system === system || device.aliases?.some(alias => alias.startsWith(`${system}/`))));
+  const direct = bus.devices.filter(device => device.expected && (device.system === system || device.aliases?.some(alias => alias.startsWith(`${system}/`))));
+  const hand = handEntriesFor([bus]).map(entry => entry.device).filter(device => device.system === system);
+  return [...direct, ...hand];
 }
 export function inspectionCounts(bus: DiagnosticBus, system: string) {
   const devices = inspectionDevices(bus, system);
-  return Object.entries({ dxl: "motor", sensor: "sensor", controller: "controller" })
+  return Object.entries({ dxl: "DXL", tactile: "tactile sensor", sensor: "sensor", controller: "controller" })
     .map(([kind, label]) => ({ label, count: devices.filter(device => device.kind === kind).length }))
-    .filter(item => item.count).map(item => `${item.count} ${item.label}${item.count === 1 ? "" : "s"}`).join(" · ") || "No direct devices";
+    .filter(item => item.count).map(item => `${item.count} ${item.label}${item.label === "DXL" || item.count === 1 ? "" : "s"}`).join(" · ") || "No devices to check";
 }
 export function communicationLabel(system: string) {
   if (/_leader_left$/.test(system)) return "Left leader";
   if (/_leader_right$/.test(system)) return "Right leader";
-  if (/_leader$/.test(system)) return "Leader motors";
+  if (/_leader$/.test(system)) return "Leader DXL";
   if (/_base_steer$/.test(system)) return "Wheel steering";
   if (/_base$/.test(system)) return "Wheel drive";
   if (/_sensor$/.test(system)) return "Sensors & LEDs";
-  if (/_follower$/.test(system)) return "Motors";
+  if (/_follower$/.test(system)) return "DXL";
   return system;
 }
 export function communicationOrder(system: string) {

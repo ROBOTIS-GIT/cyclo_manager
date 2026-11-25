@@ -8,7 +8,7 @@ const labels: Record<string, string> = {
   Millis: "Runtime counter", Sec_Since_Power_On: "Counter since power-on", Sec_Since_Reset: "Counter since reset",
   Estop_Input: "Emergency stop input", Remote_Connected: "Remote connection", System_State: "System state", Board_Temperature: "Board temperature",
   Host_Connection: "Host connection", Swerve_DXL1_Connection_Status: "Steering 1 connection", Swerve_DXL2_Connection_Status: "Steering 2 connection", Swerve_DXL3_Connection_Status: "Steering 3 connection",
-  Motor1_Connection_Status: "Subordinate motor connection",
+  Motor1_Connection_Status: "Subordinate DXL connection",
   "IMU TIMESTAMP": "IMU timestamp", "IMU ACC SCALE": "Acceleration scale", "IMU GYRO SCALE": "Angular velocity scale",
   "IMU ACC X": "Acceleration X", "IMU ACC Y": "Acceleration Y", "IMU ACC Z": "Acceleration Z", "IMU ACC SUM": "Acceleration sum",
   "IMU GYRO X": "Angular velocity X", "IMU GYRO Y": "Angular velocity Y", "IMU GYRO Z": "Angular velocity Z",
@@ -49,7 +49,7 @@ export default function BoardDetails({ device, now, freshness }: { device: Diagn
       <ul>{device.board_skipped_fields.map(({ name, reason }) => <li key={name}>{label(name)} · {reason === "missing" ? "not found" : reason === "duplicate" ? "duplicate name" : "invalid address or size"}</li>)}</ul>
     </div>}
     {device.model_name === "ffw_g10_led" && <p className={styles.boardNote}>These are LED settings; they do not confirm that the LEDs are lit.</p>}
-    {device.model_name === "ffw_g10_rcu" && <p className={styles.boardNote}>Connection status values are unverified. Subordinate motor errors, voltage, and temperature are not read.</p>}
+    {device.model_name === "ffw_g10_rcu" && <p className={styles.boardNote}>Connection status values are unverified. Subordinate DXL errors, voltage, and temperature are not read.</p>}
     {device.hand && <HandDetails device={device} now={now} freshness={freshness}/>}
   </div>;
 }

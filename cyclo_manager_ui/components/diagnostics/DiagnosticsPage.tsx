@@ -257,9 +257,9 @@ export default function DiagnosticsPage({ container }: { container: string }) {
             const editing = !!editingPorts[system] && !active;
             return <div className={styles.portInput} key={`${bus.real_port}:${system}`}>
               <div className={styles.portControl} data-editing={editing}>
-                <span className={styles.inspectionCounts} title="Direct devices configured in Xacro">{inspectionCounts(bus, system)}</span>
+                <span className={styles.inspectionCounts} title="Devices configured in Xacro">{inspectionCounts(bus, system)}</span>
                 {editing ? <label className={styles.communicationField}><input title="Port" placeholder="Port" autoFocus aria-label={`${system} Port`} value={value} disabled={busy} onChange={e => setPorts(p => ({ ...p, [system]: e.target.value }))}/></label>
-                  : <div className={styles.portDisplay}><span title={value}>{value || "Not set"}</span>{changed && <small>This check only</small>}</div>}
+                  : <div className={styles.portDisplay}><span title={value}>{value || "Not set"}</span></div>}
                 {editing ? <label className={styles.baudField}><input title="Baud rate (bps)" placeholder="Baud rate" aria-label={`${system} Baud rate`} inputMode="numeric" aria-invalid={invalidBaud} value={baud} disabled={busy} onChange={e => setBaudRates(p => ({ ...p, [system]: e.target.value }))}/><span>bps</span></label>
                   : <span className={styles.portBaud} aria-label="Baud rate">{Number(baud) >= 1_000_000 ? `${Number(baud) / 1_000_000} Mbps` : `${Number(baud) / 1000} kbps`}</span>}
                 <div className={styles.communicationActions}><button className={styles.portEditButton} aria-label={`${system} Port ${editing ? "Finish editing" : "Change"}`} disabled={active || busy || (editing && invalidBaud)} title={active ? "Stop the check to change connection settings" : undefined} onClick={() => setEditingPorts(p => ({ ...p, [system]: !editing }))}>{editing ? "Done" : "Change"}</button>
@@ -267,7 +267,6 @@ export default function DiagnosticsPage({ container }: { container: string }) {
                 {changed && !active && <button className={styles.portEditButton} disabled={busy} onClick={() => { setPorts(p => ({ ...p, [system]: original! })); setBaudRates(p => ({ ...p, [system]: String(originalBus!.baud_rate) })); setEditingPorts(p => ({ ...p, [system]: false })); }}>Reset defaults</button>}</div>
               </div>
               {editing && invalidBaud && <small className={styles.portOverrideNote} role="alert">Enter a positive whole number for the baud rate.</small>}
-              {changed && <small className={styles.portOverrideNote}>Applies to this check only. Device settings remain unchanged.</small>}
             </div>;
           })}
         </div>

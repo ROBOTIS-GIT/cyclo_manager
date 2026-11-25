@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { entriesFor, handGroupsFor, handStatus, handJointLabel, communicationIssue, deviceStatus, handEntriesFor, issueText, modelAssessment, measurementText, sampleIsStale, validMeasurement } from '../components/diagnostics/diagnosticView.ts';
+import { entriesFor, handGroupsFor, handStatus, handJointLabel, communicationIssue, deviceStatus, handEntriesFor, inspectionCounts, inspectionDevices, issueText, modelAssessment, measurementText, sampleIsStale, validMeasurement } from '../components/diagnostics/diagnosticView.ts';
 
 const reading = { value: 24.1, raw: 241, unit: 'V', last_success: 100, status: 'ok', message: '', failures: 0 };
 const device = { state: 'online', health: 'ok', last_seen: 100 };
@@ -217,6 +217,22 @@ test('other controllers with virtual motors do not create hand motor entries', (
   const bus = { real_port: '/dev/ttyUSB0', devices: [rcu],
     virtual_devices: [{ id: 102, comm_id: 200, kind: 'virtual_dxl', system: 'base', name: 'wheel' }] };
   assert.deepEqual(handEntriesFor([bus]), []);
+});
+
+test('checklist includes configured hand DXL and tactile sensors but excludes other virtual devices', () => {
+  const controller = { id: 110, name: 'hand_r_controller', kind: 'controller', system: 'follower', expected: true, sync_mapping: {} };
+  const motor = { id: 1, name: 'dxl1', kind: 'dxl', system: 'follower', expected: true };
+  const rcu = { id: 200, name: 'ffw_g10_rcu', kind: 'controller', system: 'base', expected: true };
+  const bus = { real_port: '/dev/test', devices: [controller, motor, rcu], virtual_devices: [
+    { id: 111, name: 'dxl111', system: 'follower', kind: 'virtual_dxl', comm_id: 110 },
+    { id: 115, name: 'tip115', system: 'follower', kind: 'virtual_sensor', comm_id: 110 },
+    { id: 102, name: 'wheel', system: 'base', kind: 'virtual_dxl', comm_id: 200 },
+  ] };
+  assert.equal(inspectionCounts(bus, 'follower'), '2 DXL · 1 tactile sensor · 1 controller');
+  assert.deepEqual(inspectionDevices(bus, 'follower').map(item => item.id), [110, 1, 111, 115]);
+  assert.equal(inspectionCounts(bus, 'base'), '1 controller');
+  const offline = { ...controller, state: 'offline' };
+  assert.equal(inspectionCounts({ ...bus, devices: [offline, motor, rcu] }, 'follower'), '2 DXL · 1 tactile sensor · 1 controller');
 });
 
 test('hand controller health requires fresh verified status and voltage readings', () => {

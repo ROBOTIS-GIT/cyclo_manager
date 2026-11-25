@@ -3,7 +3,7 @@ import type { DiagnosticBus } from "@/lib/diagnostics";
 import { inspectionDevices } from "./diagnosticView";
 import styles from "./diagnostics.module.css";
 
-const kinds: Record<string, string> = { dxl: "Motor", sensor: "Sensor", controller: "Controller" };
+const kinds: Record<string, string> = { dxl: "DXL", tactile: "Tactile sensor", sensor: "Sensor", controller: "Controller" };
 
 export default function ConnectionDevices({ bus, system }: { bus: DiagnosticBus; system: string }) {
   const devices = inspectionDevices(bus, system);
@@ -54,7 +54,7 @@ export default function ConnectionDevices({ bus, system }: { bus: DiagnosticBus;
       <table aria-label="Device list">
         <thead><tr><th scope="col">Device</th><th scope="col">ID</th><th scope="col">Kind</th></tr></thead>
         <tbody>{devices.map(device => <tr key={device.id}><td>{device.name}</td><td>{device.id}</td><td>{kinds[device.kind] ?? device.kind}</td></tr>)}
-          {!devices.length && <tr><td colSpan={3}>No direct devices to check.</td></tr>}
+          {!devices.length && <tr><td colSpan={3}>No devices to check.</td></tr>}
         </tbody>
       </table>
     </div>

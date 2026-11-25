@@ -128,7 +128,7 @@ export default function RobotMap({ entries, profile, selected, onSelect, now, fr
   const unpositioned = entries.filter(e => !positionedKeys.has(e.key));
   const trays = [
     { label: "Sensors & controllers", devices: unpositioned.filter(e => e.device.expected && e.device.kind !== "dxl") },
-    { label: "Base & other motors", devices: unpositioned.filter(e => e.device.expected && e.device.kind === "dxl") },
+    { label: "Base & other DXL", devices: unpositioned.filter(e => e.device.expected && e.device.kind === "dxl") },
     { label: "Additional devices", devices: unpositioned.filter(e => !e.device.expected) },
   ].filter(tray => tray.devices.length);
   return <div className={styles.mapContent}>

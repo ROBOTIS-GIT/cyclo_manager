@@ -4,7 +4,7 @@ import styles from "./diagnostics.module.css";
 
 const modes = {
   unknown: "Unknown",
-  sync_disabled: "Bypass · direct motor access",
+  sync_disabled: "Bypass · direct DXL access",
   sync_table: "SyncTable enabled",
 };
 
