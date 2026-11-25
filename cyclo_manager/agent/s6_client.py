@@ -308,12 +308,14 @@ def _control_service(name, action, launch_args, robot_type):
             else:  # start or restart
                 # A process can exit while s6-rc still considers its pipeline up.
                 cmd = ['s6-rc', '-d', 'change', stop_target]
-                subprocess.check_output(cmd, stderr=subprocess.STDOUT, timeout=10)
+                subprocess.check_output(cmd, stderr=subprocess.STDOUT, timeout=20)
                 if action == 'restart':
                     time.sleep(1)
                 cmd = ['s6-rc', '-u', 'change', name]
 
-            subprocess.check_output(cmd, stderr=subprocess.STDOUT, timeout=10)
+            subprocess.check_output(
+                cmd, stderr=subprocess.STDOUT, timeout=20 if action == 'down' else 10,
+            )
             logger.info(f"Successfully executed action '{action}' on s6-rc service '{name}'")
         else:
             # For legacy services, use s6-svc
