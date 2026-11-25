@@ -21,6 +21,13 @@ async def request_agent(container, method, path, **kwargs):
     except httpx.HTTPStatusError as exc:
         if exc.response.status_code in {404, 405, 501} and path in {'/profiles', '/sessions/current'}:
             raise HTTPException(501, 'Update the AI Worker image: this agent does not support diagnostics') from exc
+        if exc.response.status_code == 404 and path.endswith('/calibrate-tactile'):
+            try:
+                detail = exc.response.json().get('detail')
+            except (ValueError, AttributeError):
+                detail = None
+            if detail == 'Not Found':
+                return {'state': 'failed', 'message': 'The AI Worker agent does not support tactile calibration. Update and restart the agent.'}
         _raise_mapped_service_exception(container, exc)
     except Exception as exc:
         _raise_mapped_service_exception(container, exc)

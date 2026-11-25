@@ -164,7 +164,7 @@
 .pressureReadout > div > div { display: flex; justify-content: space-between; gap: 8px; padding: 6px 8px; border: 1px solid var(--border); border-radius: 5px; }
 .pressureReadout > div small { color: var(--muted); }
 .pressureReadout > header { display: flex; justify-content: space-between; align-items: center; gap: 12px; color: var(--muted); }
-.calibrationModal { width: min(400px, calc(100vw - 32px)); padding: 24px; border: 1px solid var(--border); border-radius: 8px; background: var(--vscode-editor-background); color: var(--vscode-foreground); box-shadow: 0 16px 48px rgba(0, 0, 0, .3); }
+.calibrationModal { position: fixed; inset: 0; margin: auto; width: min(400px, calc(100vw - 32px)); max-height: calc(100vh - 32px); padding: 24px; border: 1px solid var(--border); border-radius: 8px; background: var(--vscode-editor-background); color: var(--vscode-foreground); box-shadow: 0 16px 48px rgba(0, 0, 0, .3); }
 .calibrationModal::backdrop { background: rgba(0, 0, 0, .55); }
 .calibrationModal h2 { margin: 0 0 12px; font-size: 16px; font-weight: 600; }
 .calibrationModal p { margin: 8px 0; font-size: 13px; line-height: 1.5; overflow-wrap: anywhere; }

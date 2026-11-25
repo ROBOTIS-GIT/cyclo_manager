@@ -25,8 +25,7 @@ const errorText = (error: unknown) => error instanceof Error ? error.message : S
 function CalibrationModal({ result, label, onClose }: { result: TactileCalibration; label: string; onClose: () => void }) {
   const dialog = useRef<HTMLDialogElement>(null);
   useEffect(() => { dialog.current?.showModal(); }, []);
-  const title = result.state === "sent" ? "Calibration command sent"
-    : result.state === "failed" ? "Calibration failed" : "Calibration result unconfirmed";
+  const title = result.state === "failed" ? "Calibration failed" : "Calibration result unconfirmed";
   return <dialog ref={dialog} className={styles.calibrationModal} aria-labelledby="calibration-title" onClose={onClose}>
     <h2 id="calibration-title">{title}</h2>
     <p className={styles.calibrationDevice}>{label}</p>
@@ -203,7 +202,7 @@ export default function DiagnosticsPage({ container }: { container: string }) {
     setCalibrationBusy(true); setCalibrationResult(null); setError(null);
     try {
       const result = await calibrateTactile(container, id, device.system, device.comm_id, device.id);
-      setCalibrationResult({ label, result });
+      if (result.state !== "sent") setCalibrationResult({ label, result });
     } catch (e) {
       setCalibrationResult({ label, result: { state: "unconfirmed", message: errorText(e) } });
     }
