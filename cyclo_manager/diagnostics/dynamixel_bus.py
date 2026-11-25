@@ -14,7 +14,7 @@ class DynamixelBus:
 
             def setPacketTimeout(self, packet_length):
                 super().setPacketTimeout(packet_length)
-                self.packet_timeout = min(self.packet_timeout, 100.0)
+                self.packet_timeout = getattr(self, 'clear_timeout_ms', None) or min(self.packet_timeout, 100.0)
 
             def setPacketTimeoutMillis(self, milliseconds):
                 super().setPacketTimeoutMillis(min(milliseconds, 1000.0))
@@ -75,3 +75,11 @@ class DynamixelBus:
         result, error = self.packet.write1ByteTxRx(self.port, device_id, 71, 1)
         self._check(result, error)
         return error
+
+    def clear_multi_turn(self, device_id):
+        """Wait for a delayed Y-series response without changing other timeouts."""
+        self.port.clear_timeout_ms = 10000.0
+        try:
+            return self.packet.clearMultiTurn(self.port, device_id)
+        finally:
+            self.port.clear_timeout_ms = None

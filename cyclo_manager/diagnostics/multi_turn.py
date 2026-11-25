@@ -34,18 +34,10 @@ def clear_multi_turn(runner, index, command):
         table = runner.tables.get((index, device['id']))
         if model != device.get('model_number') or not table or not table.name.lower().startswith('ym'):
             raise ValueError('DXL model changed; no command was sent')
-        torque = table.registers.get('Torque Enable')
-        velocity = table.registers.get('Present Velocity')
-        if not torque or torque.size != 1 or not velocity or velocity.size != 4:
-            raise ValueError('Required torque or velocity register is unavailable')
-        torque_value, _ = handle.read(device['id'], torque)
-        velocity_value, _ = handle.read(device['id'], velocity)
-        if torque_value != 0 or velocity_value != 0:
-            raise ValueError('DXL must be stopped with torque disabled')
         if runner.stop.is_set() or time.time() > command['expires_at']:
             raise ValueError('Check stopped or request expired; no command was sent')
         writing = True
-        comm_result, packet_error = handle.packet.clearMultiTurn(handle.port, device['id'])
+        comm_result, packet_error = handle.clear_multi_turn(device['id'])
         if comm_result != 0:
             raise RuntimeError(handle.packet.getTxRxResult(comm_result))
         device['packet_error'] |= packet_error
