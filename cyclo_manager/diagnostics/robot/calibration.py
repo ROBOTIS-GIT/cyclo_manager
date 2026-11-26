@@ -2,8 +2,8 @@
 
 import time
 
-from cyclo_manager.diagnostics.hands import TACTILE_FIELDS, TACTILE_MODELS, invalidate_hand, is_hand_controller, unique_register
-from cyclo_manager.diagnostics.registers import report_packet_alert
+from cyclo_manager.diagnostics.robot.hands import TACTILE_FIELDS, TACTILE_MODELS, invalidate_hand, is_hand_controller, unique_register
+from cyclo_manager.diagnostics.robot.registers import report_packet_alert
 
 
 class CalibrationPortError(OSError):

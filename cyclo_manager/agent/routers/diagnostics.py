@@ -1,13 +1,51 @@
 """Diagnostic execution API. Bringup gating belongs to the Manager UI."""
 
+from typing import Literal
+
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field, StrictInt, field_validator
 
 from cyclo_manager.agent.diagnostics_process import configuration, sessions
-from cyclo_manager.diagnostics.profiles import PROFILES
+from cyclo_manager.agent.camera_diagnostics_process import camera_sessions
+from cyclo_manager.diagnostics.robot.profiles import PROFILES
 
 router = APIRouter(prefix='/diagnostics', tags=['diagnostics'])
+
+
+@router.post('/cameras/sessions')
+async def start_cameras():
+    try:
+        return await camera_sessions.start()
+    except ValueError as exc:
+        raise HTTPException(409, str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(503, str(exc)) from exc
+
+
+@router.get('/cameras/sessions/current')
+async def current_cameras():
+    return dict(session=camera_sessions.current)
+
+
+@router.post('/cameras/sessions/{session_id}/stop')
+async def stop_cameras(session_id: str):
+    try:
+        return await camera_sessions.stop(session_id)
+    except LookupError as exc:
+        raise HTTPException(404, str(exc)) from exc
+
+
+@router.get('/cameras/sessions/{session_id}/cameras/{camera_id}/stream')
+async def camera_stream(session_id: str, camera_id: str, view: Literal['color', 'depth'] = 'color'):
+    try:
+        frames = camera_sessions.camera_stream(session_id, camera_id, view)
+    except LookupError as exc:
+        raise HTTPException(404, str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(409, str(exc)) from exc
+    return StreamingResponse(frames, media_type='multipart/x-mixed-replace; boundary=frame',
+                             headers={'Cache-Control': 'no-store', 'X-Accel-Buffering': 'no'})
 
 
 class StartDiagnostic(BaseModel):

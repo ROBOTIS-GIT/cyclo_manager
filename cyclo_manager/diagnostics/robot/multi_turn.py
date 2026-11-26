@@ -2,7 +2,7 @@
 
 import time
 
-from cyclo_manager.diagnostics.calibration import CalibrationPortError
+from cyclo_manager.diagnostics.robot.calibration import CalibrationPortError
 
 
 def y_motor_target(bus, system, device_id):

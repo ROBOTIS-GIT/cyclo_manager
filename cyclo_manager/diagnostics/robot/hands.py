@@ -1,7 +1,7 @@
 """HX5 preflight switches to bypass before directly reading internal motors."""
 
 import time
-from cyclo_manager.diagnostics.registers import report_packet_alert
+from cyclo_manager.diagnostics.robot.registers import report_packet_alert
 
 HAND_MODELS = {'hx5_d20_rl', 'hx5_d20_rr'}
 HAND_CONTROLLERS = {'hand_l_controller', 'hand_r_controller'}

@@ -1,9 +1,13 @@
 """Proxy diagnostics to the robot agent; never open a serial port here."""
 
 import json
+from urllib.parse import quote
+from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, WebSocket
+from fastapi.responses import StreamingResponse
 import httpx
+from starlette.background import BackgroundTask
 
 from cyclo_manager.agent.routers.diagnostics import CalibrateTactile, ClearMultiTurn, StartDiagnostic
 from cyclo_manager.routers.services import _raise_mapped_service_exception
@@ -19,7 +23,7 @@ async def request_agent(container, method, path, **kwargs):
             method, '/diagnostics' + path, timeout=httpx.Timeout(40, connect=5), **kwargs)
         return result
     except httpx.HTTPStatusError as exc:
-        if exc.response.status_code in {404, 405, 501} and path in {'/profiles', '/sessions/current'}:
+        if exc.response.status_code in {404, 405, 501} and path in {'/profiles', '/sessions/current', '/cameras/sessions/current', '/cameras/sessions'}:
             raise HTTPException(501, 'Update the AI Worker image: this agent does not support diagnostics') from exc
         if exc.response.status_code == 404 and path.endswith(('/calibrate-tactile', '/clear-multi-turn')):
             try:
@@ -36,6 +40,49 @@ async def request_agent(container, method, path, **kwargs):
 @router.get('/{container}/diagnostics/profiles')
 async def profiles(container: str = Depends(get_validated_container)):
     return await request_agent(container, 'GET', '/profiles')
+
+
+@router.post('/{container}/diagnostics/cameras/sessions')
+async def start_cameras(container: str = Depends(get_validated_container)):
+    return await request_agent(container, 'POST', '/cameras/sessions')
+
+
+@router.get('/{container}/diagnostics/cameras/sessions/current')
+async def current_cameras(container: str = Depends(get_validated_container)):
+    return await request_agent(container, 'GET', '/cameras/sessions/current')
+
+
+@router.post('/{container}/diagnostics/cameras/sessions/{session_id}/stop')
+async def stop_cameras(session_id: str, container: str = Depends(get_validated_container)):
+    return await request_agent(container, 'POST', f'/cameras/sessions/{session_id}/stop')
+
+
+@router.get('/{container}/diagnostics/cameras/sessions/{session_id}/cameras/{camera_id}/stream')
+async def camera_stream(session_id: str, camera_id: str, view: Literal['color', 'depth'] = 'color', container: str = Depends(get_validated_container)):
+    response = None
+    try:
+        http = await get_agent_client(container)._ensure_httpx_client()
+        path = f'/diagnostics/cameras/sessions/{quote(session_id, safe="")}/cameras/{quote(camera_id, safe="")}/stream'
+        request = http.build_request('GET', path, params={'view': view}, timeout=httpx.Timeout(10, connect=5))
+        response = await http.send(request, stream=True)
+        if response.is_error:
+            await response.aread()
+            response.raise_for_status()
+    except Exception as exc:
+        if response is not None:
+            await response.aclose()
+        _raise_mapped_service_exception(container, exc)
+
+    async def forward():
+        try:
+            async for chunk in response.aiter_bytes():
+                yield chunk
+        finally:
+            await response.aclose()
+
+    return StreamingResponse(forward(), media_type='multipart/x-mixed-replace; boundary=frame',
+                             headers={'Cache-Control': 'no-store', 'X-Accel-Buffering': 'no'},
+                             background=BackgroundTask(response.aclose))
 
 
 @router.get('/{container}/diagnostics/profiles/{profile}')

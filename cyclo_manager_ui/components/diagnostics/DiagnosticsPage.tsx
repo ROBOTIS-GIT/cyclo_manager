@@ -17,6 +17,7 @@ import HandMap from "./HandMap";
 import DeviceDetails from "./DeviceDetails";
 import InspectionScope from "./InspectionScope";
 import ConnectionDevices from "./ConnectionDevices";
+import CameraDiagnostics from "./CameraDiagnostics";
 import { canCalibrateTactile, handGroupsFor, handStatus, type HandSide, communicationOrder, inspectionCounts, deviceLocation, deviceStatus, entriesFor, handEntriesFor, FRESHNESS_SECONDS, groupLabel, statusLabel, statusSymbol, type Freshness } from "./diagnosticView";
 import styles from "./diagnostics.module.css";
 
@@ -35,6 +36,8 @@ function CalibrationModal({ result, label, action, onClose }: { result: TactileC
 }
 
 export default function DiagnosticsPage({ container }: { container: string }) {
+  const [tab, setTab] = useState<"robot" | "camera">("robot");
+  const [cameraVisited, setCameraVisited] = useState(false);
   const [profiles, setProfiles] = useState<DiagnosticProfile[]>([]);
   const [connectionAttempt, setConnectionAttempt] = useState(0);
   const [profile, setProfile] = useState("w1");
@@ -278,8 +281,22 @@ export default function DiagnosticsPage({ container }: { container: string }) {
   return <div className={styles.page}>
     <header className={styles.pageHeader}>
       <h1>Diagnostics</h1>
+      <div className={styles.diagnosticTabs} role="tablist" aria-label="Diagnostic check" onKeyDown={event => {
+        if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
+        event.preventDefault();
+        const next = event.key === "Home" ? "robot" : event.key === "End" ? "camera" : tab === "robot" ? "camera" : "robot";
+        setTab(next); if (next === "camera") setCameraVisited(true);
+        document.getElementById(`${next}-tab`)?.focus();
+      }}>
+        <button id="robot-tab" role="tab" tabIndex={tab === "robot" ? 0 : -1} aria-selected={tab === "robot"} aria-controls="robot-panel" onClick={() => setTab("robot")}>Robot</button>
+        <button id="camera-tab" role="tab" tabIndex={tab === "camera" ? 0 : -1} aria-selected={tab === "camera"} aria-controls="camera-panel" onClick={() => { setCameraVisited(true); setTab("camera"); }}>Camera</button>
+      </div>
     </header>
 
+    <div id="camera-panel" role="tabpanel" aria-labelledby="camera-tab" hidden={tab !== "camera"}>
+      {cameraVisited && <CameraDiagnostics container={container} visible={tab === "camera"} bringupBlocked={bringupBlocked} checkBringup={checkBringup}/>}
+    </div>
+    <div id="robot-panel" role="tabpanel" aria-labelledby="robot-tab" hidden={tab !== "robot"}>
     <section className={styles.toolbar} aria-label="Check settings">
       <InspectionScope configuration={settingsConfiguration} robotSelector={
       <><label className={styles.modelSelect}>
@@ -385,6 +402,7 @@ export default function DiagnosticsPage({ container }: { container: string }) {
     </div>
 
     {active && !!session?.stderr?.length && <details className={styles.settings}><summary>Worker logs</summary><pre>{session.stderr.join("")}</pre></details>}
+    </div>
     {calibrationResult && <CalibrationModal {...calibrationResult} onClose={() => setCalibrationResult(null)}/>}
   </div>;
 }

@@ -25,6 +25,7 @@ from cyclo_manager.agent import __version__
 from cyclo_manager.agent.models import ErrorResponse
 from cyclo_manager.agent.routers import diagnostics, logs, services
 from cyclo_manager.agent.diagnostics_process import sessions
+from cyclo_manager.agent.camera_diagnostics_process import camera_sessions
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import JSONResponse
 
@@ -40,7 +41,10 @@ async def lifespan(app):
     try:
         yield
     finally:
-        await sessions.close()
+        try:
+            await camera_sessions.close()
+        finally:
+            await sessions.close()
 
 
 app = FastAPI(

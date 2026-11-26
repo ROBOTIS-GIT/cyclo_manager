@@ -9,22 +9,22 @@ import signal
 import time
 import uuid
 
-from cyclo_manager.diagnostics.calibration import tactile_target
-from cyclo_manager.diagnostics.multi_turn import y_motor_target
+from cyclo_manager.diagnostics.robot.calibration import tactile_target
+from cyclo_manager.diagnostics.robot.multi_turn import y_motor_target
 
 
 
 ACTIVE_STATES = {'starting', 'running', 'stopping'}
 
 
-def worker_command(*arguments):
+def worker_command(*arguments, check='robot'):
     # Deployment-owned paths, never request-supplied shell fragments. The agent
     # itself need not load ROS; only the standalone child needs package lookup.
     setup = os.environ.get('CYCLO_DIAGNOSTICS_SETUP', '/root/ros2_ws/install/setup.bash')
-    script = 'set -e; source "$1" >&2; shift; exec python3 -u -m cyclo_manager.diagnostics "$@"'
+    script = 'set -e; source "$1" >&2; shift; exec python3 -u -m "$@"'
     if not Path(setup).is_file():
         raise RuntimeError(f'Robot workspace setup not found: {setup}')
-    return ['bash', '-c', script, 'cyclo-diagnostics', setup, *arguments]
+    return ['bash', '-c', script, 'cyclo-diagnostics', setup, 'cyclo_manager.diagnostics', check, *arguments]
 
 
 async def terminate(process):
@@ -61,6 +61,8 @@ async def configuration(*arguments):
 
 
 class DiagnosticSessions:
+    snapshot_key = 'buses'
+
     def __init__(self):
         self.current = None
         self.process = None
@@ -117,6 +119,7 @@ class DiagnosticSessions:
                             pending = self.pending_calibrations.get(result['request_id'])
                             if pending and not pending[1].done():
                                 pending[1].set_result({'state': result['state'], 'message': result['message']})
+                if self.snapshot_key in snapshot:
                     session['snapshot'] = snapshot
                 if session['state'] != 'stopping' and snapshot['state'] in ACTIVE_STATES:
                     session['state'] = snapshot['state']

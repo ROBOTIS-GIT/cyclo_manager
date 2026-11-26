@@ -12,11 +12,15 @@ Inside the container:
 ```sh
 source /opt/ros/jazzy/setup.bash
 source /root/ros2_ws/install/setup.bash
-python3 -m cyclo_manager.diagnostics --list-profiles
-python3 -m cyclo_manager.diagnostics --profile w1 --inspect
-python3 -m cyclo_manager.diagnostics --profile w1 --once
-python3 -m cyclo_manager.diagnostics --profile w1 --watch --format ndjson
+python3 -m cyclo_manager.diagnostics robot --list-profiles
+python3 -m cyclo_manager.diagnostics robot --profile w1 --inspect
+python3 -m cyclo_manager.diagnostics robot --profile w1 --once
+python3 -m cyclo_manager.diagnostics robot --profile w1 --watch --format ndjson
 ```
+
+Both workers share the `python3 -m cyclo_manager.diagnostics` entry point. Select
+`robot` or `camera`; use `--help` after either name for its options. The implementations
+live in `diagnostics/robot` and `diagnostics/camera` and run as independent processes.
 
 Use one profile per invocation. `--once` is the default. Ctrl+C stops a watch and
 returns its ports. Override a system's port with
@@ -98,7 +102,7 @@ and [X-series Hardware Error Status table](https://emanual.robotis.com/docs/en/d
 
 Expected boards use an explicit READ allowlist for model IDs 536/600 (SensorXEL
 joystick), 537 (FFW G40 IMU), 601 (FFW G10 LED) and 602 (FFW G10 RCU). The installed
-`cyclo_manager/diagnostics/boards.yaml` lists supported model numbers and permitted
+`cyclo_manager/diagnostics/robot/boards.yaml` lists supported model numbers and permitted
 field names; the installed model table supplies their addresses and sizes. The
 model number must resolve to the configured model name in `dynamixel.model`.
 Invalid or duplicate YAML settings fail startup rather than enabling unintended
@@ -306,3 +310,73 @@ Baud-rate override validation: 26 diagnostic unit tests pass, including CLI vali
 worker argument forwarding, transport configuration, default preservation and shared-port
 conflict rejection. Agent request validation rejects zero, negatives, fractions,
 booleans and string baud values.
+
+## Camera stream check
+
+Select **Camera** beside the Diagnostics title, then **Start check**. This starts
+an independent worker inside the AI Worker container. Robot and camera checks
+have separate Start/Stop controls; switching tabs or opening another browser does
+not stop either check. The existing UI bringup gate applies to both.
+
+At startup the worker discovers RealSense cameras using `pyrealsense2` and ZED
+cameras using `pyzed.sl`, without Xacro, serial YAML, or robot-type assignments.
+Each installed SDK is optional; a discovery error in one backend does not stop
+the other. The backends discover and start cameras concurrently within the worker;
+each camera appears and starts streaming as it becomes ready, without waiting for
+the other backend's discovery. Startup timeouts are measured per camera from its
+discovery, and an empty result is reported only after both searches finish.
+The 15-second startup timeout is also reported on each stream still waiting for
+its first frame; a stream already receiving frames remains available.
+RealSense opens a supported RGB8/BGR8 color profile, preferring small
+profiles near 30 fps and resolving a compatible color + Z16 depth profile pair.
+ZED opens VGA at 30 fps with `DEPTH_MODE.PERFORMANCE` enabled. Both streams are
+received from startup. **Color / Depth** buttons in the video header switch the
+display without reopening the camera. RealSense depth uses the SDK colorizer;
+ZED depth uses `VIEW.DEPTH`. These are colorized depth visualizations, not raw
+distance measurements or a depth accuracy test. Each camera is opened by serial number, with backend-prefixed
+IDs to distinguish devices even if their serial strings match.
+The detected-camera buttons show each camera's name, serial,
+and stream status. The first camera is selected automatically; selecting another
+changes the single large video below. All cameras keep acquiring frames and being
+monitored regardless of selection. The selected camera is sent as a continuous
+MJPEG stream through Agent and Manager at the acquisition rate, rather than as
+one JPEG per second. Status metadata is still polled once per second.
+
+The video header shows **Camera FPS**, estimated from RealSense frame-counter and
+timestamp differences or ZED SDK `get_current_fps()`, and **Received FPS**, counted per selected stream by the diagnostic worker
+using its monotonic clock. Missing camera timing information is shown as a dash.
+The footer shows USB type, resolution, and **Configured FPS**. Camera FPS is an
+estimate based on received frame metadata, not an independent hardware measurement.
+USB, encoding, network, and browser performance can reduce the delivered video rate.
+
+Only camera streams with video viewers are JPEG encoded. The worker and Agent exchange
+only the latest frame in a private temporary directory in `/dev/shm`; slow viewers
+skip older frames instead of building a queue. Per-camera viewer leases expire
+after disconnection, and session termination removes the directory. Switching to
+the Robot tab closes the browser's video connection while acquisition continues.
+
+**Streaming**
+means new color frames are arriving. Five seconds without a new frame produces a
+stream error and removes the preview. Color and depth have separate readings;
+one can still be viewed if the other fails. A camera that fails does not stop the others.
+Stop and restart the check to discover newly connected cameras. Depth accuracy,
+image quality, and ROS topic delivery are outside this check.
+
+Standalone execution inside the container:
+
+```sh
+source /root/ros2_ws/install/setup.bash
+python3 -m cyclo_manager.diagnostics camera
+```
+
+The CLI emits NDJSON until Ctrl+C. It requires `numpy`, `cv2`, and the SDK modules
+for the cameras being used. SDK native stdout is redirected to stderr to keep
+the JSON channel valid. On Jetson, the known missing JPEG hardware-symbol import
+error is handled by loading the existing NVIDIA JPEG library in the worker
+process only; installed SDK files and system library settings are not modified.
+The Agent starts the same module as a subprocess and
+releases its cameras when stopped or when the Agent shuts down. The Manager proxies
+`/diagnostics/cameras/sessions`, `/current`, and `/{id}/stop`; the MJPEG route is
+`/diagnostics/cameras/sessions/{id}/cameras/{camera_id}/stream?view=color` (or `view=depth`). Deploy the updated Cyclo Manager source inside AI
+Worker and restart the Agent to register these new endpoints. Manager and UI also
+need the updated source. No changes to hardware-interface models are needed.

@@ -7,12 +7,12 @@ from queue import Empty, Full, Queue
 import threading
 import time
 
-from cyclo_manager.diagnostics.registers import TEMPERATURES, classify_fields, report_packet_alert, worst_status
-from cyclo_manager.diagnostics.dynamixel_bus import DynamixelBus
-from cyclo_manager.diagnostics.boards import board_registers
-from cyclo_manager.diagnostics.hands import invalidate_hand, is_hand_controller, read_hand
-from cyclo_manager.diagnostics.calibration import CalibrationPortError, calibrate
-from cyclo_manager.diagnostics.multi_turn import clear_multi_turn
+from cyclo_manager.diagnostics.robot.registers import TEMPERATURES, classify_fields, report_packet_alert, worst_status
+from cyclo_manager.diagnostics.robot.dynamixel_bus import DynamixelBus
+from cyclo_manager.diagnostics.robot.boards import board_registers
+from cyclo_manager.diagnostics.robot.hands import invalidate_hand, is_hand_controller, read_hand
+from cyclo_manager.diagnostics.robot.calibration import CalibrationPortError, calibrate
+from cyclo_manager.diagnostics.robot.multi_turn import clear_multi_turn
 
 
 def field_names(table):

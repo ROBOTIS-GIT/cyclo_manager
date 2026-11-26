@@ -82,20 +82,46 @@
 .pageHeader { display: flex; align-items: center; gap: 12px; padding: 12px 0; margin-bottom: 12px; border-bottom: 1px solid var(--border); }
 .eyebrow { font-size: 10px; font-weight: 700; letter-spacing: 1.7px; color: var(--muted); }
 .pageHeader h1 { font-size: 18px; line-height: 28px; font-weight: 600; letter-spacing: normal; margin: 0; }
+.diagnosticTabs { display: flex; gap: 4px; margin-left: 12px; padding: 3px; border-radius: 7px; background: var(--inset); border: 1px solid var(--border); }
+.diagnosticTabs button { padding: 5px 16px; border: 0; border-radius: 4px; background: transparent; color: var(--muted); font-size: 13px; }
+.diagnosticTabs button[aria-selected="true"] { background: var(--switch-selected); color: var(--vscode-foreground); font-weight: 600; }
+.cameraToolbar { display: flex; align-items: center; flex-wrap: wrap; gap: 16px; margin-bottom: 18px; font-size: 13px; }
+.cameraSelection { margin: 0 0 18px; }
+.cameraChoices { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 220px), 1fr)); gap: 10px; }
+.cameraChoices button { display: flex; flex-direction: column; align-items: flex-start; gap: 7px; min-width: 0; padding: 14px 16px; text-align: left; border: 1px solid var(--border); border-radius: 8px; background: var(--card); color: var(--vscode-foreground); }
+.cameraChoices button:hover { background: var(--inset); }
+.cameraChoices button[aria-pressed="true"] { border-color: var(--vscode-button-background); box-shadow: inset 0 0 0 1px var(--vscode-button-background); background: color-mix(in srgb, var(--vscode-button-background) 7%, var(--card)); }
+.cameraChoices strong { font-size: 13px; font-weight: 600; }
+.cameraSerial { font-size: 12px; color: var(--muted); overflow-wrap: anywhere; }
+.cameraCard { border: 1px solid var(--border); border-radius: 10px; background: var(--card); overflow: hidden; min-width: 0; }
+.cameraCard header { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 10px; padding: 14px 16px; font-size: 13px; }
+.cameraStatus { display: flex; gap: 7px; align-items: center; color: var(--status); font-size: 12px; }
+.cameraStatus i { width: 7px; height: 7px; border-radius: 50%; background: var(--status); }
+.cameraStreamStatus { display: flex; align-items: center; flex-wrap: wrap; gap: 10px 16px; }
+.cameraStreamHeading { display: flex; align-items: center; flex-wrap: wrap; gap: 12px; }
+.cameraStreamHeading .viewSwitch { margin-left: 0; }
+.cameraFps { font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.cameraPreview { height: clamp(240px, 50vw, 560px); background: var(--inset); display: flex; justify-content: center; align-items: center; }
+.cameraPreview img { width: 100%; height: 100%; object-fit: contain; }
+.cameraPreview > span { max-width: 100%; padding: 24px; text-align: center; color: var(--muted); font-size: 13px; overflow-wrap: anywhere; }
+.cameraCard footer { display: flex; flex-wrap: wrap; gap: 8px 16px; padding: 13px 16px; color: var(--muted); font-size: 12px; }
+.cameraCard footer b { color: var(--vscode-foreground); font-weight: 400; }
+.cameraEmpty { display: flex; align-items: center; justify-content: center; min-height: 100px; border: 1px dashed var(--border); border-radius: 8px; padding: 20px 24px; text-align: center; background: var(--card); color: var(--muted); font-size: 13px; overflow-wrap: anywhere; }
 .pageHeader p { font-size: 13px; color: var(--muted); }
 .textLink { color: var(--muted); text-decoration: none; font-size: 12px; white-space: nowrap; }
 .textLink:hover { color: var(--accent); }
 .toolbar { margin-bottom: 16px; }
 .modelSelect { display: flex; align-items: center; color: var(--muted); font-size: 11px; }
-.modelSelect select { min-width: 140px; height: 32px; font-size: 13px; font-weight: 400; color: var(--vscode-input-foreground); background: var(--vscode-input-background); border: 1px solid var(--border); border-radius: 4px; padding: 4px 26px 4px 8px; }
+.modelSelect select { min-width: 140px; height: 40px; font-size: 13px; font-weight: 400; color: var(--vscode-input-foreground); background: var(--vscode-input-background); border: 1px solid var(--border); border-radius: 7px; padding: 8px 30px 8px 12px; }
 .runInfo { display: flex; gap: 9px; align-items: center; font-size: 12px; flex: 1; }
 .runInfo small { display: block; color: var(--muted); font-size: 10px; margin-top: 5px; }
 .smallIndicator { width: 7px; height: 7px; border-radius: 50%; background: var(--muted); }
 .smallIndicator[data-live="true"] { background: var(--accent); box-shadow: 0 0 0 4px color-mix(in srgb, var(--accent) 8%, transparent); }
 .toolbarActions { display: flex; gap: 8px; }
 .primaryButton, .stopButton, .secondaryButton { padding: 10px 15px; border-radius: 7px; border: 1px solid var(--border); font-size: 12px !important; font-weight: 600 !important; white-space: nowrap; }
-.primaryButton { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
-.primaryButton:hover:not(:disabled) { background: var(--accent-hover); }
+.primaryButton, .stopButton { height: 40px; padding: 0 16px; }
+.primaryButton { background: var(--vscode-button-background); color: var(--vscode-button-foreground); border-color: transparent; }
+.primaryButton:hover:not(:disabled) { background: var(--vscode-button-hoverBackground); }
 .stopButton { background: color-mix(in srgb, var(--bad) 10%, var(--card)); color: var(--bad); border-color: color-mix(in srgb, var(--bad) 35%, var(--border)); }
 .secondaryButton { background: transparent; }
 .secondaryButton:hover:not(:disabled) { background: var(--vscode-list-hoverBackground); }
@@ -286,7 +312,7 @@
 .settingsToggle { display: inline-flex; align-items: center; gap: 5px; min-height: 32px; border: 0; border-radius: 4px; padding: 5px 8px; background: transparent; color: var(--muted); font-size: 12px !important; }
 .settingsToggle:hover { background: var(--vscode-list-hoverBackground); color: var(--vscode-foreground); }
 .portErrorTitle { margin: 0 0 8px; font-size: 14px; font-weight: 600; }
-.scopeHeader { display: flex; align-items: center; justify-content: flex-start; gap: 10px; flex-wrap: wrap; }
+.scopeHeader { display: flex; align-items: center; justify-content: flex-start; gap: 16px; flex-wrap: wrap; }
 .scopeHeader h2 { font-size: 14px; font-weight: 600; margin: 0; }
 .scopeHeader > span { font-size: 11px; color: var(--muted); }
 .scopeRows { margin: 0; display: grid; gap: 11px; }
@@ -369,9 +395,6 @@
 
 .scopeHeader .modelSelect { width: auto; }
 .scopeHeader .toolbarActions { margin: 0; width: auto; }
-.scopeHeader .primaryButton, .scopeHeader .stopButton, .scopeHeader .secondaryButton { height: 32px; padding: 5px 12px; border-radius: 4px; font-weight: 500 !important; }
-.scopeHeader .primaryButton { background: var(--vscode-button-background); color: var(--vscode-button-foreground); border-color: transparent; }
-.scopeHeader .primaryButton:hover:not(:disabled) { background: var(--vscode-button-hoverBackground); }
 @container (max-width: 500px) {
   .scopeHeader { gap: 8px; }
   .scopeHeader .modelSelect select { min-width: 110px; max-width: 140px; }

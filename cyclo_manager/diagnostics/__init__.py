@@ -1,1 +1,1 @@
-"""DYNAMIXEL diagnostics; no ROS node or web-server dependency."""
+"""Standalone robot and camera diagnostics."""
