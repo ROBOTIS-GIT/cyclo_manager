@@ -1,15 +1,17 @@
 """Proxy diagnostics to the robot agent; never open a serial port here."""
 
+import asyncio
 import json
 from urllib.parse import quote
 from typing import Literal
 
-from fastapi import APIRouter, Depends, HTTPException, WebSocket
+from fastapi import APIRouter, Depends, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.responses import StreamingResponse
 import httpx
 from starlette.background import BackgroundTask
 
 from cyclo_manager.agent.routers.diagnostics import CalibrateTactile, ClearMultiTurn, StartDiagnostic
+from cyclo_manager.agent.diagnostics_process import VIEWER_TIMEOUT_SECONDS
 from cyclo_manager.routers.services import _raise_mapped_service_exception
 from cyclo_manager.routers.websocket_utils import run_until_disconnect, close_observer_error
 from cyclo_manager.state import get_agent_client, get_validated_container
@@ -113,6 +115,45 @@ async def calibrate_tactile(session_id: str, request: CalibrateTactile, containe
 @router.post('/{container}/diagnostics/sessions/{session_id}/clear-multi-turn')
 async def clear_multi_turn(session_id: str, request: ClearMultiTurn, container: str = Depends(get_validated_container)):
     return await request_agent(container, 'POST', f'/sessions/{session_id}/clear-multi-turn', json=request.model_dump())
+
+
+@router.websocket('/ws/{container}/diagnostics/viewer')
+async def viewer(websocket: WebSocket, container: str):
+    await websocket.accept()
+    connected = False
+    client = None
+
+    async def renew():
+        return await client.request_json('POST', '/diagnostics/viewer',
+                                         timeout=httpx.Timeout(2, connect=1))
+
+    try:
+        client = get_agent_client(container)
+        while True:
+            message = await asyncio.wait_for(websocket.receive_text(), VIEWER_TIMEOUT_SECONDS)
+            if message != 'ping':
+                await websocket.close(code=1008)
+                return
+            await renew()
+            if not connected:
+                connected = True
+                await websocket.send_json({'type': 'ready'})
+    except WebSocketDisconnect:
+        if connected:
+            # Start the grace period at a clean disconnect, rather than the last ping.
+            try:
+                await renew()
+            except Exception:
+                pass
+    except asyncio.TimeoutError:
+        await websocket.close(code=1001)
+    except httpx.HTTPStatusError as exc:
+        unsupported = exc.response.status_code in {404, 405, 501}
+        message = ('Update and restart the AI Worker agent: this version does not support diagnostics page connections.'
+                   if unsupported else str(exc))
+        await close_observer_error(websocket, message, 'diagnostics_viewer', not unsupported)
+    except Exception as exc:
+        await close_observer_error(websocket, str(exc), 'diagnostics_viewer', True)
 
 
 @router.websocket('/ws/{container}/diagnostics/{session_id}')

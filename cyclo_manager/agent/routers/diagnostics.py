@@ -6,11 +6,18 @@ from fastapi import APIRouter, HTTPException
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field, StrictInt, field_validator
 
-from cyclo_manager.agent.diagnostics_process import configuration, sessions
+from cyclo_manager.agent.diagnostics_process import configuration, sessions, VIEWER_TIMEOUT_SECONDS
 from cyclo_manager.agent.camera_diagnostics_process import camera_sessions
 from cyclo_manager.diagnostics.robot.profiles import PROFILES
 
 router = APIRouter(prefix='/diagnostics', tags=['diagnostics'])
+
+
+@router.post('/viewer')
+async def keep_viewer_alive():
+    sessions.keep_viewer_alive()
+    camera_sessions.keep_viewer_alive()
+    return dict(timeout=VIEWER_TIMEOUT_SECONDS)
 
 
 @router.post('/cameras/sessions')

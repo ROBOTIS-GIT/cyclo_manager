@@ -7,8 +7,8 @@ import styles from "./diagnostics.module.css";
 
 const errorText = (error: unknown) => error instanceof Error ? error.message : String(error);
 
-export default function CameraDiagnostics({ container, visible, bringupBlocked, checkBringup }: {
-  container: string; visible: boolean; bringupBlocked: string; checkBringup: () => Promise<string>;
+export default function CameraDiagnostics({ container, visible, viewerReady, bringupBlocked, checkBringup }: {
+  container: string; visible: boolean; viewerReady: boolean; bringupBlocked: string; checkBringup: () => Promise<string>;
 }) {
   const [session, setSession] = useState<CameraSession | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -68,9 +68,9 @@ export default function CameraDiagnostics({ container, visible, bringupBlocked, 
 
   return <>
     <div className={styles.cameraToolbar}>
-      <span>Cameras</span>
       <button className={active ? styles.stopButton : styles.primaryButton} onClick={toggle}
-        disabled={busy || session?.state === "stopping" || (!active && !!bringupBlocked)}>
+        title={!active && !viewerReady ? "Waiting for the diagnostics page connection" : undefined}
+        disabled={busy || session?.state === "stopping" || (!active && (!viewerReady || !!bringupBlocked))}>
         {busy ? active ? "Stopping…" : "Connecting…" : active ? "■ Stop check" : "▷ Start check"}
       </button>
     </div>

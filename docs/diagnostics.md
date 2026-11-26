@@ -221,8 +221,13 @@ include the physical port so identical IDs on separate buses stay distinct.
 
 The agent starts the same CLI in a child process, sources
 `CYCLO_DIAGNOSTICS_SETUP` (default `/root/ros2_ws/install/setup.bash`), and retains
-the current session. Closing a browser or restarting the Manager proxy does not
-stop the worker. Reconnecting reads the existing session and subscribes to it.
+the current session. Every open diagnostic page sends a heartbeat once per second
+over `WS /ws/{container}/diagnostics/viewer`. The Manager forwards these heartbeats
+to `POST /diagnostics/viewer` on the Agent. Managed robot and camera checks stop
+when no page heartbeat reaches the Agent for five seconds. A clean page disconnect
+starts a fresh five-second grace period; another browser or a timely reconnect
+keeps both checks running. Robot/Camera tab changes retain the page connection.
+Reconnecting before expiry reads the existing session and subscribes to it.
 Stop explicitly before bringup. Agent shutdown or loss of its parent pipe stops
 the worker. An unresponsive worker is terminated and its session marked failed.
 Agent/container restarts do not automatically restart diagnostics. The current
@@ -238,11 +243,14 @@ Public Manager endpoints:
 - `GET /{container}/diagnostics/sessions/current`
 - `POST /{container}/diagnostics/sessions/{id}/stop`
 - `WS /ws/{container}/diagnostics/{id}` (`ready`, then `snapshot` events)
+- `WS /ws/{container}/diagnostics/viewer` (send `ping` every second; `ready` acknowledges Agent registration)
 
 The agent exposes equivalent HTTP routes without the container prefix and an
-NDJSON `GET /diagnostics/sessions/{id}/stream`. Stream subscribers never own the worker lifetime.
+NDJSON `GET /diagnostics/sessions/{id}/stream`. Result and video subscriptions do
+not renew page presence. API-started checks get an initial five-second connection
+grace period; API clients must also renew `POST /diagnostics/viewer` to retain them.
 Only one managed session runs per container. A direct CLI session is independently
-managed in its terminal; it is not adopted by the UI.
+managed in its terminal; it is not adopted by the UI and has no page timeout.
 
 ## Deployment and checks
 
@@ -316,7 +324,8 @@ booleans and string baud values.
 Select **Camera** beside the Diagnostics title, then **Start check**. This starts
 an independent worker inside the AI Worker container. Robot and camera checks
 have separate Start/Stop controls; switching tabs or opening another browser does
-not stop either check. The existing UI bringup gate applies to both.
+not stop either check. Leaving the final diagnostic page stops both managed checks
+after the five-second page timeout. The existing UI bringup gate applies to both.
 
 At startup the worker discovers RealSense cameras using `pyrealsense2` and ZED
 cameras using `pyzed.sl`, without Xacro, serial YAML, or robot-type assignments.

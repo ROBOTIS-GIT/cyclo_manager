@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import {
-  acceptSession, diagnosticActive, getDiagnosticProfiles,
+  acceptSession, diagnosticActive, getDiagnosticProfiles, maintainDiagnosticViewer,
   calibrateTactile, clearMultiTurn, getDiagnosticSession, inspectDiagnosticProfile, startDiagnostic, stopDiagnostic,
   type DiagnosticConfiguration, type DiagnosticProfile,
   type DiagnosticSession, type TactileCalibration,
@@ -11,7 +11,7 @@ import {
 import { getServiceStatus } from "@/lib/api/services";
 import { getSystemProfile } from "@/config/systemProfiles";
 import { usePolling } from "@/hooks/usePolling";
-import { getWebSocketBaseUrl, maintainWebSocket, parseWebSocketMessage } from "@/lib/websocketUtils";
+import { getWebSocketBaseUrl, maintainWebSocket, parseWebSocketMessage, OBSERVER_CONNECTING } from "@/lib/websocketUtils";
 import RobotMap from "./RobotMap";
 import HandMap from "./HandMap";
 import DeviceDetails from "./DeviceDetails";
@@ -38,6 +38,8 @@ function CalibrationModal({ result, label, action, onClose }: { result: TactileC
 export default function DiagnosticsPage({ container }: { container: string }) {
   const [tab, setTab] = useState<"robot" | "camera">("robot");
   const [cameraVisited, setCameraVisited] = useState(false);
+  const [viewerConnection, setViewerConnection] = useState(OBSERVER_CONNECTING);
+  const viewerReady = viewerConnection.status === "connected";
   const [profiles, setProfiles] = useState<DiagnosticProfile[]>([]);
   const [connectionAttempt, setConnectionAttempt] = useState(0);
   const [profile, setProfile] = useState("w1");
@@ -65,6 +67,11 @@ export default function DiagnosticsPage({ container }: { container: string }) {
   const active = diagnosticActive(session);
   const id = session?.id;
   const supported = container === "ai_worker";
+
+  useEffect(() => {
+    if (!supported) return;
+    return maintainDiagnosticViewer(container, setViewerConnection);
+  }, [container, supported, connectionAttempt]);
 
   const receiveSession = useCallback((next: DiagnosticSession | null) => {
     const previous = latestSession.current;
@@ -293,8 +300,13 @@ export default function DiagnosticsPage({ container }: { container: string }) {
       </div>
     </header>
 
+    {viewerConnection.error && <div className={styles.alert} role="alert">
+      {viewerConnection.error}
+      <button onClick={() => setConnectionAttempt(v => v + 1)}>Reconnect</button>
+    </div>}
+
     <div id="camera-panel" role="tabpanel" aria-labelledby="camera-tab" hidden={tab !== "camera"}>
-      {cameraVisited && <CameraDiagnostics container={container} visible={tab === "camera"} bringupBlocked={bringupBlocked} checkBringup={checkBringup}/>}
+      {cameraVisited && <CameraDiagnostics container={container} visible={tab === "camera"} viewerReady={viewerReady} bringupBlocked={bringupBlocked} checkBringup={checkBringup}/>}
     </div>
     <div id="robot-panel" role="tabpanel" aria-labelledby="robot-tab" hidden={tab !== "robot"}>
     <section className={styles.toolbar} aria-label="Check settings">
@@ -339,7 +351,7 @@ export default function DiagnosticsPage({ container }: { container: string }) {
       } actions={
       <div className={styles.toolbarActions}>
         {active ? <button className={styles.stopButton} onClick={stop} disabled={busy || session?.state === "stopping"}>■ {busy || session?.state === "stopping" ? "Stopping…" : "Stop check"}</button>
-          : <button className={styles.primaryButton} onClick={start} disabled={busy || !!bringupBlocked || !preview || preview.profile !== profile}>▷ {busy ? "Connecting…" : "Start check"}</button>}
+          : <button className={styles.primaryButton} onClick={start} title={!viewerReady ? "Waiting for the diagnostics page connection" : undefined} disabled={busy || !viewerReady || !!bringupBlocked || !preview || preview.profile !== profile}>▷ {busy ? "Connecting…" : "Start check"}</button>}
       </div>
       }/>
     </section>

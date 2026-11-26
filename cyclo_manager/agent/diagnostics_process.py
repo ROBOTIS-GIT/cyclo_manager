@@ -1,4 +1,4 @@
-"""Run the standalone worker in the robot container, independent of viewers."""
+"""Run diagnostic workers and stop managed checks when their page is unattended."""
 
 import asyncio
 from collections import deque
@@ -15,6 +15,7 @@ from cyclo_manager.diagnostics.robot.multi_turn import y_motor_target
 
 
 ACTIVE_STATES = {'starting', 'running', 'stopping'}
+VIEWER_TIMEOUT_SECONDS = 5
 
 
 def worker_command(*arguments, check='robot'):
@@ -70,6 +71,25 @@ class DiagnosticSessions:
         self.lock = asyncio.Lock()
         self.changed = asyncio.Event()
         self.pending_calibrations = {}
+        self.viewer_deadline = 0.0
+        self.viewer_task = None
+
+    def keep_viewer_alive(self):
+        self.viewer_deadline = time.monotonic() + VIEWER_TIMEOUT_SECONDS
+
+    def watch_viewers(self):
+        self.keep_viewer_alive()
+        if self.viewer_task:
+            self.viewer_task.cancel()
+        self.viewer_task = asyncio.create_task(self._watch_viewers(self.current))
+
+    async def _watch_viewers(self, session):
+        while self.current is session and session['state'] in ACTIVE_STATES:
+            remaining = self.viewer_deadline - time.monotonic()
+            if remaining <= 0:
+                await self.stop(session['id'], unattended=True)
+            else:
+                await asyncio.sleep(min(remaining, 1))
 
     def notify(self):
         self.current['revision'] = self.current.get('revision', 0) + 1
@@ -95,6 +115,7 @@ class DiagnosticSessions:
                 error=None, stderr=[], revision=0)
             self.notify()
             self.task = asyncio.create_task(self._consume(self.process, self.current))
+            self.watch_viewers()
             return self.current
 
     async def _consume(self, process, session):
@@ -199,10 +220,12 @@ class DiagnosticSessions:
                 pass
         return await asyncio.shield(future)
 
-    async def stop(self, session_id=None):
+    async def stop(self, session_id=None, *, unattended=False):
         async with self.lock:
             if not self.current or (session_id and self.current['id'] != session_id):
                 raise LookupError('Diagnostic session not found')
+            if unattended and time.monotonic() < self.viewer_deadline:
+                return self.current
             if self.current['state'] in ACTIVE_STATES:
                 self.current['state'] = 'stopping'
                 self.notify()
@@ -213,6 +236,9 @@ class DiagnosticSessions:
     async def close(self):
         if self.current:
             await self.stop()
+        if self.viewer_task:
+            self.viewer_task.cancel()
+            await asyncio.gather(self.viewer_task, return_exceptions=True)
 
     async def stream(self, session_id):
         session = self.current

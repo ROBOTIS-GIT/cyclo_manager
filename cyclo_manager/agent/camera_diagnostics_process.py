@@ -40,6 +40,7 @@ class CameraSessions(DiagnosticSessions):
                                 snapshot=None, error=None, stderr=[], revision=0)
             self.notify()
             self.task = asyncio.create_task(self._consume(self.process, self.current))
+            self.watch_viewers()
             return self.current
 
     async def _consume(self, process, session):

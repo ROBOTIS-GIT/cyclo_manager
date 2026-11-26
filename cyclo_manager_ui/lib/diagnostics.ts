@@ -1,4 +1,18 @@
 import { request } from "@/lib/api/client";
+import { getWebSocketBaseUrl, maintainWebSocket, type ObserverConnectionState } from "@/lib/websocketUtils";
+
+export function maintainDiagnosticViewer(container: string, onState: (state: ObserverConnectionState) => void) {
+  return maintainWebSocket(() => {
+    const socket = new WebSocket(`${getWebSocketBaseUrl()}/ws/${encodeURIComponent(container)}/diagnostics/viewer`);
+    let timer: ReturnType<typeof setInterval> | undefined;
+    socket.onopen = () => {
+      socket.send("ping");
+      timer = setInterval(() => { if (socket.readyState === WebSocket.OPEN) socket.send("ping"); }, 1000);
+    };
+    socket.onclose = () => clearInterval(timer);
+    return socket;
+  }, { onState });
+}
 
 export type Measurement = {
   value: number | null; raw: number | null; unit: string; last_success: number | null;
