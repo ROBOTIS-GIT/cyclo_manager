@@ -18,10 +18,11 @@ import DeviceDetails from "./DeviceDetails";
 import InspectionScope from "./InspectionScope";
 import ConnectionDevices from "./ConnectionDevices";
 import CameraDiagnostics from "./CameraDiagnostics";
-import { canCalibrateTactile, handGroupsFor, handStatus, type HandSide, communicationOrder, inspectionCounts, deviceLocation, deviceStatus, entriesFor, handEntriesFor, FRESHNESS_SECONDS, groupLabel, statusLabel, statusSymbol, type Freshness } from "./diagnosticView";
+import { canCalibrateTactile, handGroupsFor, handStatus, type HandSide, communicationOrder, inspectionCounts, deviceLocation, deviceListGroup, deviceStatus, entriesFor, handEntriesFor, FRESHNESS_SECONDS, groupLabel, statusLabel, statusSymbol, type Freshness } from "./diagnosticView";
 import styles from "./diagnostics.module.css";
 
 const errorText = (error: unknown) => error instanceof Error ? error.message : String(error);
+const listGroupLabels = { right: groupLabel.right, right_hand: "Right hand", left: groupLabel.left, left_hand: "Left hand", head: groupLabel.head, lift: groupLabel.lift, base: groupLabel.base, sensor: groupLabel.sensor, other: groupLabel.other };
 
 function CalibrationModal({ result, label, action, onClose }: { result: TactileCalibration; label: string; action: string; onClose: () => void }) {
   const dialog = useRef<HTMLDialogElement>(null);
@@ -246,8 +247,9 @@ export default function DiagnosticsPage({ container }: { container: string }) {
     : failed ? "Check failed" : "Not started";
   const visibleEntries = entries.filter(entry => {
     const location = deviceLocation(entry.device);
-    const matchesFilter = filter === "all" || (filter === "attention" ? attention.includes(entry) : location.group === filter);
-    const text = `${location.label} ${entry.device.id} ${entry.device.name} ${entry.device.model_name ?? ""} ${entry.bus.port}`.toLowerCase();
+    const group = deviceListGroup(entry);
+    const matchesFilter = filter === "all" || (filter === "attention" ? attention.includes(entry) : group === filter);
+    const text = `${listGroupLabels[group as keyof typeof listGroupLabels] ?? ""} ${location.label} ${entry.device.id} ${entry.device.name} ${entry.device.model_name ?? ""} ${entry.bus.port}`.toLowerCase();
     return matchesFilter && text.includes(query.toLowerCase());
   });
   function selectDevice(key: string) {
@@ -379,10 +381,10 @@ export default function DiagnosticsPage({ container }: { container: string }) {
           : <div className={styles.listView}>
             <div className={styles.listTools}><input aria-label="Search devices" placeholder="Search by name, ID, or model" value={query} onChange={e => setQuery(e.target.value)}/>
               <select aria-label="Filter devices" value={filter} onChange={e => setFilter(e.target.value)}><option value="all">All devices ({entries.length})</option><option value="attention">Needs attention ({attention.length})</option>
-                {Object.entries(groupLabel).filter(([group]) => entries.some(e => deviceLocation(e.device).group === group)).map(([group, label]) => <option value={group} key={group}>{label}</option>)}
+                {Object.entries(listGroupLabels).filter(([group]) => entries.some(e => deviceListGroup(e) === group)).map(([group, label]) => <option value={group} key={group}>{label}</option>)}
               </select></div>
-            <div className={styles.deviceList}>{Object.entries(groupLabel).map(([group, label]) => {
-              const devices = visibleEntries.filter(entry => deviceLocation(entry.device).group === group)
+            <div className={styles.deviceList}>{Object.entries(listGroupLabels).map(([group, label]) => {
+              const devices = visibleEntries.filter(entry => deviceListGroup(entry) === group)
                 .sort((a, b) => a.device.id - b.device.id);
               if (!devices.length) return null;
               return <section className={styles.deviceGroup} key={group} aria-label={label}>

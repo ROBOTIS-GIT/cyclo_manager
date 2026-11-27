@@ -199,6 +199,17 @@ function isHandController(device: DiagnosticDevice) {
   return device.kind === "controller" && [device.name, ...(device.aliases ?? []).map(alias => alias.split("/").at(-1) ?? "")]
     .some(name => name === "hand_l_controller" || name === "hand_r_controller");
 }
+export function deviceListGroup({ device, bus }: DeviceEntry) {
+  if (!device.expected) return deviceLocation(device).group;
+  const controller = device.comm_id === undefined ? device
+    : bus.devices.find(parent => parent.id === device.comm_id && parent.expected && isHandController(parent));
+  if (controller && isHandController(controller)) {
+    const names = [controller.name, ...(controller.aliases ?? []).map(alias => alias.split("/").at(-1) ?? "")];
+    if (names.includes("hand_r_controller")) return "right_hand";
+    if (names.includes("hand_l_controller")) return "left_hand";
+  }
+  return deviceLocation(device).group;
+}
 export function handEntriesFor(buses: DiagnosticBus[] = []): DeviceEntry[] {
   return buses.flatMap(bus => bus.devices.flatMap(parent => {
     // Hand controllers are the controllers configured with SyncTable mappings.
